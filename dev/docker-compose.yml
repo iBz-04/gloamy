@@ -1,0 +1,72 @@
+# Development Environment for Gloamy Agentic Testing
+#
+# Use this for:
+# - Running the agent in a sandboxed environment
+# - Testing dangerous commands safely
+# - Developing new skills/integrations
+#
+# Usage:
+#   cd dev && ./cli.sh up
+#   or from root: ./dev/cli.sh up
+name: gloamy-dev
+services:
+  # ── The Agent (Development Image) ──
+  # Builds from source using the 'dev' stage of the root Dockerfile
+  gloamy-dev:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+      target: dev
+    container_name: gloamy-dev
+    restart: unless-stopped
+    environment:
+      - GLOAMY_GATEWAY_PORT=42617
+      - SANDBOX_HOST=gloamy-sandbox
+    secrets:
+      - source: gloamy_env
+        target: gloamy_env
+    entrypoint: ["/bin/bash", "-lc"]
+    command:
+      - |
+        if [ -f /run/secrets/gloamy_env ]; then
+          set -a
+          . /run/secrets/gloamy_env
+          set +a
+        fi
+        exec gloamy gateway --port "${GLOAMY_GATEWAY_PORT:-42617}" --host "[::]"
+    volumes:
+      # Mount single config file (avoids shadowing other files in .gloamy)
+      - ../target/.gloamy/config.toml:/gloamy-data/.gloamy/config.toml
+      # Mount shared workspace
+      - ../playground:/gloamy-data/workspace
+    ports:
+      - "127.0.0.1:42617:42617"
+    networks:
+      - dev-net
+
+  # ── The Sandbox (Ubuntu Environment) ──
+  # A fully loaded Ubuntu environment for the agent to play in.
+  sandbox:
+    build:
+      context: sandbox # Context relative to dev/
+      dockerfile: Dockerfile
+    container_name: gloamy-sandbox
+    hostname: dev-box
+    command: ["tail", "-f", "/dev/null"]
+    working_dir: /home/developer/workspace
+    user: developer
+    environment:
+      - TERM=xterm-256color
+      - SHELL=/bin/bash
+    volumes:
+      - ../playground:/home/developer/workspace # Mount local playground
+    networks:
+      - dev-net
+
+networks:
+  dev-net:
+    driver: bridge
+
+secrets:
+  gloamy_env:
+    file: ../.env

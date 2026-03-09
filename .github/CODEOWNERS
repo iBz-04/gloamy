@@ -1,0 +1,32 @@
+# Default owner for all files
+* @jordanthejet
+
+# Important functional modules
+/src/agent/** @theonlyhennygod
+/src/providers/** @theonlyhennygod
+/src/channels/** @theonlyhennygod
+/src/tools/** @theonlyhennygod
+/src/gateway/** @theonlyhennygod
+/src/runtime/** @theonlyhennygod
+/src/memory/** @theonlyhennygod
+/Cargo.toml @theonlyhennygod
+/Cargo.lock @theonlyhennygod
+
+# Security / tests / CI-CD ownership
+/src/security/** @jordanthejet
+/tests/** @jordanthejet
+/.github/** @jordanthejet
+/.github/workflows/** @jordanthejet
+/.github/codeql/** @jordanthejet
+/.github/dependabot.yml @jordanthejet
+/SECURITY.md @jordanthejet
+/docs/actions-source-policy.md @jordanthejet
+/docs/ci-map.md @jordanthejet
+
+# Docs & governance
+/docs/** @jordanthejet
+/AGENTS.md @jordanthejet
+/CLAUDE.md @jordanthejet
+/CONTRIBUTING.md @jordanthejet
+/docs/pr-workflow.md @jordanthejet
+/docs/reviewer-playbook.md @jordanthejet
