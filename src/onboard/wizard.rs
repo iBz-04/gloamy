@@ -43,12 +43,12 @@ pub struct ProjectContext {
 const BANNER: &str = r"
     ⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡
 
-    ███████╗███████╗██████╗  ██████╗  ██████╗██╗      █████╗ ██╗    ██╗
-    ╚══███╔╝██╔════╝██╔══██╗██╔═══██╗██╔════╝██║     ██╔══██╗██║    ██║
-      ███╔╝ █████╗  ██████╔╝██║   ██║██║     ██║     ███████║██║ █╗ ██║
-     ███╔╝  ██╔══╝  ██╔══██╗██║   ██║██║     ██║     ██╔══██║██║███╗██║
-    ███████╗███████╗██║  ██║╚██████╔╝╚██████╗███████╗██║  ██║╚███╔███╔╝
-    ╚══════╝╚══════╝╚═╝  ╚═╝ ╚═════╝  ╚═════╝╚══════╝╚═╝  ╚═╝ ╚══╝╚══╝
+    ██████╗ ██╗      ██████╗  █████╗ ███╗   ███╗██╗   ██╗
+   ██╔════╝ ██║     ██╔═══██╗██╔══██╗████╗ ████║╚██╗ ██╔╝
+   ██║  ███╗██║     ██║   ██║███████║██╔████╔██║ ╚████╔╝
+   ██║   ██║██║     ██║   ██║██╔══██║██║╚██╔╝██║  ╚██╔╝
+   ╚██████╔╝███████╗╚██████╔╝██║  ██║██║ ╚═╝ ██║   ██║
+    ╚═════╝ ╚══════╝ ╚═════╝ ╚═╝  ╚═╝╚═╝     ╚═╝   ╚═╝
 
     Zero overhead. Zero compromise. 100% Rust. 100% Agnostic.
 
@@ -74,7 +74,7 @@ enum InteractiveOnboardingMode {
 }
 
 pub async fn run_wizard(force: bool) -> Result<Config> {
-    println!("{}", style(BANNER).cyan().bold());
+    println!("{}", style(BANNER).red().bold());
 
     println!(
         "  {}",
@@ -219,7 +219,7 @@ pub async fn run_wizard(force: bool) -> Result<Config> {
 
 /// Interactive repair flow: rerun channel setup only without redoing full onboarding.
 pub async fn run_channels_repair_wizard() -> Result<Config> {
-    println!("{}", style(BANNER).cyan().bold());
+    println!("{}", style(BANNER).red().bold());
     println!(
         "  {}",
         style("Channels Repair — update channel tokens and allowlists only")
@@ -446,7 +446,7 @@ async fn run_quick_setup_with_home(
     force: bool,
     home: &Path,
 ) -> Result<Config> {
-    println!("{}", style(BANNER).cyan().bold());
+    println!("{}", style(BANNER).red().bold());
     println!(
         "  {}",
         style("Quick Setup — generating config with sensible defaults...")
