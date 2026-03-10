@@ -117,7 +117,7 @@ enum EstopLevelArg {
     ToolFreeze,
 }
 
-/// `Gloamy` - Zero overhead. Zero compromise. 100% Rust.
+
 #[derive(Parser, Debug)]
 #[command(name = "gloamy")]
 #[command(author = "theonlyhennygod")]
@@ -196,7 +196,7 @@ Examples:
         peripheral: Vec<String>,
     },
 
-    /// Start the gateway server (webhooks, websockets)
+    /// Start the gateway server 
     #[command(long_about = "\
 Start the gateway server (webhooks, websockets).
 
