@@ -285,7 +285,7 @@ impl Agent {
             config,
         );
 
-        let provider_name = config.default_provider.as_deref().unwrap_or("openrouter");
+        let provider_name = config.default_provider.as_deref().unwrap_or("openai");
 
         let model_name = config
             .default_model
@@ -618,7 +618,7 @@ pub async fn run(
     let provider_name = effective_config
         .default_provider
         .as_deref()
-        .unwrap_or("openrouter")
+        .unwrap_or("openai")
         .to_string();
     let model_name = effective_config
         .default_model

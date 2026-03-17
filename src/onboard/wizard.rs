@@ -50,7 +50,7 @@ const BANNER: &str = r"
    ╚██████╔╝███████╗╚██████╔╝██║  ██║██║ ╚═╝ ██║   ██║
     ╚═════╝ ╚══════╝ ╚═════╝ ╚═╝  ╚═╝╚═╝     ╚═╝   ╚═╝
 
-    Zero overhead. Zero compromise. 100% Rust. 100% Agnostic.
+   
 
     ⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡
 ";
@@ -74,14 +74,9 @@ enum InteractiveOnboardingMode {
 }
 
 pub async fn run_wizard(force: bool) -> Result<Config> {
-    println!("{}", style(BANNER).red().bold());
+    println!("{}", style(BANNER).cyan().bold());
 
-    println!(
-        "  {}",
-        style("Welcome to Gloamy — the fastest, smallest AI assistant.")
-            .white()
-            .bold()
-    );
+    println!("  {}", style("Gloamy says hii!").white().bold());
     println!(
         "  {}",
         style("This wizard will configure your agent in under 60 seconds.").dim()
@@ -219,7 +214,7 @@ pub async fn run_wizard(force: bool) -> Result<Config> {
 
 /// Interactive repair flow: rerun channel setup only without redoing full onboarding.
 pub async fn run_channels_repair_wizard() -> Result<Config> {
-    println!("{}", style(BANNER).red().bold());
+    println!("{}", style(BANNER).cyan().bold());
     println!(
         "  {}",
         style("Channels Repair — update channel tokens and allowlists only")
@@ -351,7 +346,7 @@ fn apply_provider_update(
 // ── Quick setup (zero prompts) ───────────────────────────────────
 
 /// Non-interactive setup: generates a sensible default config instantly.
-/// Use `gloamy onboard` or `gloamy onboard --api-key sk-... --provider openrouter --memory sqlite|lucid`.
+/// Use `gloamy onboard` or `gloamy onboard --api-key sk-... --provider openai --memory sqlite|lucid`.
 /// Use `gloamy onboard --interactive` for the full wizard.
 fn backend_key_from_choice(choice: usize) -> &'static str {
     selectable_memory_backends()
@@ -446,7 +441,7 @@ async fn run_quick_setup_with_home(
     force: bool,
     home: &Path,
 ) -> Result<Config> {
-    println!("{}", style(BANNER).red().bold());
+    println!("{}", style(BANNER).cyan().bold());
     println!(
         "  {}",
         style("Quick Setup — generating config with sensible defaults...")
@@ -463,7 +458,7 @@ async fn run_quick_setup_with_home(
         .await
         .context("Failed to create workspace directory")?;
 
-    let provider_name = provider.unwrap_or("openrouter").to_string();
+    let provider_name = provider.unwrap_or("openai").to_string();
     let model = model_override
         .map(str::to_string)
         .unwrap_or_else(|| default_model_for_provider(&provider_name));
@@ -690,7 +685,7 @@ const MINIMAX_ONBOARD_MODELS: [(&str, &str); 5] = [
 fn default_model_for_provider(provider: &str) -> String {
     match canonical_provider_name(provider) {
         "anthropic" => "claude-sonnet-4-5-20250929".into(),
-        "openai" => "gpt-5.2".into(),
+        "openai" => "gpt-5-mini".into(),
         "openai-codex" => "gpt-5-codex".into(),
         "venice" => "zai-org-glm-5".into(),
         "groq" => "llama-3.3-70b-versatile".into(),
@@ -1546,6 +1541,22 @@ fn fetch_live_models_for_provider(
     Ok(models)
 }
 
+async fn fetch_live_models_for_provider_async(
+    provider_name: &str,
+    api_key: &str,
+    provider_api_url: Option<&str>,
+) -> Result<Vec<String>> {
+    let provider_name = provider_name.to_string();
+    let api_key = api_key.to_string();
+    let provider_api_url = provider_api_url.map(str::to_string);
+
+    tokio::task::spawn_blocking(move || {
+        fetch_live_models_for_provider(&provider_name, &api_key, provider_api_url.as_deref())
+    })
+    .await
+    .context("model fetch task join error")?
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct ModelCacheEntry {
     provider: String,
@@ -1727,7 +1738,7 @@ pub async fn run_models_refresh(
 ) -> Result<()> {
     let provider_name = provider_override
         .or(config.default_provider.as_deref())
-        .unwrap_or("openrouter")
+        .unwrap_or("openai")
         .trim()
         .to_string();
 
@@ -1764,7 +1775,9 @@ pub async fn run_models_refresh(
 
     let api_key = config.api_key.clone().unwrap_or_default();
 
-    match fetch_live_models_for_provider(&provider_name, &api_key, config.api_url.as_deref()) {
+    match fetch_live_models_for_provider_async(&provider_name, &api_key, config.api_url.as_deref())
+        .await
+    {
         Ok(models) if !models.is_empty() => {
             cache_live_models_for_provider(&config.workspace_dir, &provider_name, &models).await?;
             println!(
@@ -1811,7 +1824,7 @@ pub async fn run_models_refresh(
 pub async fn run_models_list(config: &Config, provider_override: Option<&str>) -> Result<()> {
     let provider_name = provider_override
         .or(config.default_provider.as_deref())
-        .unwrap_or("openrouter");
+        .unwrap_or("openai");
 
     let cached = load_any_cached_models_for_provider(&config.workspace_dir, provider_name).await?;
 
@@ -1861,7 +1874,7 @@ pub async fn run_models_set(config: &Config, model: &str) -> Result<()> {
 }
 
 pub async fn run_models_status(config: &Config) -> Result<()> {
-    let provider = config.default_provider.as_deref().unwrap_or("openrouter");
+    let provider = config.default_provider.as_deref().unwrap_or("openai");
     let model = config.default_model.as_deref().unwrap_or("(not set)");
 
     println!();
@@ -2112,7 +2125,7 @@ async fn setup_workspace() -> Result<(PathBuf, PathBuf)> {
 async fn setup_provider(workspace_dir: &Path) -> Result<(String, String, String, Option<String>)> {
     // ── Tier selection ──
     let tiers = vec![
-        "⭐ Recommended (OpenRouter, Venice, Anthropic, OpenAI, Gemini)",
+        "⭐ Recommended (OpenAI, Anthropic, OpenRouter, Venice, Gemini)",
         "⚡ Fast inference (Groq, Fireworks, Together AI, NVIDIA NIM)",
         "🌐 Gateway / proxy (Vercel AI, Cloudflare AI, Amazon Bedrock)",
         "🔬 Specialized (Moonshot/Kimi, GLM/Zhipu, MiniMax, Qwen/DashScope, Qianfan, Z.AI, Synthetic, OpenCode Zen, Cohere)",
@@ -2128,13 +2141,10 @@ async fn setup_provider(workspace_dir: &Path) -> Result<(String, String, String,
 
     let providers: Vec<(&str, &str)> = match tier_idx {
         0 => vec![
-            (
-                "openrouter",
-                "OpenRouter — 200+ models, 1 API key (recommended)",
-            ),
-            ("venice", "Venice AI — privacy-first (Llama, Opus)"),
+            ("openai", "OpenAI — GPT-4o, o1, GPT-5 (recommended default)"),
             ("anthropic", "Anthropic — Claude Sonnet & Opus (direct)"),
-            ("openai", "OpenAI — GPT-4o, o1, GPT-5 (direct)"),
+            ("openrouter", "OpenRouter — 200+ models, 1 API key"),
+            ("venice", "Venice AI — privacy-first (Llama, Opus)"),
             (
                 "openai-codex",
                 "OpenAI Codex (ChatGPT subscription OAuth, no API key)",
@@ -2696,11 +2706,13 @@ async fn setup_provider(workspace_dir: &Path) -> Result<(String, String, String,
                 .interact()?;
 
             if should_fetch_now {
-                match fetch_live_models_for_provider(
+                match fetch_live_models_for_provider_async(
                     provider_name,
                     &api_key,
                     provider_api_url.as_deref(),
-                ) {
+                )
+                .await
+                {
                     Ok(live_model_ids) if !live_model_ids.is_empty() => {
                         cache_live_models_for_provider(
                             workspace_dir,
@@ -5516,7 +5528,7 @@ fn print_summary(config: &Config) {
     println!(
         "    {} Provider:      {}",
         style("🤖").cyan(),
-        config.default_provider.as_deref().unwrap_or("openrouter")
+        config.default_provider.as_deref().unwrap_or("openai")
     );
     println!(
         "    {} Model:         {}",
@@ -5636,7 +5648,7 @@ fn print_summary(config: &Config) {
 
     let mut step = 1u8;
 
-    let provider = config.default_provider.as_deref().unwrap_or("openrouter");
+    let provider = config.default_provider.as_deref().unwrap_or("openai");
     if config.api_key.is_none() && !provider_supports_keyless_local_usage(provider) {
         if provider == "openai-codex" {
             println!(
@@ -5658,10 +5670,8 @@ fn print_summary(config: &Config) {
             );
             println!(
                 "       {}",
-                style(
-                    "or: gloamy auth paste-token --provider anthropic --auth-kind authorization"
-                )
-                .yellow()
+                style("or: gloamy auth paste-token --provider anthropic --auth-kind authorization")
+                    .yellow()
             );
         } else {
             let env_var = provider_env_var(provider);
@@ -5837,7 +5847,7 @@ mod tests {
 
         let config = run_quick_setup_with_home(
             Some("sk-issue946"),
-            Some("openrouter"),
+            Some("openai"),
             Some("custom-model-946"),
             Some("sqlite"),
             false,
@@ -5846,12 +5856,12 @@ mod tests {
         .await
         .unwrap();
 
-        assert_eq!(config.default_provider.as_deref(), Some("openrouter"));
+        assert_eq!(config.default_provider.as_deref(), Some("openai"));
         assert_eq!(config.default_model.as_deref(), Some("custom-model-946"));
         assert_eq!(config.api_key.as_deref(), Some("sk-issue946"));
 
         let config_raw = tokio::fs::read_to_string(config.config_path).await.unwrap();
-        assert!(config_raw.contains("default_provider = \"openrouter\""));
+        assert!(config_raw.contains("default_provider = \"openai\""));
         assert!(config_raw.contains("default_model = \"custom-model-946\""));
     }
 
@@ -5888,13 +5898,13 @@ mod tests {
         let config_path = gloamy_dir.join("config.toml");
 
         tokio::fs::create_dir_all(&gloamy_dir).await.unwrap();
-        tokio::fs::write(&config_path, "default_provider = \"openrouter\"\n")
+        tokio::fs::write(&config_path, "default_provider = \"openai\"\n")
             .await
             .unwrap();
 
         let err = run_quick_setup_with_home(
             Some("sk-existing"),
-            Some("openrouter"),
+            Some("openai"),
             Some("custom-model"),
             Some("sqlite"),
             false,
@@ -5927,7 +5937,7 @@ mod tests {
 
         let config = run_quick_setup_with_home(
             Some("sk-force"),
-            Some("openrouter"),
+            Some("openai"),
             Some("custom-model-fresh"),
             Some("sqlite"),
             true,
@@ -5936,12 +5946,12 @@ mod tests {
         .await
         .expect("quick setup should overwrite existing config with --force");
 
-        assert_eq!(config.default_provider.as_deref(), Some("openrouter"));
+        assert_eq!(config.default_provider.as_deref(), Some("openai"));
         assert_eq!(config.default_model.as_deref(), Some("custom-model-fresh"));
         assert_eq!(config.api_key.as_deref(), Some("sk-force"));
 
         let config_raw = tokio::fs::read_to_string(config.config_path).await.unwrap();
-        assert!(config_raw.contains("default_provider = \"openrouter\""));
+        assert!(config_raw.contains("default_provider = \"openai\""));
         assert!(config_raw.contains("default_model = \"custom-model-fresh\""));
     }
 
@@ -5953,15 +5963,13 @@ mod tests {
         let workspace_dir = workspace_root.join("workspace");
         let expected_config_path = workspace_root.join(".gloamy").join("config.toml");
 
-        let _workspace_env = EnvVarGuard::set(
-            "GLOAMY_WORKSPACE",
-            workspace_dir.to_string_lossy().as_ref(),
-        );
+        let _workspace_env =
+            EnvVarGuard::set("GLOAMY_WORKSPACE", workspace_dir.to_string_lossy().as_ref());
         let _config_env = EnvVarGuard::unset("GLOAMY_CONFIG_DIR");
 
         let config = run_quick_setup_with_home(
             Some("sk-env"),
-            Some("openrouter"),
+            Some("openai"),
             Some("model-env"),
             Some("sqlite"),
             false,
@@ -6446,7 +6454,7 @@ mod tests {
             default_model_for_provider("openrouter"),
             "anthropic/claude-sonnet-4.6"
         );
-        assert_eq!(default_model_for_provider("openai"), "gpt-5.2");
+        assert_eq!(default_model_for_provider("openai"), "gpt-5-mini");
         assert_eq!(default_model_for_provider("openai-codex"), "gpt-5-codex");
         assert_eq!(
             default_model_for_provider("anthropic"),

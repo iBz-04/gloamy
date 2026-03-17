@@ -74,10 +74,10 @@ pub struct Config {
     pub api_key: Option<String>,
     /// Base URL override for provider API (e.g. "http://10.0.0.1:11434" for remote Ollama)
     pub api_url: Option<String>,
-    /// Default provider ID or alias (e.g. `"openrouter"`, `"ollama"`, `"anthropic"`). Default: `"openrouter"`.
+    /// Default provider ID or alias (e.g. `"openai"`, `"openrouter"`, `"anthropic"`). Default: `"openai"`.
     #[serde(alias = "model_provider")]
     pub default_provider: Option<String>,
-    /// Default model routed through the selected provider (e.g. `"anthropic/claude-sonnet-4-6"`).
+    /// Default model routed through the selected provider (e.g. `"gpt-5-mini"`).
     #[serde(alias = "model")]
     pub default_model: Option<String>,
     /// Optional named provider profiles keyed by id (Codex app-server compatible layout).
@@ -2306,7 +2306,7 @@ impl Default for SchedulerConfig {
 /// ```toml
 /// [[model_routes]]
 /// hint = "reasoning"
-/// provider = "openrouter"
+/// provider = "openai"
 /// model = "anthropic/claude-opus-4-20250514"
 ///
 /// [[model_routes]]
@@ -3595,8 +3595,8 @@ impl Default for Config {
             config_path: gloamy_dir.join("config.toml"),
             api_key: None,
             api_url: None,
-            default_provider: Some("openrouter".to_string()),
-            default_model: Some("anthropic/claude-sonnet-4.6".to_string()),
+            default_provider: Some("openai".to_string()),
+            default_model: Some("gpt-5-mini".to_string()),
             model_providers: HashMap::new(),
             default_temperature: 0.7,
             observability: ObservabilityConfig::default(),
@@ -3791,9 +3791,7 @@ pub(crate) fn resolve_config_dir_for_workspace(workspace_dir: &Path) -> (PathBuf
         );
     }
 
-    let legacy_config_dir = workspace_dir
-        .parent()
-        .map(|parent| parent.join(".gloamy"));
+    let legacy_config_dir = workspace_dir.parent().map(|parent| parent.join(".gloamy"));
     if let Some(legacy_dir) = legacy_config_dir {
         if legacy_dir.join("config.toml").exists() {
             return (legacy_dir, workspace_config_dir);
@@ -4435,10 +4433,23 @@ impl Config {
         } else if let Ok(provider) = std::env::var("PROVIDER") {
             let should_apply_legacy_provider =
                 self.default_provider.as_deref().map_or(true, |configured| {
-                    configured.trim().eq_ignore_ascii_case("openrouter")
+                    configured.trim().eq_ignore_ascii_case("openai")
                 });
             if should_apply_legacy_provider && !provider.is_empty() {
                 self.default_provider = Some(provider);
+            }
+        }
+
+        // API Key: OPENROUTER_API_KEY overrides when provider is OpenRouter.
+        if self
+            .default_provider
+            .as_deref()
+            .is_some_and(|provider| provider.trim().eq_ignore_ascii_case("openrouter"))
+        {
+            if let Ok(key) = std::env::var("OPENROUTER_API_KEY") {
+                if !key.is_empty() {
+                    self.api_key = Some(key);
+                }
             }
         }
 
@@ -4505,8 +4516,7 @@ impl Config {
         }
 
         // Gateway host: GLOAMY_GATEWAY_HOST or HOST
-        if let Ok(host) = std::env::var("GLOAMY_GATEWAY_HOST").or_else(|_| std::env::var("HOST"))
-        {
+        if let Ok(host) = std::env::var("GLOAMY_GATEWAY_HOST").or_else(|_| std::env::var("HOST")) {
             if !host.is_empty() {
                 self.gateway.host = host;
             }
@@ -4862,8 +4872,8 @@ mod tests {
     #[test]
     async fn config_default_has_sane_values() {
         let c = Config::default();
-        assert_eq!(c.default_provider.as_deref(), Some("openrouter"));
-        assert!(c.default_model.as_deref().unwrap().contains("claude"));
+        assert_eq!(c.default_provider.as_deref(), Some("openai"));
+        assert_eq!(c.default_model.as_deref(), Some("gpt-5-mini"));
         assert!((c.default_temperature - 0.7).abs() < f64::EPSILON);
         assert!(c.api_key.is_none());
         assert!(!c.skills.open_skills_enabled);
@@ -5071,7 +5081,7 @@ default_temperature = 0.7
             config_path: PathBuf::from("/tmp/test/config.toml"),
             api_key: Some("sk-test-key".into()),
             api_url: None,
-            default_provider: Some("openrouter".into()),
+            default_provider: Some("openai".into()),
             default_model: Some("gpt-4o".into()),
             model_providers: HashMap::new(),
             default_temperature: 0.5,
@@ -5309,7 +5319,7 @@ tool_dispatcher = "xml"
             config_path: config_path.clone(),
             api_key: Some("sk-roundtrip".into()),
             api_url: None,
-            default_provider: Some("openrouter".into()),
+            default_provider: Some("openai".into()),
             default_model: Some("test-model".into()),
             model_providers: HashMap::new(),
             default_temperature: 0.9,
@@ -5386,7 +5396,7 @@ tool_dispatcher = "xml"
         config.agents.insert(
             "worker".into(),
             DelegateAgentConfig {
-                provider: "openrouter".into(),
+                provider: "openai".into(),
                 model: "model-test".into(),
                 system_prompt: None,
                 api_key: Some("agent-credential".into()),
@@ -5454,8 +5464,7 @@ tool_dispatcher = "xml"
 
     #[tokio::test]
     async fn config_save_atomic_cleanup() {
-        let dir =
-            std::env::temp_dir().join(format!("gloamy_test_config_{}", uuid::Uuid::new_v4()));
+        let dir = std::env::temp_dir().join(format!("gloamy_test_config_{}", uuid::Uuid::new_v4()));
         fs::create_dir_all(&dir).await.unwrap();
 
         let config_path = dir.join("config.toml");
@@ -6290,6 +6299,38 @@ default_temperature = 0.7
     }
 
     #[test]
+    async fn env_override_openrouter_api_key_when_provider_is_openrouter() {
+        let _env_guard = env_override_lock().await;
+        let mut config = Config::default();
+        config.default_provider = Some("openrouter".to_string());
+        config.api_key = Some("stale-config-key".to_string());
+
+        std::env::set_var("OPENROUTER_API_KEY", "sk-or-test-key");
+        config.apply_env_overrides();
+        assert_eq!(config.api_key.as_deref(), Some("sk-or-test-key"));
+
+        std::env::remove_var("OPENROUTER_API_KEY");
+    }
+
+    #[test]
+    async fn env_override_openrouter_api_key_applies_after_provider_env_override() {
+        let _env_guard = env_override_lock().await;
+        let mut config = Config::default();
+        config.default_provider = Some("anthropic".to_string());
+        config.api_key = Some("stale-config-key".to_string());
+
+        std::env::set_var("GLOAMY_PROVIDER", "openrouter");
+        std::env::set_var("OPENROUTER_API_KEY", "sk-or-test-key");
+        config.apply_env_overrides();
+
+        assert_eq!(config.default_provider.as_deref(), Some("openrouter"));
+        assert_eq!(config.api_key.as_deref(), Some("sk-or-test-key"));
+
+        std::env::remove_var("GLOAMY_PROVIDER");
+        std::env::remove_var("OPENROUTER_API_KEY");
+    }
+
+    #[test]
     async fn env_override_provider() {
         let _env_guard = env_override_lock().await;
         let mut config = Config::default();
@@ -6398,7 +6439,7 @@ requires_openai_auth = true
         std::env::remove_var("GLOAMY_PROVIDER");
         std::env::set_var("PROVIDER", "openai");
         config.apply_env_overrides();
-        assert_eq!(config.default_provider.as_deref(), Some("openai"));
+        assert_eq!(config.default_provider.as_deref(), Some("openrouter"));
 
         std::env::remove_var("PROVIDER");
     }
@@ -7559,7 +7600,7 @@ default_model = "legacy-model"
     #[test]
     async fn config_without_transcription_uses_defaults() {
         let toml_str = r#"
-            default_provider = "openrouter"
+            default_provider = "openai"
             default_model = "test-model"
             default_temperature = 0.7
         "#;
@@ -7572,8 +7613,8 @@ default_model = "legacy-model"
     async fn security_defaults_are_backward_compatible() {
         let parsed: Config = toml::from_str(
             r#"
-default_provider = "openrouter"
-default_model = "anthropic/claude-sonnet-4.6"
+default_provider = "openai"
+default_model = "gpt-5-mini"
 default_temperature = 0.7
 "#,
         )
@@ -7589,8 +7630,8 @@ default_temperature = 0.7
     async fn security_toml_parses_otp_and_estop_sections() {
         let parsed: Config = toml::from_str(
             r#"
-default_provider = "openrouter"
-default_model = "anthropic/claude-sonnet-4.6"
+default_provider = "openai"
+default_model = "gpt-5-mini"
 default_temperature = 0.7
 
 [security.otp]

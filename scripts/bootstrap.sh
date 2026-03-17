@@ -38,7 +38,7 @@ Options:
   --onboard                  Run onboarding after install
   --interactive-onboard      Run interactive onboarding (implies --onboard)
   --api-key <key>            API key for non-interactive onboarding
-  --provider <id>            Provider for non-interactive onboarding (default: openrouter)
+  --provider <id>            Provider for non-interactive onboarding (default: openai)
   --model <id>               Model for non-interactive onboarding (optional)
   --build-first              Alias for explicitly enabling separate `cargo build --release --locked`
   --skip-build               Skip build step (`cargo build --release --locked` or Docker image build)
@@ -51,7 +51,7 @@ Examples:
   ./gloamy_install.sh --install-system-deps --install-rust
   ./gloamy_install.sh --prefer-prebuilt
   ./gloamy_install.sh --prebuilt-only
-  ./gloamy_install.sh --onboard --api-key "sk-..." --provider openrouter [--model "openrouter/auto"]
+  ./gloamy_install.sh --onboard --api-key "sk-..." --provider openai [--model "gpt-5-mini"]
   ./gloamy_install.sh --interactive-onboard
 
   # Compatibility entrypoint:
@@ -65,7 +65,7 @@ Environment:
   GLOAMY_DOCKER_DATA_DIR   Host path for Docker config/workspace persistence
   GLOAMY_DOCKER_IMAGE      Docker image tag to build/run (default: gloamy-bootstrap:local)
   GLOAMY_API_KEY           Used when --api-key is not provided
-  GLOAMY_PROVIDER          Used when --provider is not provided (default: openrouter)
+  GLOAMY_PROVIDER          Used when --provider is not provided (default: openai)
   GLOAMY_MODEL             Used when --model is not provided
   GLOAMY_BOOTSTRAP_MIN_RAM_MB   Minimum RAM threshold for source build preflight (default: 2048)
   GLOAMY_BOOTSTRAP_MIN_DISK_MB  Minimum free disk threshold for source build preflight (default: 6144)
@@ -738,7 +738,7 @@ SKIP_INSTALL=false
 PREBUILT_INSTALLED=false
 CONTAINER_CLI="${GLOAMY_CONTAINER_CLI:-docker}"
 API_KEY="${GLOAMY_API_KEY:-}"
-PROVIDER="${GLOAMY_PROVIDER:-openrouter}"
+PROVIDER="${GLOAMY_PROVIDER:-openai}"
 MODEL="${GLOAMY_MODEL:-}"
 
 while [[ $# -gt 0 ]]; do
@@ -946,7 +946,7 @@ DONE
 
 Next steps:
   ./gloamy_install.sh --docker --interactive-onboard
-  ./gloamy_install.sh --docker --api-key "sk-..." --provider openrouter
+  ./gloamy_install.sh --docker --api-key "sk-..." --provider openai
 DONE
   exit 0
 fi

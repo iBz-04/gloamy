@@ -6,9 +6,9 @@
 //! Tests SqliteMemory deduplication on restart, session scoping, concurrent
 //! message ordering, and recall behavior after re-initialization.
 
-use std::sync::Arc;
 use gloamy::memory::sqlite::SqliteMemory;
 use gloamy::memory::traits::{Memory, MemoryCategory};
+use std::sync::Arc;
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Deduplication: same key overwrites instead of duplicating (#430)

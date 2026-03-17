@@ -10,6 +10,8 @@
 </p>
 
 
+cargo run --features whatsapp-web -- channel start
+
 
 <p align="center">
   <a href="#quick-start">Getting Started</a> |
@@ -221,7 +223,7 @@ cd gloamy
 ./bootstrap.sh --prebuilt-only
 
 # Optional: run onboarding in the same flow
-./bootstrap.sh --onboard --api-key "sk-..." --provider openrouter [--model "openrouter/auto"]
+./bootstrap.sh --onboard --api-key "sk-..." --provider openai [--model "gpt-5-mini"]
 
 # Optional: run bootstrap + onboarding fully in Docker-compatible mode
 ./bootstrap.sh --docker
@@ -270,7 +272,7 @@ cargo install --path . --force --locked
 export PATH="$HOME/.cargo/bin:$PATH"
 
 # Quick setup (no prompts, optional model specification)
-gloamy onboard --api-key sk-... --provider openrouter [--model "openrouter/auto"]
+gloamy onboard --api-key sk-... --provider openai [--model "gpt-5-mini"]
 
 # Or interactive wizard
 gloamy onboard --interactive
@@ -614,8 +616,8 @@ are hot-applied on the next inbound channel message.
 
 ```toml
 api_key = "sk-..."
-default_provider = "openrouter"
-default_model = "anthropic/claude-sonnet-4-6"
+default_provider = "openai"
+default_model = "gpt-5-mini"
 default_temperature = 0.7
 
 # Custom OpenAI-compatible endpoint

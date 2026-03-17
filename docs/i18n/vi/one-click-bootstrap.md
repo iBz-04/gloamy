@@ -97,13 +97,13 @@ Lệnh này build image Gloamy cục bộ và chạy thiết lập trong contain
 ### Thiết lập nhanh (không tương tác)
 
 ```bash
-./bootstrap.sh --onboard --api-key "sk-..." --provider openrouter
+./bootstrap.sh --onboard --api-key "sk-..." --provider openai
 ```
 
 Hoặc dùng biến môi trường:
 
 ```bash
-GLOAMY_API_KEY="sk-..." GLOAMY_PROVIDER="openrouter" ./bootstrap.sh --onboard
+GLOAMY_API_KEY="sk-..." GLOAMY_PROVIDER="openai" ./bootstrap.sh --onboard
 ```
 
 ### Thiết lập tương tác

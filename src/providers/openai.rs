@@ -16,7 +16,8 @@ pub struct OpenAiProvider {
 struct ChatRequest {
     model: String,
     messages: Vec<Message>,
-    temperature: f64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    temperature: Option<f64>,
 }
 
 #[derive(Debug, Serialize)]
@@ -57,7 +58,8 @@ impl ResponseMessage {
 struct NativeChatRequest {
     model: String,
     messages: Vec<NativeMessage>,
-    temperature: f64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    temperature: Option<f64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     tools: Option<Vec<NativeToolSpec>>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -293,6 +295,20 @@ impl OpenAiProvider {
     fn http_client(&self) -> Client {
         crate::config::build_runtime_proxy_client_with_timeouts("provider.openai", 120, 10)
     }
+
+    fn request_temperature(model: &str, temperature: f64) -> Option<f64> {
+        let normalized = model.trim().to_ascii_lowercase();
+        let uses_fixed_default_temperature = normalized == "gpt-5-mini"
+            || normalized.starts_with("gpt-5-mini-")
+            || normalized == "gpt-5-nano"
+            || normalized.starts_with("gpt-5-nano-");
+
+        if uses_fixed_default_temperature {
+            None
+        } else {
+            Some(temperature)
+        }
+    }
 }
 
 #[async_trait]
@@ -325,7 +341,7 @@ impl Provider for OpenAiProvider {
         let request = ChatRequest {
             model: model.to_string(),
             messages,
-            temperature,
+            temperature: Self::request_temperature(model, temperature),
         };
 
         let response = self
@@ -364,7 +380,7 @@ impl Provider for OpenAiProvider {
         let native_request = NativeChatRequest {
             model: model.to_string(),
             messages: Self::convert_messages(request.messages),
-            temperature,
+            temperature: Self::request_temperature(model, temperature),
             tool_choice: tools.as_ref().map(|_| "auto".to_string()),
             tools,
         };
@@ -427,7 +443,7 @@ impl Provider for OpenAiProvider {
         let native_request = NativeChatRequest {
             model: model.to_string(),
             messages: Self::convert_messages(messages),
-            temperature,
+            temperature: Self::request_temperature(model, temperature),
             tool_choice: native_tools.as_ref().map(|_| "auto".to_string()),
             tools: native_tools,
         };
@@ -533,7 +549,7 @@ mod tests {
                     content: "hello".to_string(),
                 },
             ],
-            temperature: 0.7,
+            temperature: Some(0.7),
         };
         let json = serde_json::to_string(&req).unwrap();
         assert!(json.contains("\"role\":\"system\""));
@@ -549,11 +565,39 @@ mod tests {
                 role: "user".to_string(),
                 content: "hello".to_string(),
             }],
-            temperature: 0.0,
+            temperature: Some(0.0),
         };
         let json = serde_json::to_string(&req).unwrap();
         assert!(!json.contains("system"));
         assert!(json.contains("\"temperature\":0.0"));
+    }
+
+    #[test]
+    fn gpt5_mini_omits_temperature() {
+        let req = ChatRequest {
+            model: "gpt-5-mini".to_string(),
+            messages: vec![Message {
+                role: "user".to_string(),
+                content: "hello".to_string(),
+            }],
+            temperature: OpenAiProvider::request_temperature("gpt-5-mini", 0.7),
+        };
+        let json = serde_json::to_string(&req).unwrap();
+        assert!(!json.contains("temperature"));
+    }
+
+    #[test]
+    fn gpt4o_keeps_temperature() {
+        let req = ChatRequest {
+            model: "gpt-4o".to_string(),
+            messages: vec![Message {
+                role: "user".to_string(),
+                content: "hello".to_string(),
+            }],
+            temperature: OpenAiProvider::request_temperature("gpt-4o", 0.7),
+        };
+        let json = serde_json::to_string(&req).unwrap();
+        assert!(json.contains("\"temperature\":0.7"));
     }
 
     #[test]

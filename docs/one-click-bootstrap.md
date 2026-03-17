@@ -109,13 +109,13 @@ it pulls `ghcr.io/iBz-04/gloamy:latest` and tags it locally before running.
 ### Quick onboarding (non-interactive)
 
 ```bash
-./bootstrap.sh --onboard --api-key "sk-..." --provider openrouter
+./bootstrap.sh --onboard --api-key "sk-..." --provider openai
 ```
 
 Or with environment variables:
 
 ```bash
-GLOAMY_API_KEY="sk-..." GLOAMY_PROVIDER="openrouter" ./bootstrap.sh --onboard
+GLOAMY_API_KEY="sk-..." GLOAMY_PROVIDER="openai" ./bootstrap.sh --onboard
 ```
 
 ### Interactive onboarding

@@ -9,8 +9,6 @@
 
 use anyhow::Result;
 use async_trait::async_trait;
-use serde_json::json;
-use std::sync::{Arc, Mutex};
 use gloamy::agent::agent::Agent;
 use gloamy::agent::dispatcher::NativeToolDispatcher;
 use gloamy::config::MemoryConfig;
@@ -19,6 +17,8 @@ use gloamy::memory::Memory;
 use gloamy::observability::{NoopObserver, Observer};
 use gloamy::providers::{ChatRequest, ChatResponse, Provider, ToolCall};
 use gloamy::tools::{Tool, ToolResult};
+use serde_json::json;
+use std::sync::{Arc, Mutex};
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Mock infrastructure

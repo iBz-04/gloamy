@@ -22,8 +22,8 @@ Schema export command:
 
 | Key | Default | Notes |
 |---|---|---|
-| `default_provider` | `openrouter` | provider ID or alias |
-| `default_model` | `anthropic/claude-sonnet-4-6` | model routed through selected provider |
+| `default_provider` | `openai` | provider ID or alias |
+| `default_model` | `gpt-5-mini` | model routed through selected provider |
 | `default_temperature` | `0.7` | model temperature |
 
 ## `[observability]`
@@ -64,12 +64,12 @@ runtime_trace_max_entries = 200
 Provider selection can also be controlled by environment variables. Precedence is:
 
 1. `GLOAMY_PROVIDER` (explicit override, always wins when non-empty)
-2. `PROVIDER` (legacy fallback, only applied when config provider is unset or still `openrouter`)
+2. `PROVIDER` (legacy fallback, only applied when config provider is unset or still `openai`)
 3. `default_provider` in `config.toml`
 
 Operational note for container users:
 
-- If your `config.toml` sets an explicit custom provider like `custom:https://.../v1`, a default `PROVIDER=openrouter` from Docker/container env will no longer replace it.
+- If your `config.toml` sets an explicit custom provider like `custom:https://.../v1`, a default `PROVIDER=openai` from Docker/container env will no longer replace it.
 - Use `GLOAMY_PROVIDER` when you intentionally want runtime env to override a non-default configured provider.
 
 ## `[agent]`

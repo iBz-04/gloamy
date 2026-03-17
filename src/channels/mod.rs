@@ -547,7 +547,7 @@ fn resolved_default_provider(config: &Config) -> String {
     config
         .default_provider
         .clone()
-        .unwrap_or_else(|| "openrouter".to_string())
+        .unwrap_or_else(|| "openai".to_string())
 }
 
 fn resolved_default_model(config: &Config) -> String {
@@ -3024,9 +3024,24 @@ pub async fn doctor_channels(config: Config) -> Result<()> {
     Ok(())
 }
 
-/// Start all configured channels and route messages to the agent
-#[allow(clippy::too_many_lines)]
+/// Start all configured channels and route messages to the agent.
+///
+/// This mode is used by the daemon, which runs scheduler supervision separately.
 pub async fn start_channels(config: Config) -> Result<()> {
+    start_channels_internal(config, false).await
+}
+
+/// Start all configured channels and co-run the cron scheduler in-process.
+///
+/// This mode is used by `gloamy channel start` so delayed reminders execute
+/// without requiring daemon mode.
+pub async fn start_channels_with_scheduler(config: Config) -> Result<()> {
+    start_channels_internal(config, true).await
+}
+
+/// Start channels and optionally run scheduler in the same process.
+#[allow(clippy::too_many_lines)]
+async fn start_channels_internal(config: Config, run_scheduler: bool) -> Result<()> {
     let provider_name = resolved_default_provider(&config);
     let provider_runtime_options = providers::ProviderRuntimeOptions {
         auth_profile_override: None,
@@ -3243,6 +3258,18 @@ pub async fn start_channels(config: Config) -> Result<()> {
     println!("  Listening for messages... (Ctrl+C to stop)");
     println!();
 
+    let scheduler_handle = if run_scheduler && config.cron.enabled {
+        println!("  ⏰ Scheduler: enabled (channel mode)");
+        let scheduler_config = config.clone();
+        Some(tokio::spawn(async move {
+            if let Err(e) = crate::cron::scheduler::run(scheduler_config).await {
+                tracing::error!("Channel-mode scheduler exited with error: {e}");
+            }
+        }))
+    } else {
+        None
+    };
+
     crate::health::mark_component_ok("channels");
 
     let initial_backoff_secs = config
@@ -3330,6 +3357,11 @@ pub async fn start_channels(config: Config) -> Result<()> {
     // Wait for all channel tasks
     for h in handles {
         let _ = h.await;
+    }
+
+    if let Some(handle) = scheduler_handle {
+        handle.abort();
+        let _ = handle.await;
     }
 
     Ok(())
@@ -5332,10 +5364,7 @@ BTC is currently around $65,000 based on latest tool output."#
         assert!(prompt.contains("### SOUL.md"), "missing SOUL.md header");
         assert!(prompt.contains("Be helpful"), "missing SOUL content");
         assert!(prompt.contains("### IDENTITY.md"), "missing IDENTITY.md");
-        assert!(
-            prompt.contains("Name: Gloamy"),
-            "missing IDENTITY content"
-        );
+        assert!(prompt.contains("Name: Gloamy"), "missing IDENTITY content");
         assert!(prompt.contains("### USER.md"), "missing USER.md");
         assert!(prompt.contains("### AGENTS.md"), "missing AGENTS.md");
         assert!(prompt.contains("### TOOLS.md"), "missing TOOLS.md");

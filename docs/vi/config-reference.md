@@ -22,8 +22,8 @@ Lệnh xuất schema:
 
 | Khóa | Mặc định | Ghi chú |
 |---|---|---|
-| `default_provider` | `openrouter` | ID hoặc bí danh provider |
-| `default_model` | `anthropic/claude-sonnet-4-6` | Model định tuyến qua provider đã chọn |
+| `default_provider` | `openai` | ID hoặc bí danh provider |
+| `default_model` | `gpt-5-mini` | Model định tuyến qua provider đã chọn |
 | `default_temperature` | `0.7` | Nhiệt độ model |
 
 ## `[observability]`
@@ -53,12 +53,12 @@ otel_service_name = "gloamy"
 Provider cũng có thể chọn qua biến môi trường. Thứ tự ưu tiên:
 
 1. `GLOAMY_PROVIDER` (ghi đè tường minh, luôn thắng khi có giá trị)
-2. `PROVIDER` (dự phòng kiểu cũ, chỉ áp dụng khi provider trong config chưa đặt hoặc vẫn là `openrouter`)
+2. `PROVIDER` (dự phòng kiểu cũ, chỉ áp dụng khi provider trong config chưa đặt hoặc vẫn là `openai`)
 3. `default_provider` trong `config.toml`
 
 Lưu ý cho người dùng container:
 
-- Nếu `config.toml` đặt provider tùy chỉnh như `custom:https://.../v1`, biến `PROVIDER=openrouter` mặc định từ Docker/container sẽ không thay thế nó.
+- Nếu `config.toml` đặt provider tùy chỉnh như `custom:https://.../v1`, biến `PROVIDER=openai` mặc định từ Docker/container sẽ không thay thế nó.
 - Dùng `GLOAMY_PROVIDER` khi cố ý muốn biến môi trường ghi đè provider đã cấu hình.
 
 ## `[agent]`

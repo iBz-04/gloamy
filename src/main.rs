@@ -117,7 +117,6 @@ enum EstopLevelArg {
     ToolFreeze,
 }
 
-
 #[derive(Parser, Debug)]
 #[command(name = "gloamy")]
 #[command(author = "theonlyhennygod")]
@@ -151,7 +150,7 @@ enum Commands {
         #[arg(long)]
         api_key: Option<String>,
 
-        /// Provider name (used in quick mode, default: openrouter)
+        /// Provider name (used in quick mode, default: openai)
         #[arg(long)]
         provider: Option<String>,
         /// Model ID override (used in quick mode)
@@ -179,7 +178,7 @@ Examples:
         #[arg(short, long)]
         message: Option<String>,
 
-        /// Provider to use (openrouter, anthropic, openai, openai-codex)
+        /// Provider to use (openai, openrouter, anthropic, openai-codex)
         #[arg(short, long)]
         provider: Option<String>,
 
@@ -196,7 +195,7 @@ Examples:
         peripheral: Vec<String>,
     },
 
-    /// Start the gateway server 
+    /// Start the gateway server
     #[command(long_about = "\
 Start the gateway server (webhooks, websockets).
 
@@ -818,7 +817,7 @@ async fn main() -> Result<()> {
             println!();
             println!(
                 "🤖 Provider:      {}",
-                config.default_provider.as_deref().unwrap_or("openrouter")
+                config.default_provider.as_deref().unwrap_or("openai")
             );
             println!(
                 "   Model:         {}",
@@ -939,7 +938,7 @@ async fn main() -> Result<()> {
             let current = config
                 .default_provider
                 .as_deref()
-                .unwrap_or("openrouter")
+                .unwrap_or("openai")
                 .trim()
                 .to_ascii_lowercase();
             println!("Supported providers ({} total):\n", providers.len());
@@ -996,7 +995,7 @@ async fn main() -> Result<()> {
         },
 
         Commands::Channel { channel_command } => match channel_command {
-            ChannelCommands::Start => channels::start_channels(config).await,
+            ChannelCommands::Start => channels::start_channels_with_scheduler(config).await,
             ChannelCommands::Doctor => channels::doctor_channels(config).await,
             other => channels::handle_command(other, &config).await,
         },

@@ -8,9 +8,7 @@
 //! credential wiring, and auth header format.
 
 use gloamy::providers::compatible::{AuthStyle, OpenAiCompatibleProvider};
-use gloamy::providers::{
-    create_provider, create_provider_with_options, create_provider_with_url,
-};
+use gloamy::providers::{create_provider, create_provider_with_options, create_provider_with_url};
 
 /// Helper: assert provider creation succeeds
 fn assert_provider_ok(name: &str, key: Option<&str>, url: Option<&str>) {

@@ -12,14 +12,14 @@ Dành cho cài đặt lần đầu và làm quen nhanh.
 
 | Tình huống | Lệnh |
 |----------|---------|
-| Có API key, muốn cài nhanh nhất | `gloamy onboard --api-key sk-... --provider openrouter` |
+| Có API key, muốn cài nhanh nhất | `gloamy onboard --api-key sk-... --provider openai` |
 | Muốn được hướng dẫn từng bước | `gloamy onboard --interactive` |
 | Đã có config, chỉ cần sửa kênh | `gloamy onboard --channels-only` |
 | Dùng xác thực subscription | Xem [Subscription Auth](../../../README.md#subscription-auth-openai-codex--claude-code) |
 
 ## Thiết lập và kiểm tra
 
-- Thiết lập nhanh: `gloamy onboard --api-key "sk-..." --provider openrouter`
+- Thiết lập nhanh: `gloamy onboard --api-key "sk-..." --provider openai`
 - Thiết lập tương tác: `gloamy onboard --interactive`
 - Kiểm tra môi trường: `gloamy status` + `gloamy doctor`
 

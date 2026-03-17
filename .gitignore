@@ -1,6 +1,8 @@
 /target
 firmware/*/target
 *.db
+*.db-shm
+*.db-wal
 *.db-journal
 .DS_Store
 ._*

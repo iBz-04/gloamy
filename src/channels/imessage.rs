@@ -29,6 +29,10 @@ impl IMessageChannel {
             .iter()
             .any(|u| u.eq_ignore_ascii_case(sender))
     }
+
+    fn reconnect_backoff_secs() -> u64 {
+        30
+    }
 }
 
 /// Escape a string for safe interpolation into `AppleScript`.
@@ -139,47 +143,94 @@ end tell"#
             .map(|u| u.home_dir().join("Library/Messages/chat.db"))
             .ok_or_else(|| anyhow::anyhow!("Cannot find home directory"))?;
 
-        if !db_path.exists() {
-            anyhow::bail!(
-                "Messages database not found at {}. Ensure Messages.app is set up and Full Disk Access is granted.",
-                db_path.display()
-            );
-        }
-
-        // Open a persistent read-only connection instead of creating
-        // a new one on every 3-second poll cycle.
-        let path = db_path.to_path_buf();
-        let conn = tokio::task::spawn_blocking(move || -> anyhow::Result<Connection> {
-            Ok(Connection::open_with_flags(
-                &path,
-                OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX,
-            )?)
-        })
-        .await??;
-
-        // Track the last ROWID we've seen (shuttle conn in and out)
-        let (mut conn, initial_rowid) =
-            tokio::task::spawn_blocking(move || -> anyhow::Result<(Connection, i64)> {
-                let rowid = {
-                    let mut stmt =
-                        conn.prepare("SELECT MAX(ROWID) FROM message WHERE is_from_me = 0")?;
-                    let rowid: Option<i64> = stmt.query_row([], |row| row.get(0))?;
-                    rowid.unwrap_or(0)
-                };
-                Ok((conn, rowid))
-            })
-            .await??;
-        let mut last_rowid = initial_rowid;
-
         loop {
-            tokio::time::sleep(tokio::time::Duration::from_secs(self.poll_interval_secs)).await;
+            if !db_path.exists() {
+                tracing::warn!(
+                    "iMessage database not found at {}. Waiting for Messages setup/permissions...",
+                    db_path.display()
+                );
+                tokio::time::sleep(tokio::time::Duration::from_secs(
+                    Self::reconnect_backoff_secs(),
+                ))
+                .await;
+                continue;
+            }
 
-            let since = last_rowid;
-            let (returned_conn, poll_result) = tokio::task::spawn_blocking(
-                move || -> (Connection, anyhow::Result<Vec<(i64, String, String)>>) {
-                    let result = (|| -> anyhow::Result<Vec<(i64, String, String)>> {
-                        let mut stmt = conn.prepare(
-                            "SELECT m.ROWID, h.id, m.text \
+            // Open a persistent read-only connection instead of creating
+            // a new one on every 3-second poll cycle.
+            let path = db_path.to_path_buf();
+            let conn = match tokio::task::spawn_blocking(move || -> anyhow::Result<Connection> {
+                Ok(Connection::open_with_flags(
+                    &path,
+                    OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX,
+                )?)
+            })
+            .await
+            {
+                Ok(Ok(conn)) => conn,
+                Ok(Err(e)) => {
+                    tracing::warn!(
+                        "iMessage database unavailable ({}). Grant Full Disk Access to Terminal/VS Code and Messages.app, then retrying...",
+                        e
+                    );
+                    tokio::time::sleep(tokio::time::Duration::from_secs(
+                        Self::reconnect_backoff_secs(),
+                    ))
+                    .await;
+                    continue;
+                }
+                Err(e) => {
+                    tracing::warn!("iMessage database worker failed: {e}; retrying...");
+                    tokio::time::sleep(tokio::time::Duration::from_secs(
+                        Self::reconnect_backoff_secs(),
+                    ))
+                    .await;
+                    continue;
+                }
+            };
+
+            // Track the last ROWID we've seen (shuttle conn in and out)
+            let (mut conn, initial_rowid) =
+                match tokio::task::spawn_blocking(move || -> anyhow::Result<(Connection, i64)> {
+                    let rowid = {
+                        let mut stmt =
+                            conn.prepare("SELECT MAX(ROWID) FROM message WHERE is_from_me = 0")?;
+                        let rowid: Option<i64> = stmt.query_row([], |row| row.get(0))?;
+                        rowid.unwrap_or(0)
+                    };
+                    Ok((conn, rowid))
+                })
+                .await
+                {
+                    Ok(Ok(state)) => state,
+                    Ok(Err(e)) => {
+                        tracing::warn!("iMessage initialization query failed: {e}; retrying...");
+                        tokio::time::sleep(tokio::time::Duration::from_secs(
+                            Self::reconnect_backoff_secs(),
+                        ))
+                        .await;
+                        continue;
+                    }
+                    Err(e) => {
+                        tracing::warn!("iMessage initialization worker failed: {e}; retrying...");
+                        tokio::time::sleep(tokio::time::Duration::from_secs(
+                            Self::reconnect_backoff_secs(),
+                        ))
+                        .await;
+                        continue;
+                    }
+                };
+            let mut last_rowid = initial_rowid;
+
+            loop {
+                tokio::time::sleep(tokio::time::Duration::from_secs(self.poll_interval_secs)).await;
+
+                let since = last_rowid;
+                let (returned_conn, poll_result) = tokio::task::spawn_blocking(
+                    move || -> (Connection, anyhow::Result<Vec<(i64, String, String)>>) {
+                        let result = (|| -> anyhow::Result<Vec<(i64, String, String)>> {
+                            let mut stmt = conn.prepare(
+                                "SELECT m.ROWID, h.id, m.text \
                      FROM message m \
                      JOIN handle h ON m.handle_id = h.ROWID \
                      WHERE m.ROWID > ?1 \
@@ -187,60 +238,62 @@ end tell"#
                      AND m.text IS NOT NULL \
                      ORDER BY m.ROWID ASC \
                      LIMIT 20",
-                        )?;
-                        let rows = stmt.query_map([since], |row| {
-                            Ok((
-                                row.get::<_, i64>(0)?,
-                                row.get::<_, String>(1)?,
-                                row.get::<_, String>(2)?,
-                            ))
-                        })?;
-                        let results = rows.collect::<Result<Vec<_>, _>>()?;
-                        Ok(results)
-                    })();
+                            )?;
+                            let rows = stmt.query_map([since], |row| {
+                                Ok((
+                                    row.get::<_, i64>(0)?,
+                                    row.get::<_, String>(1)?,
+                                    row.get::<_, String>(2)?,
+                                ))
+                            })?;
+                            let results = rows.collect::<Result<Vec<_>, _>>()?;
+                            Ok(results)
+                        })();
 
-                    (conn, result)
-                },
-            )
-            .await
-            .map_err(|e| anyhow::anyhow!("iMessage poll worker join error: {e}"))?;
-            conn = returned_conn;
+                        (conn, result)
+                    },
+                )
+                .await
+                .map_err(|e| anyhow::anyhow!("iMessage poll worker join error: {e}"))?;
+                conn = returned_conn;
 
-            match poll_result {
-                Ok(messages) => {
-                    for (rowid, sender, text) in messages {
-                        if rowid > last_rowid {
-                            last_rowid = rowid;
-                        }
+                match poll_result {
+                    Ok(messages) => {
+                        for (rowid, sender, text) in messages {
+                            if rowid > last_rowid {
+                                last_rowid = rowid;
+                            }
 
-                        if !self.is_contact_allowed(&sender) {
-                            continue;
-                        }
+                            if !self.is_contact_allowed(&sender) {
+                                continue;
+                            }
 
-                        if text.trim().is_empty() {
-                            continue;
-                        }
+                            if text.trim().is_empty() {
+                                continue;
+                            }
 
-                        let msg = ChannelMessage {
-                            id: rowid.to_string(),
-                            sender: sender.clone(),
-                            reply_target: sender.clone(),
-                            content: text,
-                            channel: "imessage".to_string(),
-                            timestamp: std::time::SystemTime::now()
-                                .duration_since(std::time::UNIX_EPOCH)
-                                .unwrap_or_default()
-                                .as_secs(),
-                            thread_ts: None,
-                        };
+                            let msg = ChannelMessage {
+                                id: rowid.to_string(),
+                                sender: sender.clone(),
+                                reply_target: sender.clone(),
+                                content: text,
+                                channel: "imessage".to_string(),
+                                timestamp: std::time::SystemTime::now()
+                                    .duration_since(std::time::UNIX_EPOCH)
+                                    .unwrap_or_default()
+                                    .as_secs(),
+                                thread_ts: None,
+                            };
 
-                        if tx.send(msg).await.is_err() {
-                            return Ok(());
+                            if tx.send(msg).await.is_err() {
+                                return Ok(());
+                            }
                         }
                     }
-                }
-                Err(e) => {
-                    tracing::warn!("iMessage poll error: {e}");
+                    Err(e) => {
+                        tracing::warn!("iMessage poll error: {e}");
+                        break;
+                    }
                 }
             }
         }
