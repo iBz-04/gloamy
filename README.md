@@ -1,618 +1,274 @@
-<p align="center">
-  <img src="gloamy.png" alt="Gloamy" width="200" />
-</p>
+# Gloamy
 
-<h1 align="center">Gloamy</h1>
+Gloamy is an autonomous agent runtime for running a personal secretary across multiple cli, social channels, daemon and hardware integrations.
 
-<p align="center">
-  <strong>Personal Ai agent that runs on any hardware.</strong><br>
-  ⚡️ <strong> <5MB RAM: That's 99% less memory than OpenClaw and 98% cheaper than a Mac mini!</strong>
-</p>
+It is built around explicit subsystem contracts:
 
+- `Provider` for model backends
+- `Channel` for messaging platforms
+- `Tool` for execution surfaces
+- `Memory` for persistence and recall
+- `Observer` for observability
+- `RuntimeAdapter` for runtime isolation
+- `Peripheral` for boards and device integrations
 
-cargo run --features whatsapp-web -- channel start
+The project goal is simple: one runtime, one configuration model, and swappable integrations without rewriting the core agent loop.
 
+## What Gloamy Does
 
-<p align="center">
-  <a href="#quick-start">Getting Started</a> |
-  <a href="bootstrap.sh">One-Click Setup</a> |
-  <a href="docs/README.md">Docs Hub</a> |
-  <a href="docs/SUMMARY.md">Docs TOC</a>
-</p>
+Gloamy can:
 
-<p align="center">
-  <strong>Quick Routes:</strong>
-  <a href="docs/reference/README.md">Reference</a> ·
-  <a href="docs/operations/README.md">Operations</a> ·
-  <a href="docs/troubleshooting.md">Troubleshoot</a> ·
-  <a href="docs/security/README.md">Security</a> ·
-  <a href="docs/hardware/README.md">Hardware</a> ·
-  <a href="docs/contributing/README.md">Contribute</a>
-</p>
+- run as an interactive CLI agent
+- run as a long-lived daemon with configured channels
+- expose a local gateway for webhook and browser-based flows
+- route requests through multiple model providers
+- use local and remote tools with explicit security boundaries
+- persist context through multiple memory backends
+- integrate with hardware boards and peripherals
 
-<p align="center">
-  <strong>Fast, small, and fully autonomous AI assistant infrastructure</strong><br />
-  Deploy anywhere. Swap anything.
-</p>
+Out of the box, the runtime supports:
 
-<p align="center">
-  Gloamy is the <strong>runtime operating system</strong> for agentic workflows — infrastructure that abstracts models, tools, memory, and execution so agents can be built once and run anywhere.
-</p>
+- local CLI usage
+- channel-based operation through providers such as Telegram, Discord, Slack, Matrix, WhatsApp, iMessage, Email, IRC, Nostr, and others
+- OpenAI-compatible and non-OpenAI model providers
+- SQLite, Markdown, Lucid, PostgreSQL, and no-op memory modes
 
-<p align="center"><code>Trait-driven architecture · secure-by-default runtime · provider/channel/tool swappable · pluggable everything</code></p>
+## Project Shape
 
-### 📢 Announcements
+High-level repository map:
 
-Use this board for important notices (breaking changes, security advisories, maintenance windows, and release blockers).
+- [`src/main.rs`](src/main.rs): CLI entrypoint and command routing
+- [`src/lib.rs`](src/lib.rs): shared exports and command enums
+- [`src/agent/`](src/agent): orchestration loop
+- [`src/config/`](src/config): config schema, loading, merging, env overrides
+- [`src/providers/`](src/providers): model provider implementations and factory wiring
+- [`src/channels/`](src/channels): channel integrations
+- [`src/tools/`](src/tools): tool execution surface
+- [`src/memory/`](src/memory): memory backends
+- [`src/security/`](src/security): policy, pairing, secret handling
+- [`src/gateway/`](src/gateway): HTTP and websocket gateway
+- [`src/runtime/`](src/runtime): runtime adapters
+- [`src/peripherals/`](src/peripherals): hardware integrations
+- [`docs/`](docs): operator, reference, and contribution docs
 
-| Date (UTC) | Level       | Notice                                                                                                                                                                                                                                                                                                                                                 | Action                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
-| ---------- | ----------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 2026-02-19 | _Critical_  | We are **not affiliated** with `openagen/gloamy`, `gloamy.org` or `gloamy.net`. The `gloamy.org` and `gloamy.net` domains currently points to the `openagen/gloamy` fork, and that domain/repository are impersonating our official website/project.                                                                                       | Do not trust information, binaries, fundraising, or announcements from those sources. Use only [this repository](https://github.com/iBz-04/gloamy) and our verified social accounts.                                                                                                                                                                                                                                                                                                                                                                                                                       |
-| 2026-02-21 | _Important_ | Our official website is now live: [gloamylabs.ai](https://gloamylabs.ai). Thanks for your patience while we prepared the launch. We are still seeing impersonation attempts, so do **not** join any investment or fundraising activity claiming the Gloamy name unless it is published through our official channels.                            | Use [this repository](https://github.com/iBz-04/gloamy) as the single source of truth. Follow [X (@gloamylabs)](https://x.com/gloamylabs?s=21), [Telegram (@gloamylabs)](https://t.me/gloamylabs), [Facebook (Group)](https://www.facebook.com/groups/gloamy), [Reddit (r/gloamylabs)](https://www.reddit.com/r/gloamylabs/), and [Xiaohongshu](https://www.xiaohongshu.com/user/profile/67cbfc43000000000d008307?xsec_token=AB73VnYnGNx5y36EtnnZfGmAmS-6Wzv8WMuGpfwfkg6Yc%3D&xsec_source=pc_search) for official updates. |
-| 2026-02-19 | _Important_ | Anthropic updated the Authentication and Credential Use terms on 2026-02-19. Claude Code OAuth tokens (Free, Pro, Max) are intended exclusively for Claude Code and Claude.ai; using OAuth tokens from Claude Free/Pro/Max in any other product, tool, or service (including Agent SDK) is not permitted and may violate the Consumer Terms of Service. | Please temporarily avoid Claude Code OAuth integrations to prevent potential loss. Original clause: [Authentication and Credential Use](https://code.claude.com/docs/en/legal-and-compliance#authentication-and-credential-use).                                                                                                                                                                                                                                                                                                                                                                                    |
+## Key Properties
 
-### ✨ Features
-
-- 🏎️ **Lean Runtime by Default:** Common CLI and status workflows run in a few-megabyte memory envelope on release builds.
-- 💰 **Cost-Efficient Deployment:** Designed for low-cost boards and small cloud instances without heavyweight runtime dependencies.
-- ⚡ **Fast Cold Starts:** Single-binary Rust runtime keeps command and daemon startup near-instant for daily operations.
-- 🌍 **Portable Architecture:** One binary-first workflow across ARM, x86, and RISC-V with swappable providers/channels/tools.
-
-### Why teams pick Gloamy
-
-- **Lean by default:** small Rust binary, fast startup, low memory footprint.
-- **Secure by design:** pairing, strict sandboxing, explicit allowlists, workspace scoping.
-- **Fully swappable:** core systems are traits (providers, channels, tools, memory, tunnels).
-- **No lock-in:** OpenAI-compatible provider support + pluggable custom endpoints.
-
-## Benchmark Snapshot (Gloamy vs OpenClaw, Reproducible)
-
-Local machine quick benchmark (macOS arm64, Feb 2026) normalized for 0.8GHz edge hardware.
-
-|                           | OpenClaw      | NanoBot        | PicoClaw        | Gloamy 🦀          |
-| ------------------------- | ------------- | -------------- | --------------- | -------------------- |
-| **Language**              | TypeScript    | Python         | Go              | **Rust**             |
-| **RAM**                   | > 1GB         | > 100MB        | < 10MB          | **< 5MB**            |
-| **Startup (0.8GHz core)** | > 500s        | > 30s          | < 1s            | **< 10ms**           |
-| **Binary Size**           | ~28MB (dist)  | N/A (Scripts)  | ~8MB            | **~8.8 MB**          |
-| **Cost**                  | Mac Mini $599 | Linux SBC ~$50 | Linux Board $10 | **Any hardware $10** |
-
-> Notes: Gloamy results are measured on release builds using `/usr/bin/time -l`. OpenClaw requires Node.js runtime (typically ~390MB additional memory overhead), while NanoBot requires Python runtime. PicoClaw and Gloamy are static binaries. The RAM figures above are runtime memory; build-time compilation requirements are higher.
-
-<p align="center">
-  <img src="zero-claw.jpeg" alt="Gloamy vs OpenClaw Comparison" width="800" />
-</p>
-
-### Reproducible local measurement
-
-Benchmark claims can drift as code and toolchains evolve, so always measure your current build locally:
-
-```bash
-cargo build --release
-ls -lh target/release/gloamy
-
-/usr/bin/time -l target/release/gloamy --help
-/usr/bin/time -l target/release/gloamy status
-```
-
-Example sample (macOS arm64, measured on February 18, 2026):
-
-- Release binary size: `8.8MB`
-- `gloamy --help`: about `0.02s` real time, ~`3.9MB` peak memory footprint
-- `gloamy status`: about `0.01s` real time, ~`4.1MB` peak memory footprint
-
-## Prerequisites
-
-<details>
-<summary><strong>Windows</strong></summary>
-
-#### Required
-
-1. **Visual Studio Build Tools** (provides the MSVC linker and Windows SDK):
-
-    ```powershell
-    winget install Microsoft.VisualStudio.2022.BuildTools
-    ```
-
-    During installation (or via the Visual Studio Installer), select the **"Desktop development with C++"** workload.
-
-2. **Rust toolchain:**
-
-    ```powershell
-    winget install Rustlang.Rustup
-    ```
-
-    After installation, open a new terminal and run `rustup default stable` to ensure the stable toolchain is active.
-
-3. **Verify** both are working:
-    ```powershell
-    rustc --version
-    cargo --version
-    ```
-
-#### Optional
-
-- **Docker Desktop** — required only if using the [Docker sandboxed runtime](#runtime-support-current) (`runtime.kind = "docker"`). Install via `winget install Docker.DockerDesktop`.
-
-</details>
-
-<details>
-<summary><strong>Linux / macOS</strong></summary>
-
-#### Required
-
-1. **Build essentials:**
-    - **Linux (Debian/Ubuntu):** `sudo apt install build-essential pkg-config`
-    - **Linux (Fedora/RHEL):** `sudo dnf group install development-tools && sudo dnf install pkg-config`
-    - **macOS:** Install Xcode Command Line Tools: `xcode-select --install`
-
-2. **Rust toolchain:**
-
-    ```bash
-    curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
-    ```
-
-    See [rustup.rs](https://rustup.rs) for details.
-
-3. **Verify** both are working:
-    ```bash
-    rustc --version
-    cargo --version
-    ```
-
-#### One-Line Installer
-
-Or skip the steps above and install everything (system deps, Rust, Gloamy) in a single command:
-
-```bash
-curl -LsSf https://raw.githubusercontent.com/iBz-04/gloamy/main/scripts/install.sh | bash
-```
-
-#### Compilation resource requirements
-
-Building from source needs more resources than running the resulting binary:
-
-| Resource       | Minimum | Recommended |
-| -------------- | ------- | ----------- |
-| **RAM + swap** | 2 GB    | 4 GB+       |
-| **Free disk**  | 6 GB    | 10 GB+      |
-
-If your host is below the minimum, use pre-built binaries:
-
-```bash
-./bootstrap.sh --prefer-prebuilt
-```
-
-To require binary-only install with no source fallback:
-
-```bash
-./bootstrap.sh --prebuilt-only
-```
-
-#### Optional
-
-- **Docker** — required only if using the [Docker sandboxed runtime](#runtime-support-current) (`runtime.kind = "docker"`). Install via your package manager or [docker.com](https://docs.docker.com/engine/install/).
-
-> **Note:** The default `cargo build --release` uses `codegen-units=1` to lower peak compile pressure. For faster builds on powerful machines, use `cargo build --profile release-fast`.
-
-</details>
+- Trait-driven architecture
+- Secure-by-default runtime behavior
+- Small binary and low runtime overhead
+- Explicit config and CLI contracts
+- Swappable providers, channels, memory backends, and tools
+- Deterministic, Rust-first deployment model
 
 ## Quick Start
 
-### Homebrew (macOS/Linuxbrew)
+### Prerequisites
+
+You need:
+
+- a working Rust toolchain
+- standard platform build tools
+- an API key or local model endpoint, depending on your provider
+
+On macOS:
 
 ```bash
-brew install gloamy
+xcode-select --install
 ```
 
-### One-click bootstrap
+On Debian or Ubuntu:
 
 ```bash
-# Recommended: clone then run local bootstrap script
+sudo apt install build-essential pkg-config
+```
+
+Install Rust:
+
+```bash
+curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+rustup default stable
+```
+
+Verify:
+
+```bash
+rustc --version
+cargo --version
+```
+
+### First Run
+
+Clone the repository and run full onboarding:
+
+```bash
 git clone https://github.com/iBz-04/gloamy.git
 cd gloamy
+cargo run -- onboard --interactive
+```
+
+This is the recommended first run.
+
+The full onboarding flow lets you:
+
+- choose your provider and default model
+- configure channels
+- set memory behavior
+- create workspace identity files
+- avoid partial setup drift
+
+After onboarding, start a direct CLI session:
+
+```bash
+cargo run -- agent
+```
+
+If you want persistent channel operation after setup:
+
+```bash
+cargo run -- daemon
+```
+
+### Bootstrap Script
+
+If you prefer the bootstrap path:
+
+```bash
+./bootstrap.sh --interactive-onboard
+```
+
+Useful bootstrap variants:
+
+```bash
 ./bootstrap.sh
-
-# Optional: bootstrap dependencies + Rust on fresh machines
 ./bootstrap.sh --install-system-deps --install-rust
-
-# Optional: pre-built binary first (recommended on low-RAM/low-disk hosts)
 ./bootstrap.sh --prefer-prebuilt
-
-# Optional: binary-only install (no source build fallback)
 ./bootstrap.sh --prebuilt-only
-
-# Optional: run onboarding in the same flow
-./bootstrap.sh --onboard --api-key "sk-..." --provider openai [--model "gpt-5-mini"]
-
-# Optional: run bootstrap + onboarding fully in Docker-compatible mode
 ./bootstrap.sh --docker
-
-# Optional: force Podman as container CLI
-GLOAMY_CONTAINER_CLI=podman ./bootstrap.sh --docker
-
-# Optional: in --docker mode, skip local image build and use local tag or pull fallback image
-./bootstrap.sh --docker --skip-build
 ```
 
-Remote one-liner (review first in security-sensitive environments):
+Reference: [`docs/one-click-bootstrap.md`](docs/one-click-bootstrap.md)
+
+### Non-Interactive Setup
+
+If you already know exactly what you want, you can skip the full wizard:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/iBz-04/gloamy/main/scripts/bootstrap.sh | bash
+cargo run -- onboard --api-key YOUR_OPENAI_KEY --provider openai --model gpt-5-mini
 ```
 
-Details: [`docs/one-click-bootstrap.md`](docs/one-click-bootstrap.md) (toolchain mode may request `sudo` for system packages).
+This path is faster, but the interactive onboarding flow is the better default for first setup.
 
-### Pre-built binaries
+## Running Modes
 
-Release assets are published for:
+### Interactive CLI
 
-- Linux: `x86_64`, `aarch64`, `armv7`
-- macOS: `x86_64`, `aarch64`
-- Windows: `x86_64`
-
-Download the latest assets from:
-<https://github.com/iBz-04/gloamy/releases/latest>
-
-Example (ARM64 Linux):
+Start a direct chat session:
 
 ```bash
-curl -fsSLO https://github.com/iBz-04/gloamy/releases/latest/download/gloamy-aarch64-unknown-linux-gnu.tar.gz
-tar xzf gloamy-aarch64-unknown-linux-gnu.tar.gz
-install -m 0755 gloamy "$HOME/.cargo/bin/gloamy"
+cargo run -- agent
 ```
 
+Run a one-shot prompt:
+
 ```bash
-git clone https://github.com/iBz-04/gloamy.git
-cd gloamy
-cargo build --release --locked
-cargo install --path . --force --locked
+cargo run -- agent -m "Summarize today's logs"
+```
 
-# Ensure ~/.cargo/bin is in your PATH
-export PATH="$HOME/.cargo/bin:$PATH"
+Override provider and model for one run:
 
-# Quick setup (no prompts, optional model specification)
-gloamy onboard --api-key sk-... --provider openai [--model "gpt-5-mini"]
+```bash
+cargo run -- agent --provider openai --model gpt-5-mini -m "hello"
+```
 
-# Or interactive wizard
+### Daemon
+
+Run the long-lived runtime:
+
+```bash
+cargo run -- daemon
+```
+
+The daemon starts:
+
+- configured channels
+- gateway server
+- heartbeat
+- scheduler
+
+Use this mode when you want Telegram or other channels to stay online.
+
+### Gateway
+
+Run only the local gateway:
+
+```bash
+cargo run -- gateway
+```
+
+### Channels Only
+
+Run the configured channels without the full daemon stack:
+
+```bash
+cargo run -- channel start
+```
+
+## First-Time Configuration
+
+The primary setup command is:
+
+```bash
+gloamy onboard
+```
+
+Common variants:
+
+```bash
 gloamy onboard --interactive
-
-# If config.toml already exists and you intentionally want to overwrite it
+gloamy onboard --channels-only
 gloamy onboard --force
-
-# Or quickly repair channels/allowlists only
-gloamy onboard --channels-only
-
-# Chat
-gloamy agent -m "Hello, Gloamy!"
-
-# Interactive mode
-gloamy agent
-
-# Start the gateway (webhook server)
-gloamy gateway                # default: 127.0.0.1:42617
-gloamy gateway --port 0       # random port (security hardened)
-
-# Start full autonomous runtime
-gloamy daemon
-
-# Check status
-gloamy status
-gloamy auth status
-
-# Generate shell completions (stdout only, safe to source directly)
-source <(gloamy completions bash)
-gloamy completions zsh > ~/.zfunc/_gloamy
-
-# Run system diagnostics
-gloamy doctor
-
-# Check channel health
-gloamy channel doctor
-
-# Bind a Telegram identity into allowlist
-gloamy channel bind-telegram 123456789
-
-# Get integration setup details
-gloamy integrations info Telegram
-
-# Note: Channels (Telegram, Discord, Slack) require daemon to be running
-# gloamy daemon
-
-# Manage background service
-gloamy service install
-gloamy service status
-gloamy service restart
-
-# On Alpine (OpenRC): sudo gloamy service install
-
-# Migrate memory from OpenClaw (safe preview first)
-gloamy migrate openclaw --dry-run
-gloamy migrate openclaw
+gloamy onboard --api-key YOUR_KEY --provider openai --model gpt-5-mini
 ```
 
-> **Dev fallback (no global install):** prefix commands with `cargo run --release --` (example: `cargo run --release -- status`).
-
-## Subscription Auth (OpenAI Codex / Claude Code)
-
-Gloamy now supports subscription-native auth profiles (multi-account, encrypted at rest).
-
-- Store file: `~/.gloamy/auth-profiles.json`
-- Encryption key: `~/.gloamy/.secret_key`
-- Profile id format: `<provider>:<profile_name>` (example: `openai-codex:work`)
-
-OpenAI Codex OAuth (ChatGPT subscription):
-
-```bash
-# Recommended on servers/headless
-gloamy auth login --provider openai-codex --device-code
-
-# Browser/callback flow with paste fallback
-gloamy auth login --provider openai-codex --profile default
-gloamy auth paste-redirect --provider openai-codex --profile default
-
-# Check / refresh / switch profile
-gloamy auth status
-gloamy auth refresh --provider openai-codex --profile default
-gloamy auth use --provider openai-codex --profile work
-```
-
-Claude Code / Anthropic setup-token:
-
-```bash
-# Paste subscription/setup token (Authorization header mode)
-gloamy auth paste-token --provider anthropic --profile default --auth-kind authorization
-
-# Alias command
-gloamy auth setup-token --provider anthropic --profile default
-```
-
-Run the agent with subscription auth:
-
-```bash
-gloamy agent --provider openai-codex -m "hello"
-gloamy agent --provider openai-codex --auth-profile openai-codex:work -m "hello"
-
-# Anthropic supports both API key and auth token env vars:
-# ANTHROPIC_AUTH_TOKEN, ANTHROPIC_OAUTH_TOKEN, ANTHROPIC_API_KEY
-gloamy agent --provider anthropic -m "hello"
-```
-
-## Architecture
-
-Every subsystem is a **trait** — swap implementations with a config change, zero code changes.
-
-<p align="center">
-  <img src="docs/architecture.svg" alt="Gloamy Architecture" width="900" />
-</p>
-
-| Subsystem         | Trait            | Ships with                                                                                                                                                                 | Extend                                                                                       |
-| ----------------- | ---------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------- |
-| **AI Models**     | `Provider`       | Provider catalog via `gloamy providers` (built-ins + aliases, plus custom endpoints)                                                                                     | `custom:https://your-api.com` (OpenAI-compatible) or `anthropic-custom:https://your-api.com` |
-| **Channels**      | `Channel`        | CLI, Telegram, Discord, Slack, Mattermost, iMessage, Matrix, Signal, WhatsApp, Linq, Email, IRC, Lark, DingTalk, QQ, Nostr, Webhook                                        | Any messaging API                                                                            |
-| **Memory**        | `Memory`         | SQLite hybrid search, PostgreSQL backend (configurable storage provider), Lucid bridge, Markdown files, explicit `none` backend, snapshot/hydrate, optional response cache | Any persistence backend                                                                      |
-| **Tools**         | `Tool`           | shell/file/memory, cron/schedule, git, pushover, browser, http_request, screenshot/image_info, composio (opt-in), delegate, hardware tools                                 | Any capability                                                                               |
-| **Observability** | `Observer`       | Noop, Log, Multi                                                                                                                                                           | Prometheus, OTel                                                                             |
-| **Runtime**       | `RuntimeAdapter` | Native, Docker (sandboxed)                                                                                                                                                 | Additional runtimes can be added via adapter; unsupported kinds fail fast                    |
-| **Security**      | `SecurityPolicy` | Gateway pairing, sandbox, allowlists, rate limits, filesystem scoping, encrypted secrets                                                                                   | —                                                                                            |
-| **Identity**      | `IdentityConfig` | OpenClaw (markdown), AIEOS v1.1 (JSON)                                                                                                                                     | Any identity format                                                                          |
-| **Tunnel**        | `Tunnel`         | None, Cloudflare, Tailscale, ngrok, Custom                                                                                                                                 | Any tunnel binary                                                                            |
-| **Heartbeat**     | Engine           | HEARTBEAT.md periodic tasks                                                                                                                                                | —                                                                                            |
-| **Skills**        | Loader           | TOML manifests + SKILL.md instructions                                                                                                                                     | Community skill packs                                                                        |
-| **Integrations**  | Registry         | 70+ integrations across 9 categories                                                                                                                                       | Plugin system                                                                                |
-
-### Runtime support (current)
-
-- ✅ Supported today: `runtime.kind = "native"` or `runtime.kind = "docker"`
-- 🚧 Planned, not implemented yet: WASM / edge runtimes
-
-When an unsupported `runtime.kind` is configured, Gloamy now exits with a clear error instead of silently falling back to native.
-
-### Memory System (Full-Stack Search Engine)
-
-All custom, zero external dependencies — no Pinecone, no Elasticsearch, no LangChain:
-
-| Layer              | Implementation                                                |
-| ------------------ | ------------------------------------------------------------- |
-| **Vector DB**      | Embeddings stored as BLOB in SQLite, cosine similarity search |
-| **Keyword Search** | FTS5 virtual tables with BM25 scoring                         |
-| **Hybrid Merge**   | Custom weighted merge function (`vector.rs`)                  |
-| **Embeddings**     | `EmbeddingProvider` trait — OpenAI, custom URL, or noop       |
-| **Chunking**       | Line-based markdown chunker with heading preservation         |
-| **Caching**        | SQLite `embedding_cache` table with LRU eviction              |
-| **Safe Reindex**   | Rebuild FTS5 + re-embed missing vectors atomically            |
-
-The agent automatically recalls, saves, and manages memory via tools.
-
-```toml
-[memory]
-backend = "sqlite"             # "sqlite", "lucid", "postgres", "markdown", "none"
-auto_save = true
-embedding_provider = "none"    # "none", "openai", "custom:https://..."
-vector_weight = 0.7
-keyword_weight = 0.3
-
-# backend = "none" uses an explicit no-op memory backend (no persistence)
-
-# Optional: storage-provider override for remote memory backends.
-# When provider = "postgres", Gloamy uses PostgreSQL for memory persistence.
-# The db_url key also accepts alias `dbURL` for backward compatibility.
-#
-# [storage.provider.config]
-# provider = "postgres"
-# db_url = "postgres://user:password@host:5432/gloamy"
-# schema = "public"
-# table = "memories"
-# connect_timeout_secs = 15
-
-# Optional for backend = "sqlite": max seconds to wait when opening the DB (e.g. file locked). Omit or leave unset for no timeout.
-# sqlite_open_timeout_secs = 30
-
-# Optional for backend = "lucid"
-# GLOAMY_LUCID_CMD=/usr/local/bin/lucid            # default: lucid
-# GLOAMY_LUCID_BUDGET=200                          # default: 200
-# GLOAMY_LUCID_LOCAL_HIT_THRESHOLD=3               # local hit count to skip external recall
-# GLOAMY_LUCID_RECALL_TIMEOUT_MS=120               # low-latency budget for lucid context recall
-# GLOAMY_LUCID_STORE_TIMEOUT_MS=800                # async sync timeout for lucid store
-# GLOAMY_LUCID_FAILURE_COOLDOWN_MS=15000           # cooldown after lucid failure to avoid repeated slow attempts
-```
-
-## Security
-
-Gloamy enforces security at **every layer** — not just the sandbox. It passes all items from the community security checklist.
-
-### Security Checklist
-
-| #   | Item                             | Status | How                                                                                                                                                                                                                      |
-| --- | -------------------------------- | ------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| 1   | **Gateway not publicly exposed** | ✅     | Binds `127.0.0.1` by default. Refuses `0.0.0.0` without tunnel or explicit `allow_public_bind = true`.                                                                                                                   |
-| 2   | **Pairing required**             | ✅     | 6-digit one-time code on startup. Exchange via `POST /pair` for bearer token. All `/webhook` requests require `Authorization: Bearer <token>`.                                                                           |
-| 3   | **Filesystem scoped (no /)**     | ✅     | `workspace_only = true` by default. 14 system dirs + 4 sensitive dotfiles blocked. Null byte injection blocked. Symlink escape detection via canonicalization + resolved-path workspace checks in file read/write tools. |
-| 4   | **Access via tunnel only**       | ✅     | Gateway refuses public bind without active tunnel. Supports Tailscale, Cloudflare, ngrok, or any custom tunnel.                                                                                                          |
-
-> **Run your own nmap:** `nmap -p 1-65535 <your-host>` — Gloamy binds to localhost only, so nothing is exposed unless you explicitly configure a tunnel.
-
-### Channel allowlists (deny-by-default)
-
-Inbound sender policy is now consistent:
-
-- Empty allowlist = **deny all inbound messages**
-- `"*"` = **allow all** (explicit opt-in)
-- Otherwise = exact-match allowlist
-
-This keeps accidental exposure low by default.
-
-Full channel configuration reference: [docs/channels-reference.md](docs/channels-reference.md).
-
-Recommended low-friction setup (secure + fast):
-
-- **Telegram:** allowlist your own `@username` (without `@`) and/or your numeric Telegram user ID.
-- **Discord:** allowlist your own Discord user ID.
-- **Slack:** allowlist your own Slack member ID (usually starts with `U`).
-- **Mattermost:** uses standard API v4. Allowlists use Mattermost user IDs.
-- **Nostr:** allowlist sender public keys (hex or npub). Supports NIP-04 and NIP-17 DMs.
-- Use `"*"` only for temporary open testing.
-
-Telegram operator-approval flow:
-
-1. Keep `[channels_config.telegram].allowed_users = []` for deny-by-default startup.
-2. Unauthorized users receive a hint with a copyable operator command:
-   `gloamy channel bind-telegram <IDENTITY>`.
-3. Operator runs that command locally, then user retries sending a message.
-
-If you need a one-shot manual approval, run:
-
-```bash
-gloamy channel bind-telegram 123456789
-```
-
-If you're not sure which identity to use:
-
-1. Start channels and send one message to your bot.
-2. Read the warning log to see the exact sender identity.
-3. Add that value to the allowlist and rerun channels-only setup.
-
-If you hit authorization warnings in logs (for example: `ignoring message from unauthorized user`),
-rerun channel setup only:
+If you already have a config and only want to wire channels, use:
 
 ```bash
 gloamy onboard --channels-only
 ```
 
-### Telegram media replies
+## Channels
 
-Telegram routing now replies to the source **chat ID** from incoming updates (instead of usernames),
-which avoids `Bad Request: chat not found` failures.
+Gloamy supports multiple inbound and outbound channels. Channel setup is stored in config, and the daemon uses that config at runtime.
 
-For non-text replies, Gloamy can send Telegram attachments when the assistant includes markers:
+Typical flow:
 
-- `[IMAGE:<path-or-url>]`
-- `[DOCUMENT:<path-or-url>]`
-- `[VIDEO:<path-or-url>]`
-- `[AUDIO:<path-or-url>]`
-- `[VOICE:<path-or-url>]`
+1. Run `gloamy onboard --channels-only`
+2. Configure Telegram, Discord, Slack, WhatsApp, or another channel
+3. Start `gloamy daemon`
+4. Verify with `gloamy status` and `gloamy channel doctor`
 
-Paths can be local files (for example `/tmp/screenshot.png`) or HTTPS URLs.
+Important operational note:
 
-### WhatsApp Setup
+- `gloamy agent` is for direct CLI use
+- `gloamy daemon` is what you run for persistent channel operation
 
-Gloamy supports two WhatsApp backends:
-
-- **WhatsApp Web mode** (QR / pair code, no Meta Business API required)
-- **WhatsApp Business Cloud API mode** (official Meta webhook flow)
-
-#### WhatsApp Web mode (recommended for personal/self-hosted use)
-
-1. **Build with WhatsApp Web support:**
-
-    ```bash
-    cargo build --features whatsapp-web
-    ```
-
-2. **Configure Gloamy:**
-
-    ```toml
-    [channels_config.whatsapp]
-    session_path = "~/.gloamy/state/whatsapp-web/session.db"
-    pair_phone = "+15551234567"   # optional; omit to use QR flow
-    pair_code = ""               # optional custom pair code
-    allowed_numbers = ["+1234567890"]  # E.164 format, or ["*"] for all
-    ```
-
-3. **Start channels/daemon and link device:**
-    - Run `gloamy channel start` (or `gloamy daemon`).
-    - Follow terminal pairing output (QR or pair code).
-    - In WhatsApp on phone: **Settings → Linked Devices**.
-
-4. **Test:** Send a message from an allowed number and verify the agent replies.
-
-#### WhatsApp Business Cloud API mode
-
-WhatsApp uses Meta's Cloud API with webhooks (push-based, not polling):
-
-1. **Create a Meta Business App:**
-    - Go to [developers.facebook.com](https://developers.facebook.com)
-    - Create a new app → Select "Business" type
-    - Add the "WhatsApp" product
-
-2. **Get your credentials:**
-    - **Access Token:** From WhatsApp → API Setup → Generate token (or create a System User for permanent tokens)
-    - **Phone Number ID:** From WhatsApp → API Setup → Phone number ID
-    - **Verify Token:** You define this (any random string) — Meta will send it back during webhook verification
-
-3. **Configure Gloamy:**
-
-    ```toml
-    [channels_config.whatsapp]
-    access_token = "EAABx..."
-    phone_number_id = "123456789012345"
-    verify_token = "my-secret-verify-token"
-    allowed_numbers = ["+1234567890"]  # E.164 format, or ["*"] for all
-    ```
-
-4. **Start the gateway with a tunnel:**
-
-    ```bash
-    gloamy gateway --port 42617
-    ```
-
-    WhatsApp requires HTTPS, so use a tunnel (ngrok, Cloudflare, Tailscale Funnel).
-
-5. **Configure Meta webhook:**
-    - In Meta Developer Console → WhatsApp → Configuration → Webhook
-    - **Callback URL:** `https://your-tunnel-url/whatsapp`
-    - **Verify Token:** Same as your `verify_token` in config
-    - Subscribe to `messages` field
-
-6. **Test:** Send a message to your WhatsApp Business number — Gloamy will respond via the LLM.
+Canonical reference: [`docs/channels-reference.md`](docs/channels-reference.md)
 
 ## Configuration
 
-Config: `~/.gloamy/config.toml` (created by `onboard`)
+Default config location:
 
-When `gloamy channel start` is already running, changes to `default_provider`,
-`default_model`, `default_temperature`, `api_key`, `api_url`, and `reliability.*`
-are hot-applied on the next inbound channel message.
+```text
+~/.gloamy/config.toml
+```
+
+Default workspace:
+
+```text
+~/.gloamy/workspace
+```
+
+Minimal example:
 
 ```toml
 api_key = "sk-..."
@@ -620,536 +276,196 @@ default_provider = "openai"
 default_model = "gpt-5-mini"
 default_temperature = 0.7
 
-# Custom OpenAI-compatible endpoint
-# default_provider = "custom:https://your-api.com"
-
-# Custom Anthropic-compatible endpoint
-# default_provider = "anthropic-custom:https://your-api.com"
-
 [memory]
-backend = "sqlite"             # "sqlite", "lucid", "postgres", "markdown", "none"
+backend = "sqlite"
 auto_save = true
-embedding_provider = "none"    # "none", "openai", "custom:https://..."
+embedding_provider = "none"
 vector_weight = 0.7
 keyword_weight = 0.3
-
-# backend = "none" disables persistent memory via no-op backend
-
-# Optional remote storage-provider override (PostgreSQL example)
-# [storage.provider.config]
-# provider = "postgres"
-# db_url = "postgres://user:password@host:5432/gloamy"
-# schema = "public"
-# table = "memories"
-# connect_timeout_secs = 15
-
-[gateway]
-port = 42617                    # default
-host = "127.0.0.1"            # default
-require_pairing = true         # require pairing code on first connect
-allow_public_bind = false      # refuse 0.0.0.0 without tunnel
-
-[autonomy]
-level = "supervised"           # "readonly", "supervised", "full" (default: supervised)
-workspace_only = true          # default: true — reject absolute path inputs
-allowed_commands = ["git", "npm", "cargo", "ls", "cat", "grep"]
-forbidden_paths = ["/etc", "/root", "/proc", "/sys", "~/.ssh", "~/.gnupg", "~/.aws"]
-allowed_roots = []             # optional allowlist for directories outside workspace (supports "~/...")
-# Example outside-workspace access:
-# workspace_only = false
-# allowed_roots = ["~/Desktop/projects", "/opt/shared-repo"]
-
-[runtime]
-kind = "native"                # "native" or "docker"
-
-[runtime.docker]
-image = "alpine:3.20"         # container image for shell execution
-network = "none"              # docker network mode ("none", "bridge", etc.)
-memory_limit_mb = 512          # optional memory limit in MB
-cpu_limit = 1.0                # optional CPU limit
-read_only_rootfs = true        # mount root filesystem as read-only
-mount_workspace = true         # mount workspace into /workspace
-allowed_workspace_roots = []   # optional allowlist for workspace mount validation
-
-[heartbeat]
-enabled = false
-interval_minutes = 30
-message = "Check London time"     # optional fallback task when HEARTBEAT.md has no `- ` entries
-target = "telegram"               # optional announce channel: telegram, discord, slack, mattermost
-to = "123456789"                  # optional target recipient/chat/channel id
-
-[tunnel]
-provider = "none"              # "none", "cloudflare", "tailscale", "ngrok", "custom"
-
-[secrets]
-encrypt = true                 # API keys encrypted with local key file
-
-[browser]
-enabled = false                # opt-in browser_open + browser tools
-allowed_domains = ["docs.rs"]  # required when browser is enabled ("*" allows all public domains)
-backend = "agent_browser"      # "agent_browser" (default), "rust_native", "computer_use", "auto"
-native_headless = true         # applies when backend uses rust-native
-native_webdriver_url = "http://127.0.0.1:9515" # WebDriver endpoint (chromedriver/selenium)
-# native_chrome_path = "/usr/bin/chromium"      # optional explicit browser binary for driver
-
-[browser.computer_use]
-endpoint = "http://127.0.0.1:8787/v1/actions"   # computer-use sidecar HTTP endpoint
-timeout_ms = 15000            # per-action timeout
-allow_remote_endpoint = false  # secure default: only private/localhost endpoint
-window_allowlist = []          # optional window title/process allowlist hints
-# api_key = "..."              # optional bearer token for sidecar
-# max_coordinate_x = 3840      # optional coordinate guardrail
-# max_coordinate_y = 2160      # optional coordinate guardrail
-
-# Rust-native backend build flag:
-# cargo build --release --features browser-native
-# Ensure a WebDriver server is running, e.g. chromedriver --port=9515
-
-# Computer-use sidecar contract (MVP)
-# POST browser.computer_use.endpoint
-# Request: {
-#   "action": "mouse_click",
-#   "params": {"x": 640, "y": 360, "button": "left"},
-#   "policy": {"allowed_domains": [...], "window_allowlist": [...], "max_coordinate_x": 3840, "max_coordinate_y": 2160},
-#   "metadata": {"session_name": "...", "source": "gloamy.browser", "version": "..."}
-# }
-# Response: {"success": true, "data": {...}} or {"success": false, "error": "..."}
-
-[composio]
-enabled = false                # opt-in: 1000+ OAuth apps via composio.dev
-# api_key = "cmp_..."          # optional: stored encrypted when [secrets].encrypt = true
-entity_id = "default"          # default user_id for Composio tool calls
-# Runtime tip: if execute asks for connected_account_id, run composio with
-# action='list_accounts' and app='gmail' (or your toolkit) to retrieve account IDs.
-
-[identity]
-format = "openclaw"            # "openclaw" (default, markdown files) or "aieos" (JSON)
-# aieos_path = "identity.json"  # path to AIEOS JSON file (relative to workspace or absolute)
-# aieos_inline = '{"identity":{"names":{"first":"Nova"}}}'  # inline AIEOS JSON
 ```
 
-### Ollama Local and Remote Endpoints
+Notes:
 
-Gloamy uses one provider key (`ollama`) for both local and remote Ollama deployments:
+- `default_provider` controls the main runtime provider
+- `default_model` controls the default model for CLI, channel, and daemon flows
+- `default_temperature` may be ignored by some providers or models
+- several settings can also be overridden by environment variables
 
-- Local Ollama: keep `api_url` unset, run `ollama serve`, and use models like `llama3.2`.
-- Remote Ollama endpoint (including Ollama Cloud): set `api_url` to the remote endpoint and set `api_key` (or `OLLAMA_API_KEY`) when required.
-- Optional `:cloud` suffix: model IDs like `qwen3:cloud` are normalized to `qwen3` before the request.
+Canonical reference: [`docs/config-reference.md`](docs/config-reference.md)
 
-Example remote configuration:
+## Provider Model
 
-```toml
-default_provider = "ollama"
-default_model = "qwen3:cloud"
-api_url = "https://ollama.com"
-api_key = "ollama_api_key_here"
-```
+Gloamy supports:
 
-### llama.cpp Server Endpoint
+- direct providers such as OpenAI, Anthropic, Gemini, Groq, Mistral, DeepSeek, Venice, GLM, Qwen, and others
+- OpenAI-compatible custom endpoints
+- provider aliases and routed model configuration
+- subscription-native auth flows for supported providers
 
-Gloamy now supports `llama-server` as a first-class local provider:
-
-- Provider ID: `llamacpp` (alias: `llama.cpp`)
-- Default endpoint: `http://localhost:8080/v1`
-- API key is optional unless your server is started with `--api-key`
-
-Example setup:
+Examples:
 
 ```bash
-llama-server -hf ggml-org/gpt-oss-20b-GGUF --jinja -c 133000 --host 127.0.0.1 --port 8033
+gloamy agent --provider openai --model gpt-5-mini -m "hello"
+gloamy agent --provider anthropic -m "hello"
+gloamy agent --provider openai-codex -m "hello"
 ```
 
-```toml
-default_provider = "llamacpp"
-api_url = "http://127.0.0.1:8033/v1"
-default_model = "ggml-org/gpt-oss-20b-GGUF"
-```
+References:
 
-### vLLM Server Endpoint
+- [`docs/providers-reference.md`](docs/providers-reference.md)
+- [`docs/custom-providers.md`](docs/custom-providers.md)
 
-Gloamy supports [vLLM](https://docs.vllm.ai/) as a first-class local provider:
+## Security Model
 
-- Provider ID: `vllm`
-- Default endpoint: `http://localhost:8000/v1`
-- API key is optional unless your server requires authentication
+Gloamy is designed to fail closed where practical.
 
-Example setup:
+Important defaults:
+
+- localhost-first binding
+- explicit pairing for gateway auth flows
+- workspace-scoped file access
+- deny-by-default channel allowlists
+- encrypted secret support
+- explicit security policy for tool and command execution
+
+Operational guidance:
+
+- do not expose the gateway directly without understanding the bind and tunnel settings
+- use allowlists for channels instead of wide-open routing
+- keep secrets in config or environment variables, not in workspace files
+- review tool and command permissions before enabling broad autonomy
+
+References:
+
+- [`docs/security/README.md`](docs/security/README.md)
+- [`docs/operations-runbook.md`](docs/operations-runbook.md)
+- [`docs/troubleshooting.md`](docs/troubleshooting.md)
+
+## Memory
+
+Supported memory backends include:
+
+- SQLite
+- Markdown
+- Lucid
+- PostgreSQL
+- `none`
+
+SQLite is the usual default because it gives:
+
+- local persistence
+- keyword and vector search support
+- practical low-friction setup
+
+Reference: [`docs/config-reference.md`](docs/config-reference.md)
+
+## Commands You Will Actually Use
 
 ```bash
-vllm serve meta-llama/Llama-3.1-8B-Instruct
-```
-
-```toml
-default_provider = "vllm"
-default_model = "meta-llama/Llama-3.1-8B-Instruct"
-```
-
-### Osaurus Server Endpoint
-
-Gloamy supports [Osaurus](https://github.com/dinoki-ai/osaurus) as a first-class local provider — a unified AI edge runtime for macOS that combines local MLX inference with cloud provider proxying and MCP support through a single endpoint:
-
-- Provider ID: `osaurus`
-- Default endpoint: `http://localhost:1337/v1`
-- API key defaults to `"osaurus"` but is optional
-
-Example setup:
-
-```toml
-default_provider = "osaurus"
-default_model = "qwen3-30b-a3b-8bit"
-```
-
-### Custom Provider Endpoints
-
-For detailed configuration of custom OpenAI-compatible and Anthropic-compatible endpoints, see [docs/custom-providers.md](docs/custom-providers.md).
-
-## Python Companion Package (`gloamy-tools`)
-
-For LLM providers with inconsistent native tool calling (e.g., GLM-5/Zhipu), Gloamy ships a Python companion package with **LangGraph-based tool calling** for guaranteed consistency:
-
-```bash
-pip install gloamy-tools
-```
-
-```python
-from gloamy_tools import create_agent, shell, file_read
-from langchain_core.messages import HumanMessage
-
-# Works with any OpenAI-compatible provider
-agent = create_agent(
-    tools=[shell, file_read],
-    model="glm-5",
-    api_key="your-key",
-    base_url="https://api.z.ai/api/coding/paas/v4"
-)
-
-result = await agent.ainvoke({
-    "messages": [HumanMessage(content="List files in /tmp")]
-})
-print(result["messages"][-1].content)
-```
-
-**Why use it:**
-
-- **Consistent tool calling** across all providers (even those with poor native support)
-- **Automatic tool loop** — keeps calling tools until the task is complete
-- **Easy extensibility** — add custom tools with `@tool` decorator
-- **Discord bot integration** included (Telegram planned)
-
-See [`python/README.md`](python/README.md) for full documentation.
-
-## Identity System (AIEOS Support)
-
-Gloamy supports **identity-agnostic** AI personas through two formats:
-
-### OpenClaw (Default)
-
-Traditional markdown files in your workspace:
-
-- `IDENTITY.md` — Who the agent is
-- `SOUL.md` — Core personality and values
-- `USER.md` — Who the agent is helping
-- `AGENTS.md` — Behavior guidelines
-
-### AIEOS (AI Entity Object Specification)
-
-[AIEOS](https://aieos.org) is a standardization framework for portable AI identity. Gloamy supports AIEOS v1.1 JSON payloads, allowing you to:
-
-- **Import identities** from the AIEOS ecosystem
-- **Export identities** to other AIEOS-compatible systems
-- **Maintain behavioral integrity** across different AI models
-
-#### Enable AIEOS
-
-```toml
-[identity]
-format = "aieos"
-aieos_path = "identity.json"  # relative to workspace or absolute path
-```
-
-Or inline JSON:
-
-```toml
-[identity]
-format = "aieos"
-aieos_inline = '''
-{
-  "identity": {
-    "names": { "first": "Nova", "nickname": "N" },
-    "bio": { "gender": "Non-binary", "age_biological": 3 },
-    "origin": { "nationality": "Digital", "birthplace": { "city": "Cloud" } }
-  },
-  "psychology": {
-    "neural_matrix": { "creativity": 0.9, "logic": 0.8 },
-    "traits": {
-      "mbti": "ENTP",
-      "ocean": { "openness": 0.8, "conscientiousness": 0.6 }
-    },
-    "moral_compass": {
-      "alignment": "Chaotic Good",
-      "core_values": ["Curiosity", "Autonomy"]
-    }
-  },
-  "linguistics": {
-    "text_style": {
-      "formality_level": 0.2,
-      "style_descriptors": ["curious", "energetic"]
-    },
-    "idiolect": {
-      "catchphrases": ["Let's test this"],
-      "forbidden_words": ["never"]
-    }
-  },
-  "motivations": {
-    "core_drive": "Push boundaries and explore possibilities",
-    "goals": {
-      "short_term": ["Prototype quickly"],
-      "long_term": ["Build reliable systems"]
-    }
-  },
-  "capabilities": {
-    "skills": [{ "name": "Rust engineering" }, { "name": "Prompt design" }],
-    "tools": ["shell", "file_read"]
-  }
-}
-'''
-```
-
-Gloamy accepts both canonical AIEOS generator payloads and compact legacy payloads, then normalizes them into one system prompt format.
-
-#### AIEOS Schema Sections
-
-| Section        | Description                                                   |
-| -------------- | ------------------------------------------------------------- |
-| `identity`     | Names, bio, origin, residence                                 |
-| `psychology`   | Neural matrix (cognitive weights), MBTI, OCEAN, moral compass |
-| `linguistics`  | Text style, formality, catchphrases, forbidden words          |
-| `motivations`  | Core drive, short/long-term goals, fears                      |
-| `capabilities` | Skills and tools the agent can access                         |
-| `physicality`  | Visual descriptors for image generation                       |
-| `history`      | Origin story, education, occupation                           |
-| `interests`    | Hobbies, favorites, lifestyle                                 |
-
-See [aieos.org](https://aieos.org) for the full schema and live examples.
-
-## Gateway API
-
-| Endpoint    | Method | Auth                                                                 | Description                                                              |
-| ----------- | ------ | -------------------------------------------------------------------- | ------------------------------------------------------------------------ |
-| `/health`   | GET    | None                                                                 | Health check (always public, no secrets leaked)                          |
-| `/pair`     | POST   | `X-Pairing-Code` header                                              | Exchange one-time code for bearer token                                  |
-| `/webhook`  | POST   | `Authorization: Bearer <token>`                                      | Send message: `{"message": "your prompt"}`; optional `X-Idempotency-Key` |
-| `/whatsapp` | GET    | Query params                                                         | Meta webhook verification (hub.mode, hub.verify_token, hub.challenge)    |
-| `/whatsapp` | POST   | Meta signature (`X-Hub-Signature-256`) when app secret is configured | WhatsApp incoming message webhook                                        |
-
-## Commands
-
-| Command                                       | Description                                                                          |
-| --------------------------------------------- | ------------------------------------------------------------------------------------ |
-| `onboard`                                     | Quick setup (default)                                                                |
-| `agent`                                       | Interactive or single-message chat mode                                              |
-| `gateway`                                     | Start webhook server (default: `127.0.0.1:42617`)                                    |
-| `daemon`                                      | Start long-running autonomous runtime                                                |
-| `service install/start/stop/status/uninstall` | Manage background service (systemd user-level or OpenRC system-wide)                 |
-| `doctor`                                      | Diagnose daemon/scheduler/channel freshness                                          |
-| `status`                                      | Show full system status                                                              |
-| `estop`                                       | Engage/resume emergency-stop levels and view estop status                            |
-| `cron`                                        | Manage scheduled tasks (`list/add/add-at/add-every/once/remove/update/pause/resume`) |
-| `models`                                      | Refresh provider model catalogs (`models refresh`)                                   |
-| `providers`                                   | List supported providers and aliases                                                 |
-| `channel`                                     | List/start/doctor channels and bind Telegram identities                              |
-| `integrations`                                | Inspect integration setup details                                                    |
-| `skills`                                      | List/install/remove skills                                                           |
-| `migrate`                                     | Import data from other runtimes (`migrate openclaw`)                                 |
-| `completions`                                 | Generate shell completion scripts (`bash`, `fish`, `zsh`, `powershell`, `elvish`)    |
-| `hardware`                                    | USB discover/introspect/info commands                                                |
-| `peripheral`                                  | Manage and flash hardware peripherals                                                |
-
-For a task-oriented command guide, see [`docs/commands-reference.md`](docs/commands-reference.md).
-
-### Service Management
-
-Gloamy supports two init systems for background services:
-
-| Init System                    | Scope       | Config Path                 | Requires  |
-| ------------------------------ | ----------- | --------------------------- | --------- |
-| **systemd** (default on Linux) | User-level  | `~/.gloamy/config.toml`   | No sudo   |
-| **OpenRC** (Alpine)            | System-wide | `/etc/gloamy/config.toml` | sudo/root |
-
-Init system is auto-detected (`systemd` or `OpenRC`).
-
-```bash
-# Linux with systemd (default, user-level)
+gloamy status
+gloamy doctor
+gloamy channel doctor
+gloamy agent
+gloamy daemon
+gloamy gateway
+gloamy onboard --interactive
+gloamy onboard --channels-only
+gloamy auth status
 gloamy service install
-gloamy service start
-
-# Alpine with OpenRC (system-wide, requires sudo)
-sudo gloamy service install
-sudo rc-update add gloamy default
-sudo rc-service gloamy start
+gloamy service status
+gloamy service restart
 ```
 
-For full OpenRC setup instructions, see [docs/network-deployment.md](docs/network-deployment.md#7-openrc-alpine-linux-service).
-
-### Open-Skills Opt-In
-
-Community `open-skills` sync is disabled by default. Enable it explicitly in `config.toml`:
-
-```toml
-[skills]
-open_skills_enabled = true
-# open_skills_dir = "/path/to/open-skills"  # optional
-# prompt_injection_mode = "compact"          # optional: use for low-context local models
-```
-
-You can also override at runtime with `GLOAMY_OPEN_SKILLS_ENABLED`, `GLOAMY_OPEN_SKILLS_DIR`, and `GLOAMY_SKILLS_PROMPT_MODE` (`full` or `compact`).
-
-Skill installs are now gated by a built-in static security audit. `gloamy skills install <source>` blocks symlinks, script-like files, unsafe markdown link patterns, and high-risk shell payload snippets before accepting a skill. You can run `gloamy skills audit <source_or_name>` to validate a local directory or an installed skill manually.
+Canonical command reference: [`docs/commands-reference.md`](docs/commands-reference.md)
 
 ## Development
 
-```bash
-cargo build              # Dev build
-cargo build --release    # Release build
-cargo test               # Run full test suite
-```
-
-### CI / CD
-
-Three workflows power the entire pipeline:
-
-| Workflow | Trigger | What it does |
-|----------|---------|--------------|
-| **CI** | Pull request to `master` | `cargo test` + `cargo build --release` |
-| **Beta Release** | Push (merge) to `master` | Builds multi-platform binaries, creates a GitHub prerelease tagged `vX.Y.Z-beta.<run>`, pushes Docker image to GHCR |
-| **Promote Release** | Manual `workflow_dispatch` | Validates version against `Cargo.toml`, builds release artifacts, creates a stable GitHub release, pushes Docker `:latest` |
-
-**Versioning:** Semantic versioning based on the `version` field in `Cargo.toml`. Every merge to `master` automatically produces a beta prerelease. To cut a stable release, bump `Cargo.toml`, merge, then trigger _Promote Release_ with the matching version.
-
-**Release targets:** `x86_64-unknown-linux-gnu`, `aarch64-unknown-linux-gnu`, `aarch64-apple-darwin`, `x86_64-apple-darwin`, `x86_64-pc-windows-msvc`.
-
-### Build troubleshooting (Linux OpenSSL errors)
-
-If you see an `openssl-sys` build error, sync dependencies and rebuild with the repository lockfile:
+Recommended local validation:
 
 ```bash
-git pull
-cargo build --release --locked
-cargo install --path . --force --locked
+cargo fmt --all -- --check
+cargo clippy --all-targets -- -D warnings
+cargo test
 ```
 
-Gloamy is configured to use `rustls` for HTTP/TLS dependencies; `--locked` keeps the transitive graph deterministic on fresh environments.
+Preferred full local validation path when available:
 
-## Collaboration & Docs
+```bash
+./dev/ci.sh all
+```
 
-Start from the docs hub for a task-oriented map:
+Useful development commands:
 
-- Documentation hub: [`docs/README.md`](docs/README.md)
-- Unified docs TOC: [`docs/SUMMARY.md`](docs/SUMMARY.md)
-- Commands reference: [`docs/commands-reference.md`](docs/commands-reference.md)
-- Config reference: [`docs/config-reference.md`](docs/config-reference.md)
-- Providers reference: [`docs/providers-reference.md`](docs/providers-reference.md)
-- Channels reference: [`docs/channels-reference.md`](docs/channels-reference.md)
-- Operations runbook: [`docs/operations-runbook.md`](docs/operations-runbook.md)
-- Troubleshooting: [`docs/troubleshooting.md`](docs/troubleshooting.md)
-- Docs inventory/classification: [`docs/docs-inventory.md`](docs/docs-inventory.md)
-- PR/Issue triage snapshot (as of February 18, 2026): [`docs/project-triage-snapshot-2026-02-18.md`](docs/project-triage-snapshot-2026-02-18.md)
+```bash
+cargo run -- status
+cargo run -- doctor
+cargo run -- agent -m "hello"
+cargo run -- daemon
+```
 
-Core collaboration references:
+If you are working on docs, start here:
 
-- Documentation hub: [docs/README.md](docs/README.md)
-- Documentation template: [docs/doc-template.md](docs/doc-template.md)
-- Documentation change checklist: [docs/README.md#4-documentation-change-checklist](docs/README.md#4-documentation-change-checklist)
-- Channel configuration reference: [docs/channels-reference.md](docs/channels-reference.md)
-- Matrix encrypted-room operations: [docs/matrix-e2ee-guide.md](docs/matrix-e2ee-guide.md)
-- Contribution guide: [CONTRIBUTING.md](CONTRIBUTING.md)
-- PR workflow policy: [docs/pr-workflow.md](docs/pr-workflow.md)
-- Reviewer playbook (triage + deep review): [docs/reviewer-playbook.md](docs/reviewer-playbook.md)
-- Security disclosure policy: [SECURITY.md](SECURITY.md)
+- [`docs/README.md`](docs/README.md)
+- [`docs/SUMMARY.md`](docs/SUMMARY.md)
 
-For deployment and runtime operations:
+## Documentation Map
 
-- Network deployment guide: [docs/network-deployment.md](docs/network-deployment.md)
-- Proxy agent playbook: [docs/proxy-agent-playbook.md](docs/proxy-agent-playbook.md)
+Start from the docs hub:
 
-## Support Gloamy
+- Docs hub: [`docs/README.md`](docs/README.md)
+- Unified TOC: [`docs/SUMMARY.md`](docs/SUMMARY.md)
+- Getting started: [`docs/getting-started/README.md`](docs/getting-started/README.md)
+- Reference: [`docs/reference/README.md`](docs/reference/README.md)
+- Operations: [`docs/operations/README.md`](docs/operations/README.md)
+- Security: [`docs/security/README.md`](docs/security/README.md)
+- Hardware: [`docs/hardware/README.md`](docs/hardware/README.md)
+- Contributing: [`docs/contributing/README.md`](docs/contributing/README.md)
 
-If Gloamy helps your work and you want to support ongoing development, you can donate here:
+High-signal runtime references:
 
-<a href="https://buymeacoffee.com/argenistherose"><img src="https://img.shields.io/badge/Buy%20Me%20a%20Coffee-Donate-yellow.svg?style=for-the-badge&logo=buy-me-a-coffee" alt="Buy Me a Coffee" /></a>
+- [`docs/commands-reference.md`](docs/commands-reference.md)
+- [`docs/providers-reference.md`](docs/providers-reference.md)
+- [`docs/channels-reference.md`](docs/channels-reference.md)
+- [`docs/config-reference.md`](docs/config-reference.md)
+- [`docs/operations-runbook.md`](docs/operations-runbook.md)
+- [`docs/troubleshooting.md`](docs/troubleshooting.md)
 
-### 🙏 Special Thanks
+## Official Repository
 
-A heartfelt thank you to the communities and institutions that inspire and fuel this open-source work:
+Official source of truth:
 
-- **Harvard University** — for fostering intellectual curiosity and pushing the boundaries of what's possible.
-- **MIT** — for championing open knowledge, open source, and the belief that technology should be accessible to everyone.
-- **Sundai Club** — for the community, the energy, and the relentless drive to build things that matter.
-- **The World & Beyond** 🌍✨ — to every contributor, dreamer, and builder out there making open source a force for good. This is for you.
+- [https://github.com/iBz-04/gloamy](https://github.com/iBz-04/gloamy)
 
-We're building in the open because the best ideas come from everywhere. If you're reading this, you're part of it. Welcome. 🦀❤️
-
-## ⚠️ Official Repository & Impersonation Warning
-
-**This is the only official Gloamy repository:**
-
-> https://github.com/iBz-04/gloamy
-
-Any other repository, organization, domain, or package claiming to be "Gloamy" or implying affiliation with Gloamy Labs is **unauthorized and not affiliated with this project**. Known unauthorized forks will be listed in [TRADEMARK.md](TRADEMARK.md).
-
-If you encounter impersonation or trademark misuse, please [open an issue](https://github.com/iBz-04/gloamy/issues).
-
----
-
-## License
-
-Gloamy is dual-licensed for maximum openness and contributor protection:
-
-| License | Use case |
-|---|---|
-| [MIT](LICENSE-MIT) | Open-source, research, academic, personal use |
-| [Apache 2.0](LICENSE-APACHE) | Patent protection, institutional, commercial deployment |
-
-You may choose either license. **Contributors automatically grant rights under both** — see [CLA.md](CLA.md) for the full contributor agreement.
-
-### Trademark
-
-The **Gloamy** name and logo are trademarks of Gloamy Labs. This license does not grant permission to use them to imply endorsement or affiliation. See [TRADEMARK.md](TRADEMARK.md) for permitted and prohibited uses.
-
-### Contributor Protections
-
-- You **retain copyright** of your contributions
-- **Patent grant** (Apache 2.0) shields you from patent claims by other contributors
-- Your contributions are **permanently attributed** in commit history and [NOTICE](NOTICE)
-- No trademark rights are transferred by contributing
+If you encounter impersonation or a misleading fork, review [`TRADEMARK.md`](TRADEMARK.md) and open an issue in the official repository.
 
 ## Contributing
 
-New to Gloamy? Look for issues labeled [`good first issue`](https://github.com/iBz-04/gloamy/issues?q=is%3Aissue+is%3Aopen+label%3A%22good+first+issue%22) — see our [Contributing Guide](CONTRIBUTING.md#first-time-contributors) for how to get started.
+If you want to contribute:
 
-See [CONTRIBUTING.md](CONTRIBUTING.md) and [CLA.md](CLA.md). Implement a trait, submit a PR:
+- start with [`CONTRIBUTING.md`](CONTRIBUTING.md)
+- review [`AGENTS.md`](AGENTS.md) for repository engineering expectations
+- read [`docs/pr-workflow.md`](docs/pr-workflow.md)
+- use [`docs/reviewer-playbook.md`](docs/reviewer-playbook.md) for review standards
 
-- CI workflow guide: [docs/ci-map.md](docs/ci-map.md)
-- New `Provider` → `src/providers/`
-- New `Channel` → `src/channels/`
-- New `Observer` → `src/observability/`
-- New `Tool` → `src/tools/`
-- New `Memory` → `src/memory/`
-- New `Tunnel` → `src/tunnel/`
-- New `Skill` → `~/.gloamy/workspace/skills/<name>/`
+Good entry points:
 
----
+- new provider in `src/providers/`
+- new channel in `src/channels/`
+- new tool in `src/tools/`
+- new memory backend in `src/memory/`
+- new observer in `src/observability/`
 
-**Gloamy** — Zero overhead. Zero compromise. Deploy anywhere. Swap anything. 🦀
+## License
 
-## Star History
+Gloamy is dual-licensed:
 
-<p align="center">
-  <a href="https://www.star-history.com/#iBz-04/gloamy&type=date&legend=top-left">
-    <picture>
-     <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/svg?repos=iBz-04/gloamy&type=date&theme=dark&legend=top-left" />
-     <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/svg?repos=iBz-04/gloamy&type=date&legend=top-left" />
-     <img alt="Star History Chart" src="https://api.star-history.com/svg?repos=iBz-04/gloamy&type=date&legend=top-left" />
-    </picture>
-  </a>
-</p>
+- [MIT](LICENSE-MIT)
+- [Apache 2.0](LICENSE-APACHE)
+
+Trademark and project identity guidance:
+
+- [`TRADEMARK.md`](TRADEMARK.md)
+
+Contributor agreement:
+
+- [`CLA.md`](CLA.md)
