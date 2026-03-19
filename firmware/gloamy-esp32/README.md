@@ -75,6 +75,3 @@ baud = 115200
 
 Default GPIO 2 and 13 are configured for output. Edit `src/main.rs` to add more pins or change for your board. ESP32-C3 has different pin layout — adjust UART pins (gpio21/gpio20) if needed.
 
-## Edge-Native (Future)
-
-Phase 6 also envisions Gloamy running *on* the ESP32 (WiFi + LLM). This firmware is the host-mediated serial peripheral; edge-native will be a separate crate.

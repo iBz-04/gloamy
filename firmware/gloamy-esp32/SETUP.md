@@ -1,6 +1,6 @@
 # ESP32 Firmware Setup Guide
 
-Step-by-step setup for building the Gloamy ESP32 firmware. Follow this if you run into issues.
+Step-by-step setup for building the Gloamy ESP32 firmware. 
 
 ## Quick Start (copy-paste)
 
