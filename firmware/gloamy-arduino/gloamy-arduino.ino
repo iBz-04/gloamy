@@ -137,7 +137,7 @@ void loop() {
     } else if (lineLen < MAX_LINE - 1) {
       lineBuf[lineLen++] = c;
     } else {
-      lineLen = 0;  // Overflow, discard
+      lineLen = 0;  
     }
   }
 }

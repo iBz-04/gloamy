@@ -3811,8 +3811,8 @@ pub(crate) fn resolve_config_dir_for_workspace(workspace_dir: &Path) -> (PathBuf
     )
 }
 
-/// Resolve the current runtime config/workspace directories for onboarding flows.
-///
+
+
 /// This mirrors the same precedence used by `Config::load_or_init()`:
 /// `GLOAMY_CONFIG_DIR` > `GLOAMY_WORKSPACE` > active workspace marker > defaults.
 pub(crate) async fn resolve_runtime_dirs_for_onboarding() -> Result<(PathBuf, PathBuf)> {
