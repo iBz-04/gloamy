@@ -7,11 +7,25 @@ const routes = [
     component: () => import('@/pages/home.vue'),
   },
   {
+    path: '/search',
+    name: 'search',
+    component: () => import('@/pages/search.vue'),
+  },
+  {
+    path: '/agents',
+    name: 'agents',
+    component: () => import('@/pages/agents.vue'),
+  },
+  {
+    path: '/library',
+    name: 'library',
+    component: () => import('@/pages/library.vue'),
+  },
+  {
     path: '/canvas',
     name: 'canvas',
     component: () => import('@/pages/canvas.vue'),
   },
-
   {
     path: '/settings',
     name: 'settings',

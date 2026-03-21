@@ -26,11 +26,27 @@
   },
   "sidebar": {
     "home": "Home",
+    "newTask": "New task",
+    "search": "Search",
+    "agents": "Agents",
+    "library": "Library",
     "create": "Create",
-    "settings": "Settings"
+    "settings": "Settings",
+    "projects": "Projects",
+    "allTasks": "All tasks"
   },
   "home": {
-    "title": "Home"
+    "title": "Home",
+    "heroHeading": "What can I do for you?",
+    "inputPlaceholder": "Give Gloamy a task to work on...",
+    "developApp": "Develop app",
+    "design": "Design",
+    "more": "More"
+  },
+  "folders": {
+    "myComputer": "My Computer",
+    "addLocal": "Add local folder",
+    "manage": "Manage folders"
   },
   "settings": {
     "label": "Settings",
