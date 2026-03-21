@@ -1,0 +1,55 @@
+{
+  "common": {
+    "color": "Color",
+    "size": "Size",
+    "position": "Position",
+    "center": "Center",
+    "none": "None",
+    "solid": "Solid",
+    "linear": "Linear",
+    "radial": "Radial",
+    "angle": "Angle",
+    "radius": "Radius",
+    "opacity": "Opacity",
+    "px": "px",
+    "percent": "%",
+    "degree": "°",
+    "all": "All",
+    "search": "Search...",
+    "noMatches": "No matches",
+    "loading": "Loading...",
+    "today": "Today",
+    "yesterday": "Yesterday",
+    "daysAgo": "{n} days ago",
+    "export": "Export",
+    "save": "Save"
+  },
+  "sidebar": {
+    "home": "Home",
+    "create": "Create",
+    "settings": "Settings"
+  },
+  "home": {
+    "title": "Home"
+  },
+  "settings": {
+    "label": "Settings",
+    "interfaceTheme": "Interface Theme",
+    "customizeUI": "Customize your UI",
+    "theme": {
+      "light": "Light",
+      "dark": "Dark",
+      "system": "System"
+    },
+    "language": {
+      "label": "Language",
+      "description": "Select your preferred language"
+    },
+    "about": {
+      "label": "About",
+      "version": "Version",
+      "company": "Company"
+    }
+  }
+}
+

@@ -1,0 +1,49 @@
+[package]
+name = "desktop-starter"
+version = "0.0.1"
+description = "A generic desktop app starter"
+authors = ["you"]
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[lib]
+# The `_lib` suffix may seem redundant but it is necessary
+# to make the lib name unique and wouldn't conflict with the bin name.
+# This seems to be only an issue on Windows, see https://github.com/rust-lang/cargo/issues/8519
+name = "desktop_starter_lib"
+crate-type = [
+  "staticlib",
+  "cdylib",
+  "rlib"
+]
+
+[build-dependencies]
+tauri-build = { version = "2.5.1", features = [] }
+
+[dependencies]
+tauri = { version = "2.9.2", features = [] }
+tauri-plugin-shell = "2.3.3"
+tauri-plugin-window-state = "2.4.1"
+tauri-plugin-store = "2.4.1"
+tauri-plugin-decorum = "1.1.1"
+tauri-plugin-devtools = "2.0.1"
+tauri-plugin-log = "2.7.1"
+[target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
+tauri-plugin-single-instance = "2.3.6"
+
+
+serde_json = "1.0.145"
+serde = { version = "1.0", features = ["derive"] }
+log = "0.4.28"
+
+[profile.dev]
+incremental = true # Compile your binary in smaller steps.
+
+# https://tauri.app/concept/size/
+[profile.release]
+codegen-units = 1 # Allows LLVM to perform better optimization.
+lto = true # Enables link-time-optimizations.
+opt-level = "s" # Prioritizes small binary size. Use `3` if you prefer speed.
+panic = "abort" # Higher performance by disabling panic handlers.
+strip = true # Ensures debug symbols are removed.

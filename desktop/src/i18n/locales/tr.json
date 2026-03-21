@@ -1,0 +1,241 @@
+{
+  "common": {
+    "color": "Renk",
+    "size": "Boyut",
+    "position": "Konum",
+    "center": "Ortala",
+    "none": "Yok",
+    "solid": "Düz",
+    "linear": "Lineer",
+    "radial": "Radyal",
+    "angle": "Açı",
+    "radius": "Yarıçap",
+    "opacity": "Opaklık",
+    "px": "px",
+    "percent": "%",
+    "degree": "°",
+    "all": "Hepsi",
+    "search": "Ara...",
+    "noMatches": "Eşleşme yok",
+    "loading": "Yükleniyor...",
+    "today": "Bugün",
+    "yesterday": "Dün",
+    "daysAgo": "{n} gün önce",
+    "export": "Dışa Aktar",
+    "save": "Kaydet"
+  },
+  "sidebar": {
+    "home": "Ana Sayfa",
+    "create": "Oluştur",
+    "settings": "Ayarlar"
+  },
+  "home": {
+    "label": "Ana Sayfa",
+    "title": "Logolarınız",
+    "projectsCount": "{n} kayıtlı proje",
+    "noLogos": "Henüz kayıtlı logo yok",
+    "createFirst": "ilk logonuzu oluşturun.",
+    "createButton": "Logo Oluştur",
+    "rename": "Yeniden Adlandır",
+    "delete": "Sil",
+    "gridView": "Izgara Görünümü",
+    "listView": "Liste Görünümü"
+  },
+  "icon": {
+    "label": "Logo Oluşturucu",
+    "preview": "Önizleme",
+    "background": "Arka Plan",
+    "fillType": "Dolgu Tipi",
+    "solid": "Düz",
+    "linear": "Lineer",
+    "radial": "Radyal",
+    "startColor": "Başlangıç Rengi",
+    "endColor": "Bitiş Rengi",
+    "angle": "Açı",
+    "radius": "Yarıçap",
+    "iconSettings": "İkon",
+    "iconColor": "İkon Rengi",
+    "iconSize": "İkon Boyutu",
+    "presets": "Hazır Ayarlar",
+    "export": "Dışa Aktar",
+    "exportPng": "PNG Olarak Aktar",
+    "exportSvg": "SVG Olarak Aktar",
+    "undo": "Geri Al",
+    "redo": "İleri Al",
+    "shuffle": "Karıştır",
+    "reset": "Sıfırla",
+    "design": "Tasarım",
+    "advanced": "Gelişmiş",
+    "shufflePreset": "Ayarları karıştır",
+    "presetName": "Hazır Ayar {n}",
+    "newLogoStarted": "Yeni logo başlatıldı",
+    "projectSaved": "Proje kaydedildi",
+    "saveFailed": "Proje kaydedilemedi"
+  },
+  "editor": {
+    "fill": {
+      "label": "Dolgu",
+      "transparentInfo": "Dışa aktarımlar şeffaf arka plana sahip olacak",
+      "endColor": "Bitiş Rengi",
+      "noiseTexture": "Kumlanma Dokusu"
+    },
+    "symbol": {
+      "label": "Sembol",
+      "showIcon": "İkonu Göster",
+      "originalColors": "Orijinal Renkler",
+      "chooseIcon": "İkon Seç",
+      "uploadSvg": "SVG Yükle",
+      "saved": "kaydedildi",
+      "errors": {
+        "onlySvg": "Sadece SVG dosyalarına izin verilir",
+        "maxSize": "Maksimum 500KB",
+        "invalidSvg": "Geçersiz SVG",
+        "readFailed": "Dosya okunamadı"
+      }
+    },
+    "text": {
+      "label": "Metin Logosu",
+      "enable": "Metin Logosunu Etkinleştir",
+      "content": "Metin",
+      "placeholder": "Metninizi girin...",
+      "font": "Yazı Tipi",
+      "searchFonts": "Yazı tipi ara...",
+      "noFonts": "Yazı tipi bulunamadı",
+      "preview": "Önizleme",
+      "weight": "Kalınlık",
+      "size": "Boyut",
+      "spacing": "Harf Arası",
+      "stroke": "Kontur",
+      "shadow": "Gölge",
+      "blur": "Bulanıklık",
+      "categories": {
+        "modern": "Modern",
+        "bold": "Kalın",
+        "rounded": "Yuvarlak",
+        "creative": "Yaratıcı",
+        "serif": "Serif",
+        "mono": "Mono"
+      },
+      "weights": {
+        "light": "İnce",
+        "regular": "Normal",
+        "medium": "Orta",
+        "semibold": "Yarı Kalın",
+        "bold": "Kalın",
+        "extrabold": "Ekstra Kalın",
+        "black": "Siyah"
+      }
+    },    "position": {
+      "label": "Konum",
+      "offsetX": "X Ofset",
+      "offsetY": "Y Ofset"
+    },    "effects": {
+      "label": "Efektler",
+      "glassEffect": "Cam Efekti",
+      "intensity": "Yoğunluk",
+      "backgroundBlur": "Arka Plan Bulanıklığı",
+      "amount": "Miktar",
+      "comingSoon": "Daha fazı yakında: özel yüklemeler, parlama efektleri."
+    },
+    "stroke": {
+      "label": "Kenarlık",
+      "size": "Boyut",
+      "color": "Renk",
+      "opacity": "Opaklık"
+    },
+    "backgrounds": {
+      "label": "Arka Plan Resmi",
+      "browse": "Tüm Arka Planlara Göz At →",
+      "title": "Arka Planlar",
+      "noBackgrounds": "Arka plan yok"
+    },
+    "toolbar": {
+      "newLogo": "Yeni Logo",
+      "move": "Taşı",
+      "hand": "El aracı",
+      "scale": "Ölçekle",
+      "draw": "Çiz",
+      "brushes": {
+        "label": "Fırçalar",
+        "solid": "Düz",
+        "solidDesc": "Pürüzsüz, düzgün vuruşlar",
+        "gouache": "Guaj",
+        "gouacheDesc": "Yumuşak, ressamvari his",
+        "charcoal": "Kömür",
+        "charcoalDesc": "Sert, dokulu",
+        "scribble": "Karalama",
+        "scribbleDesc": "Gevşek, taslak gibi",
+        "gritty": "Kumlanmış",
+        "grittyDesc": "Grenli doku",
+        "sparse": "Seyrek",
+        "sparseDesc": "Hafif, havadar vuruşlar"
+      },
+      "addText": "Logoya Metin Ekle",
+      "undo": "Geri Al",
+      "redo": "İleri Al",
+      "export": "Dışa Aktar",
+      "exporting": "Aktarılıyor...",
+      "exportPng": "PNG Olarak Aktar",
+      "exportWebp": "WebP Olarak Aktar",
+      "exportSvg": "SVG Olarak Aktar (Vektör)",
+      "pngAtRes": "Çözünürlükte PNG",
+      "webpAtRes": "Çözünürlükte WebP",
+      "defaultRes": "Varsayılan Çözünürlük"
+    },
+    "exportMessages": {
+      "success": "{format} başarıyla dışa aktarıldı",
+      "savedToDownloads": "{format} İndirilenler klasörüne kaydedildi ({size}×{size})",
+      "failed": "{format} dışa aktarma hatası: {error}",
+      "canvasError": "Tuval oluşturulamadı",
+      "imageError": "Resim oluşturulamadı"
+    },
+    "iconPicker": {
+      "title": "İkon Seç",
+      "search": "{category} ara...",
+      "loadMore": "Daha fazla yüklemek için kaydırın...",
+      "noResults": "{category} bulunamadı",
+      "categories": {
+        "sudeft": "Sudeft",
+        "avatars": "Avatarlar",
+        "brands": "Markalar",
+        "ui": "Arayüz",
+        "shapes": "Şekiller"
+      }
+    },
+    "backgroundPicker": {
+      "title": "Arka Planlar",
+      "search": "Arka plan ara...",
+      "all": "Hepsi",
+      "noResults": "Arka plan bulunamadı",
+      "loading": "Arka planlar yükleniyor..."
+    },
+    "zoom": {
+      "zoomIn": "Yakınlaştır",
+      "zoomOut": "Uzaklaştır",
+      "reset": "Görünümü Sıfırla (Ctrl+0)"
+    },
+    "saveProject": "Projeyi Kaydet"
+  },
+  "languages": {
+    "label": "Diller"
+  },
+  "settings": {
+    "label": "Ayarlar",
+    "interfaceTheme": "Arayüz Teması",
+    "customizeUI": "Arayüzünüzü özelleştirin",
+    "theme": {
+      "light": "Açık",
+      "dark": "Koyu",
+      "system": "Sistem"
+    },
+    "language": {
+      "label": "Dil",
+      "description": "Tercih ettiğiniz dili seçin"
+    },
+    "about": {
+      "label": "Hakkında",
+      "version": "Sürüm",
+      "company": "Şirket"
+    }
+  }
+}

@@ -1,5 +1,5 @@
 [workspace]
-members = [".", "crates/robot-kit"]
+members = [".", "crates/robot-kit", "desktop/src-tauri"]
 resolver = "2"
 
 [package]

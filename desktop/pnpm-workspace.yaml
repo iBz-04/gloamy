@@ -1,0 +1,8 @@
+packages:
+  - '.'
+
+onlyBuiltDependencies:
+  - '@tailwindcss/oxide'
+  - esbuild
+  - unrs-resolver
+  - vue-demi
