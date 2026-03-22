@@ -1,22 +1,58 @@
 <script setup lang="ts">
 import { Icon } from '@iconify/vue'
 import { storeToRefs } from 'pinia'
-import { computed } from 'vue'
+import { computed, ref } from 'vue'
 import { useRoute } from 'vue-router'
 import { useUIStateStore } from '@/stores/uiState'
+import ThemeSwitch from '@/components/ThemeSwitch.vue'
 
 const route = useRoute()
 const uiStore = useUIStateStore()
 const { state } = storeToRefs(uiStore)
 
+type LeafNavItem = { icon: string; label: string; to: string }
+type GroupNavItem = { icon: string; label: string; children: LeafNavItem[] }
+
 const isCollapsed = computed(() => state.value.leftSidebarCollapsed)
 
-const navItems = [
-  { icon: 'ph:note-pencil', label: 'New task', to: '/' },
-  { icon: 'ph:magnifying-glass', label: 'Search', to: '/search' },
-  { icon: 'ph:users-three', label: 'Agents', to: '/agents' },
-  { icon: 'ph:bookmark-simple', label: 'Library', to: '/library' },
+const navItems: Array<LeafNavItem | GroupNavItem> = [
+  { icon: 'ph:gauge', label: 'Dashboard', to: '/' },
+  { icon: 'ph:chat-circle-dots', label: 'Agent Chat', to: '/agent-chat' },
+  { icon: 'ph:wrench', label: 'Tools', to: '/tools' },
+  { icon: 'ph:calendar-check', label: 'Cron Jobs', to: '/cron-jobs' },
+  { icon: 'ph:puzzle-piece', label: 'Integrations', to: '/integrations' },
+  { icon: 'ph:archive', label: 'Memory', to: '/memory' },
+  { icon: 'ph:sliders-horizontal', label: 'Configuration', to: '/configuration' },
+  { icon: 'ph:currency-dollar-simple', label: 'Cost Tracking', to: '/cost-tracking' },
+  {
+    icon: 'ph:heartbeat',
+    label: 'Diagnostics',
+    children: [
+      { icon: 'ph:pulse', label: 'Logs', to: '/logs' },
+      { icon: 'ph:stethoscope', label: 'Doctor', to: '/doctor' },
+    ],
+  },
+  { icon: 'ph:link-simple', label: 'Authentication/Pairing', to: '/authentication' },
+  { icon: 'ph:gear-six', label: 'Settings & Theme', to: '/settings' },
 ]
+
+const openGroups = ref<Record<string, boolean>>({
+  Diagnostics: true,
+})
+
+const toggleGroup = (group: string) => {
+  openGroups.value[group] = !openGroups.value[group]
+}
+
+const isGroupOpen = (group: string) => openGroups.value[group] ?? false
+
+const isRouteActive = (path: string) => route.path === path
+
+const isGroupActive = (children: LeafNavItem[]) => children.some((child) => isRouteActive(child.to))
+
+const isGroupNavItem = (item: LeafNavItem | GroupNavItem): item is GroupNavItem => 'children' in item
+
+const getNavItemKey = (item: LeafNavItem | GroupNavItem) => (isGroupNavItem(item) ? `group-${item.label}` : item.to)
 
 const projects = [
   { name: 'Work', icon: 'ph:flask' },
@@ -46,25 +82,80 @@ const tasks = [
     </div>
 
     <nav class="flex flex-col gap-0.5 px-2">
-      <RouterLink
-        v-for="(item, i) in navItems"
-        :key="item.to"
-        v-motion
-        :initial="{ opacity: 0, x: -10 }"
-        :enter="{ opacity: 1, x: 0, transition: { delay: 50 + i * 30 } }"
-        :to="item.to"
-        class="flex items-center gap-3 px-3 py-2 text-[13px] font-medium rounded-md transition-colors duration-150"
-        :class="[
-          route.path === item.to
-            ? 'text-foreground bg-muted/40'
-            : 'text-muted-foreground hover:text-foreground hover:bg-muted/25',
-          isCollapsed ? 'justify-center !px-2' : '',
-        ]"
-        :title="isCollapsed ? item.label : undefined"
-      >
-        <Icon :icon="item.icon" class="size-[18px] shrink-0" />
-        <span v-if="!isCollapsed">{{ item.label }}</span>
-      </RouterLink>
+      <template v-for="(item, i) in navItems" :key="getNavItemKey(item)">
+        <div
+          v-if="isGroupNavItem(item)"
+          v-motion
+          :initial="{ opacity: 0, x: -10 }"
+          :enter="{ opacity: 1, x: 0, transition: { delay: 50 + i * 30 } }"
+          class="flex flex-col"
+        >
+          <button
+            type="button"
+            class="flex items-center gap-3 px-3 py-2 text-[13px] font-medium rounded-md transition-colors duration-150 w-full"
+            :class="[
+              isGroupActive(item.children)
+                ? 'text-foreground bg-muted/40'
+                : 'text-muted-foreground hover:text-foreground hover:bg-muted/25',
+              isCollapsed ? 'justify-center !px-2' : '',
+            ]"
+            :title="isCollapsed ? item.label : undefined"
+            @click="toggleGroup(item.label)"
+          >
+            <Icon :icon="item.icon" class="size-[18px] shrink-0" />
+            <span v-if="!isCollapsed">{{ item.label }}</span>
+            <Icon
+              v-if="!isCollapsed"
+              icon="ph:caret-down"
+              class="size-3 ml-auto transition-transform duration-200"
+              :class="isGroupOpen(item.label) ? 'rotate-0' : '-rotate-90'"
+            />
+          </button>
+
+          <div
+            v-if="!isCollapsed && isGroupOpen(item.label)"
+            v-motion
+            :initial="{ opacity: 0, scaleY: 0.85 }"
+            :enter="{ opacity: 1, scaleY: 1, transition: { duration: 260, easing: 'easeOut' } }"
+            :leave="{ opacity: 0, scaleY: 0.85, transition: { duration: 200, easing: 'easeIn' } }"
+            class="mt-0.5 flex flex-col gap-0.5 overflow-hidden origin-top"
+          >
+            <RouterLink
+              v-for="child in item.children"
+              :key="child.to"
+              :to="child.to"
+              class="flex items-center gap-2 pl-10 pr-3 py-1.5 text-[12px] font-medium rounded-md transition-colors duration-150"
+              :class="[
+                isRouteActive(child.to)
+                  ? 'text-foreground bg-muted/40'
+                  : 'text-muted-foreground hover:text-foreground hover:bg-muted/25',
+              ]"
+            >
+              <Icon :icon="child.icon" class="size-4 shrink-0" />
+              <span>{{ child.label }}</span>
+            </RouterLink>
+          </div>
+        </div>
+
+        <RouterLink
+          v-else
+          v-motion
+          :initial="{ opacity: 0, x: -10 }"
+          :enter="{ opacity: 1, x: 0, transition: { delay: 50 + i * 30 } }"
+          :to="item.to"
+          class="flex items-center gap-3 px-3 py-2 text-[13px] font-medium rounded-md transition-colors duration-150"
+          :class="[
+            isRouteActive(item.to)
+              ? 'text-foreground bg-muted/40'
+              : 'text-muted-foreground hover:text-foreground hover:bg-muted/25',
+            isCollapsed ? 'justify-center !px-2' : '',
+          ]"
+          :title="isCollapsed ? item.label : undefined"
+        >
+          <Icon :icon="item.icon" class="size-[18px] shrink-0" />
+          <span v-if="!isCollapsed">{{ item.label }}</span>
+        </RouterLink>
+      </template>
     </nav>
 
     <div v-if="!isCollapsed" class="mt-6 px-2 flex-1 overflow-y-auto">
@@ -108,9 +199,7 @@ const tasks = [
 
     <div class="mt-auto border-t border-border px-2 py-2 flex items-center" :class="isCollapsed ? 'justify-center' : 'justify-between px-4'">
       <div class="flex items-center gap-3">
-        <button class="text-muted-foreground hover:text-foreground transition-colors">
-          <Icon icon="ph:sliders-horizontal" class="size-4" />
-        </button>
+        <ThemeSwitch />
         <button v-if="!isCollapsed" class="text-muted-foreground hover:text-foreground transition-colors">
           <Icon icon="ph:squares-four" class="size-4" />
         </button>
