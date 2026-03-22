@@ -1891,6 +1891,7 @@ pub(crate) async fn agent_turn(
         None,
         None,
         &[],
+        None,
     )
     .await
 }
@@ -2081,6 +2082,7 @@ pub(crate) async fn run_tool_call_loop(
     on_delta: Option<tokio::sync::mpsc::Sender<String>>,
     hooks: Option<&crate::hooks::HookRunner>,
     excluded_tools: &[String],
+    mut tool_outcomes_sink: Option<&mut Vec<crate::agent::lesson::ToolOutcome>>,
 ) -> Result<String> {
     let max_iterations = if max_tool_iterations == 0 {
         DEFAULT_MAX_TOOL_ITERATIONS
@@ -2627,6 +2629,19 @@ pub(crate) async fn run_tool_call_loop(
 
         for entry in ordered_results {
             if let Some((tool_name, tool_call_id, outcome)) = entry {
+                // Record tool outcome for self-learning lesson extraction
+                if let Some(sink) = tool_outcomes_sink.as_mut() {
+                    sink.push(crate::agent::lesson::ToolOutcome {
+                        tool_name: tool_name.clone(),
+                        arguments: executable_calls
+                            .iter()
+                            .find(|c| c.name == tool_name)
+                            .map(|c| c.arguments.clone())
+                            .unwrap_or_default(),
+                        success: outcome.success,
+                        output: outcome.output.clone(),
+                    });
+                }
                 individual_results.push((tool_call_id, outcome.output.clone()));
                 let _ = writeln!(
                     tool_results,
@@ -2999,15 +3014,25 @@ pub async fn run(
                 .await;
         }
 
-        // Inject memory + hardware RAG context into user message
+        // Inject memory + hardware RAG + lesson context into user message
         let mem_context =
             build_context(mem.as_ref(), &msg, config.memory.min_relevance_score).await;
+        let lesson_context = if config.agent.self_learning {
+            crate::agent::lesson::build_lesson_context(
+                mem.as_ref(),
+                &msg,
+                config.agent.max_lessons_per_query,
+            )
+            .await
+        } else {
+            String::new()
+        };
         let rag_limit = if config.agent.compact_context { 2 } else { 5 };
         let hw_context = hardware_rag
             .as_ref()
             .map(|r| build_hardware_context(r, &msg, &board_names, rag_limit))
             .unwrap_or_default();
-        let context = format!("{mem_context}{hw_context}");
+        let context = format!("{mem_context}{lesson_context}{hw_context}");
         let now = chrono::Local::now().format("%Y-%m-%d %H:%M:%S %Z");
         let enriched = if context.is_empty() {
             format!("[{now}] {msg}")
@@ -3020,6 +3045,7 @@ pub async fn run(
             ChatMessage::user(&enriched),
         ];
 
+        let mut tool_outcomes: Vec<crate::agent::lesson::ToolOutcome> = Vec::new();
         let response = run_tool_call_loop(
             provider.as_ref(),
             &mut history,
@@ -3037,8 +3063,27 @@ pub async fn run(
             None,
             None,
             &[],
+            if config.agent.self_learning {
+                Some(&mut tool_outcomes)
+            } else {
+                None
+            },
         )
         .await?;
+
+        // Persist lessons learned from tool-call errors
+        if config.agent.self_learning && !tool_outcomes.is_empty() {
+            let lessons =
+                crate::agent::lesson::extract_lessons(&tool_outcomes, &msg);
+            if !lessons.is_empty() {
+                let stored =
+                    crate::agent::lesson::persist_lessons(mem.as_ref(), &lessons).await;
+                if stored > 0 {
+                    tracing::info!(count = stored, "Self-learning: persisted new lessons");
+                }
+            }
+        }
+
         final_output = response.clone();
         println!("{response}");
         observer.record_event(&ObserverEvent::TurnComplete);
@@ -3124,15 +3169,25 @@ pub async fn run(
                     .await;
             }
 
-            // Inject memory + hardware RAG context into user message
+            // Inject memory + hardware RAG + lesson context into user message
             let mem_context =
                 build_context(mem.as_ref(), &user_input, config.memory.min_relevance_score).await;
+            let lesson_context = if config.agent.self_learning {
+                crate::agent::lesson::build_lesson_context(
+                    mem.as_ref(),
+                    &user_input,
+                    config.agent.max_lessons_per_query,
+                )
+                .await
+            } else {
+                String::new()
+            };
             let rag_limit = if config.agent.compact_context { 2 } else { 5 };
             let hw_context = hardware_rag
                 .as_ref()
                 .map(|r| build_hardware_context(r, &user_input, &board_names, rag_limit))
                 .unwrap_or_default();
-            let context = format!("{mem_context}{hw_context}");
+            let context = format!("{mem_context}{lesson_context}{hw_context}");
             let now = chrono::Local::now().format("%Y-%m-%d %H:%M:%S %Z");
             let enriched = if context.is_empty() {
                 format!("[{now}] {user_input}")
@@ -3142,6 +3197,7 @@ pub async fn run(
 
             history.push(ChatMessage::user(&enriched));
 
+            let mut tool_outcomes: Vec<crate::agent::lesson::ToolOutcome> = Vec::new();
             let response = match run_tool_call_loop(
                 provider.as_ref(),
                 &mut history,
@@ -3159,6 +3215,11 @@ pub async fn run(
                 None,
                 None,
                 &[],
+                if config.agent.self_learning {
+                    Some(&mut tool_outcomes)
+                } else {
+                    None
+                },
             )
             .await
             {
@@ -3168,6 +3229,19 @@ pub async fn run(
                     continue;
                 }
             };
+
+            // Persist lessons learned from tool-call errors
+            if config.agent.self_learning && !tool_outcomes.is_empty() {
+                let lessons =
+                    crate::agent::lesson::extract_lessons(&tool_outcomes, &user_input);
+                if !lessons.is_empty() {
+                    let stored =
+                        crate::agent::lesson::persist_lessons(mem.as_ref(), &lessons).await;
+                    if stored > 0 {
+                        tracing::info!(count = stored, "Self-learning: persisted new lessons");
+                    }
+                }
+            }
             final_output = response.clone();
             if let Err(e) = crate::channels::Channel::send(
                 &cli,
@@ -3361,12 +3435,22 @@ pub async fn process_message(config: Config, message: &str) -> Result<String> {
     }
 
     let mem_context = build_context(mem.as_ref(), message, config.memory.min_relevance_score).await;
+    let lesson_context = if config.agent.self_learning {
+        crate::agent::lesson::build_lesson_context(
+            mem.as_ref(),
+            message,
+            config.agent.max_lessons_per_query,
+        )
+        .await
+    } else {
+        String::new()
+    };
     let rag_limit = if config.agent.compact_context { 2 } else { 5 };
     let hw_context = hardware_rag
         .as_ref()
         .map(|r| build_hardware_context(r, message, &board_names, rag_limit))
         .unwrap_or_default();
-    let context = format!("{mem_context}{hw_context}");
+    let context = format!("{mem_context}{lesson_context}{hw_context}");
     let now = chrono::Local::now().format("%Y-%m-%d %H:%M:%S %Z");
     let enriched = if context.is_empty() {
         format!("[{now}] {message}")
@@ -3379,7 +3463,8 @@ pub async fn process_message(config: Config, message: &str) -> Result<String> {
         ChatMessage::user(&enriched),
     ];
 
-    agent_turn(
+    let mut tool_outcomes: Vec<crate::agent::lesson::ToolOutcome> = Vec::new();
+    let response = run_tool_call_loop(
         provider.as_ref(),
         &mut history,
         &tools_registry,
@@ -3388,10 +3473,36 @@ pub async fn process_message(config: Config, message: &str) -> Result<String> {
         &model_name,
         config.default_temperature,
         true,
+        None,
+        "channel",
         &config.multimodal,
         config.agent.max_tool_iterations,
+        None,
+        None,
+        None,
+        &[],
+        if config.agent.self_learning {
+            Some(&mut tool_outcomes)
+        } else {
+            None
+        },
     )
-    .await
+    .await?;
+
+    // Persist lessons learned from tool-call errors
+    if config.agent.self_learning && !tool_outcomes.is_empty() {
+        let lessons =
+            crate::agent::lesson::extract_lessons(&tool_outcomes, message);
+        if !lessons.is_empty() {
+            let stored =
+                crate::agent::lesson::persist_lessons(mem.as_ref(), &lessons).await;
+            if stored > 0 {
+                tracing::info!(count = stored, "Self-learning: persisted new lessons");
+            }
+        }
+    }
+
+    Ok(response)
 }
 
 #[cfg(test)]
@@ -3703,6 +3814,7 @@ mod tests {
             None,
             None,
             &[],
+            None,
         )
         .await
         .expect_err("provider without vision support should fail");
@@ -3749,6 +3861,7 @@ mod tests {
             None,
             None,
             &[],
+            None,
         )
         .await
         .expect_err("oversized payload must fail");
@@ -3784,11 +3897,12 @@ mod tests {
             None,
             "cli",
             &crate::config::MultimodalConfig::default(),
-            3,
+            10,
             None,
             None,
             None,
             &[],
+            None,
         )
         .await
         .expect("valid multimodal payload should pass");
@@ -3915,6 +4029,7 @@ mod tests {
             None,
             None,
             &[],
+            None,
         )
         .await
         .expect("parallel execution should complete");
@@ -3984,6 +4099,7 @@ mod tests {
             None,
             None,
             &[],
+            None,
         )
         .await
         .expect("loop should finish after deduplicating repeated calls");
@@ -4040,6 +4156,7 @@ mod tests {
             None,
             None,
             &[],
+            None,
         )
         .await
         .expect("native fallback id flow should complete");

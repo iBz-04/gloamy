@@ -411,6 +411,14 @@ pub struct AgentConfig {
     /// Tool dispatch strategy (e.g. `"auto"`). Default: `"auto"`.
     #[serde(default = "default_agent_tool_dispatcher")]
     pub tool_dispatcher: String,
+    /// Enable automatic self-learning from tool-call errors. Default: `true`.
+    /// When enabled, the agent extracts lessons from fail→success patterns
+    /// and recalls them in future turns to avoid repeating mistakes.
+    #[serde(default = "default_self_learning")]
+    pub self_learning: bool,
+    /// Maximum number of lesson memories injected per turn. Default: `3`.
+    #[serde(default = "default_max_lessons_per_query")]
+    pub max_lessons_per_query: usize,
 }
 
 fn default_agent_max_tool_iterations() -> usize {
@@ -425,6 +433,14 @@ fn default_agent_tool_dispatcher() -> String {
     "auto".into()
 }
 
+fn default_self_learning() -> bool {
+    true
+}
+
+fn default_max_lessons_per_query() -> usize {
+    3
+}
+
 impl Default for AgentConfig {
     fn default() -> Self {
         Self {
@@ -433,6 +449,8 @@ impl Default for AgentConfig {
             max_history_messages: default_agent_max_history_messages(),
             parallel_tools: false,
             tool_dispatcher: default_agent_tool_dispatcher(),
+            self_learning: default_self_learning(),
+            max_lessons_per_query: default_max_lessons_per_query(),
         }
     }
 }

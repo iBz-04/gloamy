@@ -497,17 +497,29 @@ impl Agent {
             .await
             .unwrap_or_default();
 
+        let lesson_context = if self.config.self_learning {
+            crate::agent::lesson::build_lesson_context(
+                self.memory.as_ref(),
+                user_message,
+                self.config.max_lessons_per_query,
+            )
+            .await
+        } else {
+            String::new()
+        };
+
         let now = chrono::Local::now().format("%Y-%m-%d %H:%M:%S %Z");
-        let enriched = if context.is_empty() {
+        let enriched = if context.is_empty() && lesson_context.is_empty() {
             format!("[{now}] {user_message}")
         } else {
-            format!("{context}[{now}] {user_message}")
+            format!("{context}{lesson_context}[{now}] {user_message}")
         };
 
         self.history
             .push(ConversationMessage::Chat(ChatMessage::user(enriched)));
 
         let effective_model = self.classify_model(user_message);
+        let mut tool_outcomes: Vec<crate::agent::lesson::ToolOutcome> = Vec::new();
 
         for _ in 0..self.config.max_tool_iterations {
             let messages = self.tool_dispatcher.to_provider_messages(&self.history);
@@ -545,6 +557,19 @@ impl Agent {
                     )));
                 self.trim_history();
 
+                // Persist lessons learned from tool-call errors
+                if self.config.self_learning && !tool_outcomes.is_empty() {
+                    let lessons =
+                        crate::agent::lesson::extract_lessons(&tool_outcomes, user_message);
+                    if !lessons.is_empty() {
+                        let stored =
+                            crate::agent::lesson::persist_lessons(self.memory.as_ref(), &lessons).await;
+                        if stored > 0 {
+                            tracing::info!(count = stored, "Self-learning: persisted new lessons");
+                        }
+                    }
+                }
+
                 return Ok(final_text);
             }
 
@@ -564,6 +589,19 @@ impl Agent {
             });
 
             let results = self.execute_tools(&calls).await;
+            
+            // Track tool outcomes for self-learning
+            if self.config.self_learning {
+                for (call, result) in calls.iter().zip(&results) {
+                    tool_outcomes.push(crate::agent::lesson::ToolOutcome {
+                        tool_name: call.name.clone(),
+                        arguments: call.arguments.clone(),
+                        success: result.success,
+                        output: result.output.clone(),
+                    });
+                }
+            }
+            
             let formatted = self.tool_dispatcher.format_results(&results);
             self.history.push(formatted);
             self.trim_history();
