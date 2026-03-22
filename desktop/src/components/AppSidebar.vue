@@ -16,20 +16,20 @@ type GroupNavItem = { icon: string; label: string; children: LeafNavItem[] }
 const isCollapsed = computed(() => state.value.leftSidebarCollapsed)
 
 const navItems: Array<LeafNavItem | GroupNavItem> = [
-  { icon: 'ph:gauge', label: 'Dashboard', to: '/' },
-  { icon: 'ph:chat-circle-dots', label: 'Agent Chat', to: '/agent-chat' },
-  { icon: 'ph:wrench', label: 'Tools', to: '/tools' },
+  { icon: 'ph:chat-circle-text', label: 'Agent Chat', to: '/' },
+  { icon: 'ph:circles-four', label: 'Dashboard', to: '/agent-chat' },
+  { icon: 'ph:toolbox', label: 'Tools', to: '/tools' },
   { icon: 'ph:calendar-check', label: 'Cron Jobs', to: '/cron-jobs' },
   { icon: 'ph:puzzle-piece', label: 'Integrations', to: '/integrations' },
   { icon: 'ph:archive', label: 'Memory', to: '/memory' },
   { icon: 'ph:sliders-horizontal', label: 'Configuration', to: '/configuration' },
-  { icon: 'ph:currency-dollar-simple', label: 'Cost Tracking', to: '/cost-tracking' },
+  { icon: 'ph:megaphone-simple', label: 'Cost Tracking', to: '/cost-tracking' },
   {
     icon: 'ph:heartbeat',
     label: 'Diagnostics',
     children: [
-      { icon: 'ph:pulse', label: 'Logs', to: '/logs' },
-      { icon: 'ph:stethoscope', label: 'Doctor', to: '/doctor' },
+      { icon: 'ph:pulse-fill', label: 'Logs', to: '/logs' },
+      { icon: 'ph:first-aid-kit-fill', label: 'Doctor', to: '/doctor' },
     ],
   },
   { icon: 'ph:link-simple', label: 'Authentication/Pairing', to: '/authentication' },
@@ -77,8 +77,8 @@ const tasks = [
     :class="isCollapsed ? 'w-16' : 'w-[220px]'"
   >
     <div class="px-4 h-14 flex items-center gap-2" data-tauri-drag-region>
-      <Icon icon="ph:circuitry" class="size-5 text-foreground shrink-0" />
-      <span v-if="!isCollapsed" class="text-sm font-semibold tracking-tight text-foreground">gloamy</span>
+      <Icon icon="mdi:owl" class="size-5 text-foreground shrink-0" />
+      <span v-if="!isCollapsed" class="text-sm font-semibold tracking-tight text-foreground">GLOAMY</span>
     </div>
 
     <nav class="flex flex-col gap-0.5 px-2">
