@@ -79,7 +79,7 @@ async fn provider_vision_support() -> Result<()> {
 
     // Build chat request
     let messages = vec![
-        ChatMessage::system("You are a helpful assistant that can analyze images."),
+        ChatMessage::system("You are a helpful intern that can analyze images."),
         ChatMessage::user(user_message.clone()),
     ];
 
@@ -201,7 +201,7 @@ async fn openai_codex_second_vision_support() -> Result<()> {
 
     // Build chat request
     let messages = vec![
-        ChatMessage::system("You are a helpful assistant that can analyze images."),
+        ChatMessage::system("You are a helpful intern that can analyze images."),
         ChatMessage::user(user_message.clone()),
     ];
 

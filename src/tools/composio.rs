@@ -603,6 +603,7 @@ impl Tool for ComposioTool {
     fn description(&self) -> &str {
         "Execute actions on 1000+ apps via Composio (Gmail, Notion, GitHub, Slack, etc.). \
          Use action='list' to see available actions (includes parameter names). \
+         Use name_contains/name_prefix and limit to filter long tool lists. \
          action='execute' with action_name/tool_slug and params to run an action. \
          If you are unsure of the exact params, pass 'text' instead with a natural-language description \
          of what you want (Composio will resolve the correct parameters via NLP). \
@@ -623,6 +624,20 @@ impl Tool for ComposioTool {
                 "app": {
                     "type": "string",
                     "description": "Toolkit slug filter for 'list' or 'list_accounts', optional app hint for 'execute', or toolkit/app for 'connect' (e.g. 'gmail', 'notion', 'github')"
+                },
+                "limit": {
+                    "type": "integer",
+                    "description": "Max list results to return (default 20, max 200)",
+                    "minimum": 1,
+                    "maximum": 200
+                },
+                "name_contains": {
+                    "type": "string",
+                    "description": "Filter list results by case-insensitive substring (e.g. 'LIST_REPO')"
+                },
+                "name_prefix": {
+                    "type": "string",
+                    "description": "Filter list results by case-insensitive prefix (e.g. 'GITHUB_LIST')"
                 },
                 "action_name": {
                     "type": "string",
@@ -671,11 +686,42 @@ impl Tool for ComposioTool {
         match action {
             "list" => {
                 let app = args.get("app").and_then(|v| v.as_str());
+                let limit = args
+                    .get("limit")
+                    .and_then(|v| v.as_u64())
+                    .map(|v| v as usize)
+                    .unwrap_or(20)
+                    .clamp(1, 200);
+                let name_contains = args
+                    .get("name_contains")
+                    .and_then(|v| v.as_str())
+                    .map(|value| value.trim().to_ascii_lowercase())
+                    .filter(|value| !value.is_empty());
+                let name_prefix = args
+                    .get("name_prefix")
+                    .and_then(|v| v.as_str())
+                    .map(|value| value.trim().to_ascii_lowercase())
+                    .filter(|value| !value.is_empty());
                 match self.list_actions(app).await {
                     Ok(actions) => {
-                        let summary: Vec<String> = actions
+                        let filtered: Vec<&ComposioAction> = actions
                             .iter()
-                            .take(20)
+                            .filter(|a| {
+                                let name = a.name.to_ascii_lowercase();
+                                let matches_contains = name_contains
+                                    .as_ref()
+                                    .map(|needle| name.contains(needle))
+                                    .unwrap_or(true);
+                                let matches_prefix = name_prefix
+                                    .as_ref()
+                                    .map(|prefix| name.starts_with(prefix))
+                                    .unwrap_or(true);
+                                matches_contains && matches_prefix
+                            })
+                            .collect();
+                        let summary: Vec<String> = filtered
+                            .iter()
+                            .take(limit)
                             .map(|a| {
                                 let params_hint =
                                     format_input_params_hint(a.input_parameters.as_ref());
@@ -688,12 +734,17 @@ impl Tool for ComposioTool {
                                 )
                             })
                             .collect();
-                        let total = actions.len();
+                        let total = filtered.len();
+                        let filter_label = if name_contains.is_some() || name_prefix.is_some() {
+                            " (filtered)"
+                        } else {
+                            ""
+                        };
                         let output = format!(
-                            "Found {total} available actions:\n{}{}",
+                            "Found {total} available actions{filter_label}:\n{}{}",
                             summary.join("\n"),
-                            if total > 20 {
-                                format!("\n... and {} more", total - 20)
+                            if total > limit {
+                                format!("\n... and {} more (increase limit to see more)", total - limit)
                             } else {
                                 String::new()
                             }

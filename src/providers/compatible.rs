@@ -2424,11 +2424,11 @@ mod tests {
     fn to_message_content_keeps_plain_text_for_non_user_roles() {
         let value = serde_json::to_value(OpenAiCompatibleProvider::to_message_content(
             "system",
-            "You are a helpful assistant.",
+            "You are a helpful intern.",
             true,
         ))
         .unwrap();
-        assert_eq!(value, serde_json::json!("You are a helpful assistant."));
+        assert_eq!(value, serde_json::json!("You are a helpful intern."));
     }
 
     #[test]

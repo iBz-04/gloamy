@@ -807,21 +807,21 @@ mod tests {
 
     #[test]
     fn system_prompt_string_variant_serializes() {
-        let prompt = SystemPrompt::String("You are a helpful assistant".to_string());
+        let prompt = SystemPrompt::String("You are a helpful intern".to_string());
         let json = serde_json::to_string(&prompt).unwrap();
-        assert_eq!(json, r#""You are a helpful assistant""#);
+        assert_eq!(json, serde_json::json!("You are a helpful intern."));
     }
 
     #[test]
     fn system_prompt_blocks_variant_serializes() {
         let prompt = SystemPrompt::Blocks(vec![SystemBlock {
             block_type: "text".to_string(),
-            text: "You are a helpful assistant".to_string(),
+            text: "You are a helpful intern".to_string(),
             cache_control: Some(CacheControl::ephemeral()),
         }]);
         let json = serde_json::to_string(&prompt).unwrap();
         assert!(json.contains(r#""type":"text""#));
-        assert!(json.contains("You are a helpful assistant"));
+        assert!(json.contains("You are a helpful intern"));
         assert!(json.contains(r#""type":"ephemeral""#));
     }
 
@@ -920,7 +920,7 @@ mod tests {
 
     #[test]
     fn should_cache_system_small_prompt() {
-        let small_prompt = "You are a helpful assistant.";
+        let small_prompt = "You are a helpful intern.";
         assert!(!AnthropicProvider::should_cache_system(small_prompt));
     }
 
@@ -1249,7 +1249,7 @@ mod tests {
 
         // Multi-turn conversation: system → user (Go code) → assistant (code response) → user (follow-up)
         let messages = vec![
-            ChatMessage::system("You are a helpful assistant."),
+            ChatMessage::system("You are a helpful intern."),
             ChatMessage::user("gen a 2 sum in golang"),
             ChatMessage::assistant("```go\nfunc twoSum(nums []int, target int) []int {\n    m := make(map[int]int)\n    for i, n := range nums {\n        if j, ok := m[target-n]; ok {\n            return []int{j, i}\n        }\n        m[n] = i\n    }\n    return nil\n}\n```"),
             ChatMessage::user("what's meaning of make here?"),
@@ -1284,7 +1284,7 @@ mod tests {
         // Verify system prompt extracted to top-level field
         let system = &body["system"];
         assert!(
-            system.to_string().contains("helpful assistant"),
+            system.to_string().contains("helpful intern"),
             "System prompt missing: {system}"
         );
 

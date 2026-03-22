@@ -16,9 +16,9 @@ use gloamy::providers::traits::{ChatMessage, ChatResponse, ToolCall};
 
 #[test]
 fn chat_message_system_role_correct() {
-    let msg = ChatMessage::system("You are a helpful assistant");
+    let msg = ChatMessage::system("You are a helpful intern");
     assert_eq!(msg.role, "system");
-    assert_eq!(msg.content, "You are a helpful assistant");
+    assert_eq!(msg.content, "You are a helpful intern");
 }
 
 #[test]

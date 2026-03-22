@@ -1133,9 +1133,9 @@ Allowlist Telegram username (without '@') or numeric user ID.",
         }
 
         let content = if let Some(quote) = self.extract_reply_context(message) {
-            format!("{quote}\n\n[Voice] {text}")
+            format!("{quote}\n\n{text}")
         } else {
-            format!("[Voice] {text}")
+            text
         };
 
         Some(ChannelMessage {
@@ -2361,6 +2361,14 @@ impl Channel for TelegramChannel {
             return Ok(());
         }
 
+        let html_status = resp.status();
+        let html_err = resp.text().await.unwrap_or_default();
+        tracing::debug!(
+            status = %html_status,
+            error = %html_err,
+            "Telegram finalize_draft HTML edit failed; retrying without parse_mode"
+        );
+
         // Markdown failed — retry without parse_mode
         let plain_body = serde_json::json!({
             "chat_id": chat_id,
@@ -2379,8 +2387,17 @@ impl Channel for TelegramChannel {
             return Ok(());
         }
 
+        let plain_status = resp.status();
+        let plain_err = resp.text().await.unwrap_or_default();
+
         // Edit failed entirely — fall back to new message
-        tracing::warn!("Telegram finalize_draft edit failed; falling back to sendMessage");
+        tracing::warn!(
+            html_status = %html_status,
+            html_error = %html_err,
+            plain_status = %plain_status,
+            plain_error = %plain_err,
+            "Telegram finalize_draft edit failed; falling back to sendMessage"
+        );
         self.send_text_chunks(text, &chat_id, thread_id.as_deref())
             .await
     }

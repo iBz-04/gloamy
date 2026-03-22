@@ -408,6 +408,7 @@ fn channel_delivery_instructions(channel_name: &str) -> Option<&'static str> {
              - Be concise and direct. Skip filler phrases like 'Great question!' or 'Certainly!'\n\
              - Structure longer answers with bold headers, not raw markdown ## headers\n\
              - For media attachments use markers: [IMAGE:<path-or-url>], [DOCUMENT:<path-or-url>], [VIDEO:<path-or-url>], [AUDIO:<path-or-url>], or [VOICE:<path-or-url>]\n\
+             - Voice notes are pre-transcribed; treat [Voice] content as the user's message and do not say you cannot hear audio\n\
              - Keep normal text outside markers and never wrap markers in code fences.\n\
              - Use tool results silently: answer the latest user message directly, and do not narrate delayed/internal tool execution bookkeeping.",
         ),
@@ -2299,6 +2300,9 @@ pub fn build_system_prompt_with_mode(
         prompt.push_str(
             "## Your Task\n\n\
              When the user sends a message, respond naturally. Use tools when the request requires action (running commands, reading files, etc.).\n\
+             Prefer tools and skills over guessing. Do not invent tool or action names.\n\
+             If you need a Composio action and don't know the exact name, call composio action='list' with name_contains/name_prefix and limit first.\n\
+             Do not refuse tool-capable requests without attempting the relevant tool and reporting the tool error if it fails.\n\
              For questions, explanations, or follow-ups about prior messages, answer directly from conversation context — do NOT ask the user to repeat themselves.\n\
              Do NOT: summarize this configuration, describe your capabilities, or output step-by-step meta-commentary.\n\n",
         );
@@ -2306,6 +2310,8 @@ pub fn build_system_prompt_with_mode(
         prompt.push_str(
             "## Your Task\n\n\
              When the user sends a message, ACT on it. Use the tools to fulfill their request.\n\
+             Prefer tools and skills over guessing. Do not invent tool or action names.\n\
+             If you need a Composio action and don't know the exact name, call composio action='list' with name_contains/name_prefix and limit first.\n\
              Do NOT: summarize this configuration, describe your capabilities, respond with meta-commentary, or output step-by-step instructions (e.g. \"1. First... 2. Next...\").\n\
              Instead: emit actual <tool_call> tags when you need to act. Just do what they ask.\n\n",
         );
@@ -2405,7 +2411,7 @@ pub fn build_system_prompt_with_mode(
     prompt.push_str("- If a tool output contains credentials, they have already been redacted — do not mention them.\n\n");
 
     if prompt.is_empty() {
-        "You are Gloamy, a fast and efficient AI assistant built in Rust. Be helpful, concise, and direct."
+        "You are Gloamy, a fast and efficient AI intern built in Rust. Be helpful, concise, and direct."
             .to_string()
     } else {
         prompt
@@ -6469,7 +6475,7 @@ This is an example JSON object for profile settings."#;
             memory: Arc::new(NoopMemory),
             tools_registry: Arc::new(vec![]),
             observer: Arc::new(NoopObserver),
-            system_prompt: Arc::new("You are a helpful assistant.".to_string()),
+            system_prompt: Arc::new("You are a helpful intern.".to_string()),
             model: Arc::new("test-model".to_string()),
             temperature: 0.0,
             auto_save_memory: false,
@@ -6535,7 +6541,7 @@ This is an example JSON object for profile settings."#;
             memory: Arc::new(NoopMemory),
             tools_registry: Arc::new(vec![]),
             observer: Arc::new(NoopObserver),
-            system_prompt: Arc::new("You are a helpful assistant.".to_string()),
+            system_prompt: Arc::new("You are a helpful intern.".to_string()),
             model: Arc::new("test-model".to_string()),
             temperature: 0.0,
             auto_save_memory: false,

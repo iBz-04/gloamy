@@ -1088,7 +1088,7 @@ mod tests {
                     nickname: Some("Nov".into()),
                     full: Some("Nova AI".into()),
                 }),
-                bio: Some("A helpful assistant.".into()),
+                bio: Some("A helpful intern.".into()),
                 origin: Some("Silicon Valley".into()),
                 residence: Some("The Cloud".into()),
             }),
@@ -1151,7 +1151,7 @@ mod tests {
         assert!(prompt.contains("**Name:** Nova"));
         assert!(prompt.contains("**Full Name:** Nova AI"));
         assert!(prompt.contains("**Nickname:** Nov"));
-        assert!(prompt.contains("**Bio:** A helpful assistant."));
+        assert!(prompt.contains("**Bio:** A helpful intern."));
         assert!(prompt.contains("**Origin:** Silicon Valley"));
 
         assert!(prompt.contains("## Personality"));

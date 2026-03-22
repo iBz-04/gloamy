@@ -8,7 +8,7 @@ use crate::memory::{self, Memory, MemoryCategory};
 use crate::observability::{self, Observer, ObserverEvent};
 use crate::providers::{self, ChatMessage, ChatRequest, ConversationMessage, Provider};
 use crate::runtime;
-use crate::security::SecurityPolicy;
+use crate::security::{AutonomyLevel, SecurityPolicy};
 use crate::tools::{self, Tool, ToolSpec};
 use anyhow::Result;
 use std::collections::HashMap;
@@ -37,6 +37,7 @@ pub struct Agent {
     classification_config: crate::config::QueryClassificationConfig,
     available_hints: Vec<String>,
     route_model_by_hint: HashMap<String, String>,
+    autonomy_level: AutonomyLevel,
 }
 
 pub struct AgentBuilder {
@@ -58,6 +59,7 @@ pub struct AgentBuilder {
     classification_config: Option<crate::config::QueryClassificationConfig>,
     available_hints: Option<Vec<String>>,
     route_model_by_hint: Option<HashMap<String, String>>,
+    autonomy_level: Option<AutonomyLevel>,
 }
 
 impl AgentBuilder {
@@ -81,6 +83,7 @@ impl AgentBuilder {
             classification_config: None,
             available_hints: None,
             route_model_by_hint: None,
+            autonomy_level: None,
         }
     }
 
@@ -180,6 +183,11 @@ impl AgentBuilder {
         self
     }
 
+    pub fn autonomy_level(mut self, autonomy_level: AutonomyLevel) -> Self {
+        self.autonomy_level = Some(autonomy_level);
+        self
+    }
+
     pub fn build(self) -> Result<Agent> {
         let tools = self
             .tools
@@ -223,6 +231,7 @@ impl AgentBuilder {
             classification_config: self.classification_config.unwrap_or_default(),
             available_hints: self.available_hints.unwrap_or_default(),
             route_model_by_hint: self.route_model_by_hint.unwrap_or_default(),
+            autonomy_level: self.autonomy_level.unwrap_or_default(),
         })
     }
 }
@@ -342,6 +351,7 @@ impl Agent {
             ))
             .skills_prompt_mode(config.skills.prompt_injection_mode)
             .auto_save(config.memory.auto_save)
+            .autonomy_level(config.autonomy.level)
             .build()
     }
 
@@ -382,6 +392,7 @@ impl Agent {
             skills_prompt_mode: self.skills_prompt_mode,
             identity_config: Some(&self.identity_config),
             dispatcher_instructions: &instructions,
+            autonomy_level: self.autonomy_level,
         };
         self.prompt_builder.build(&ctx)
     }

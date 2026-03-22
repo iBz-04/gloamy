@@ -1,6 +1,6 @@
 # Gloamy
 
-Gloamy is an autonomous agent runtime for running a personal secretary across multiple cli, social channels, daemon and hardware integrations.
+Gloamy is an autonomous agent runtime for running an intern across multiple cli, social channels, daemon and hardware integrations.
 
 It is built around explicit subsystem contracts:
 

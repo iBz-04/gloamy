@@ -1,5 +1,6 @@
 use crate::config::IdentityConfig;
 use crate::identity;
+use crate::security::AutonomyLevel;
 use crate::skills::Skill;
 use crate::tools::Tool;
 use anyhow::Result;
@@ -17,6 +18,7 @@ pub struct PromptContext<'a> {
     pub skills_prompt_mode: crate::config::SkillsPromptInjectionMode,
     pub identity_config: Option<&'a IdentityConfig>,
     pub dispatcher_instructions: &'a str,
+    pub autonomy_level: AutonomyLevel,
 }
 
 pub trait PromptSection: Send + Sync {
@@ -143,8 +145,34 @@ impl PromptSection for SafetySection {
         "safety"
     }
 
-    fn build(&self, _ctx: &PromptContext<'_>) -> Result<String> {
-        Ok("## Safety\n\n- Do not exfiltrate private data.\n- Do not run destructive commands without asking.\n- Do not bypass oversight or approval mechanisms.\n- Prefer `trash` over `rm`.\n- When in doubt, ask before acting externally.".into())
+    fn build(&self, ctx: &PromptContext<'_>) -> Result<String> {
+        match ctx.autonomy_level {
+            AutonomyLevel::Full => Ok(
+                "## Safety\n\n\
+                 - Do not exfiltrate private data.\n\
+                 - Execute tools and commands directly without asking for permission.\n\
+                 - Take action autonomously. Do not tell the user to run commands you can run yourself.\n\
+                 - Chain multiple tool calls when a task requires several steps.\n\
+                 - Prefer `trash` over `rm` for deletions."
+                    .into(),
+            ),
+            AutonomyLevel::ReadOnly => Ok(
+                "## Safety\n\n\
+                 - Do not exfiltrate private data.\n\
+                 - Read-only mode: do not modify files or run state-changing commands.\n\
+                 - Report what actions would be needed and let the user execute them."
+                    .into(),
+            ),
+            AutonomyLevel::Supervised => Ok(
+                "## Safety\n\n\
+                 - Do not exfiltrate private data.\n\
+                 - Do not run destructive commands without asking.\n\
+                 - Do not bypass oversight or approval mechanisms.\n\
+                 - Prefer `trash` over `rm`.\n\
+                 - When in doubt, ask before acting externally."
+                    .into(),
+            ),
+        }
     }
 }
 
@@ -300,6 +328,7 @@ mod tests {
             skills_prompt_mode: crate::config::SkillsPromptInjectionMode::Full,
             identity_config: Some(&identity_config),
             dispatcher_instructions: "",
+            autonomy_level: AutonomyLevel::Supervised,
         };
 
         let section = IdentitySection;
@@ -328,6 +357,7 @@ mod tests {
             skills_prompt_mode: crate::config::SkillsPromptInjectionMode::Full,
             identity_config: None,
             dispatcher_instructions: "instr",
+            autonomy_level: AutonomyLevel::Supervised,
         };
         let prompt = SystemPromptBuilder::with_defaults().build(&ctx).unwrap();
         assert!(prompt.contains("## Tools"));
@@ -363,6 +393,7 @@ mod tests {
             skills_prompt_mode: crate::config::SkillsPromptInjectionMode::Full,
             identity_config: None,
             dispatcher_instructions: "",
+            autonomy_level: AutonomyLevel::Supervised,
         };
 
         let output = SkillsSection.build(&ctx).unwrap();
@@ -401,6 +432,7 @@ mod tests {
             skills_prompt_mode: crate::config::SkillsPromptInjectionMode::Compact,
             identity_config: None,
             dispatcher_instructions: "",
+            autonomy_level: AutonomyLevel::Supervised,
         };
 
         let output = SkillsSection.build(&ctx).unwrap();
@@ -422,6 +454,7 @@ mod tests {
             skills_prompt_mode: crate::config::SkillsPromptInjectionMode::Full,
             identity_config: None,
             dispatcher_instructions: "instr",
+            autonomy_level: AutonomyLevel::Supervised,
         };
 
         let rendered = DateTimeSection.build(&ctx).unwrap();
@@ -460,6 +493,7 @@ mod tests {
             skills_prompt_mode: crate::config::SkillsPromptInjectionMode::Full,
             identity_config: None,
             dispatcher_instructions: "",
+            autonomy_level: AutonomyLevel::Supervised,
         };
 
         let prompt = SystemPromptBuilder::with_defaults().build(&ctx).unwrap();
