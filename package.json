@@ -1,0 +1,5 @@
+{
+  "devDependencies": {
+    "netlify-cli": "^24.4.1"
+  }
+}

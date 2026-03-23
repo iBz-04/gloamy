@@ -5477,7 +5477,7 @@ async fn scaffold_workspace(workspace_dir: &Path, ctx: &ProjectContext) -> Resul
          **Only write to `experience.md` when an event produces a reusable lesson that should influence future behavior.**\n\n\
          ## What Belongs Here\n\
          1. **Repeated user patterns**\n\
-            - Examples: vague questions that want decisions, "simple" that wants depth, frustration at broad answers\n\
+            - Examples: vague questions that want decisions, \"simple\" that wants depth, frustration at broad answers\n\
             - Why: helps recognize patterns earlier next time\n\n\
          2. **Failure patterns**\n\
             - Examples: answered too generally, missed implementation detail, misread tone, skipped a step\n\
@@ -5489,7 +5489,7 @@ async fn scaffold_workspace(workspace_dir: &Path, ctx: &ProjectContext) -> Resul
             - Examples: clarity beats completeness when overwhelmed, tone matters as much as content\n\
             - Why: distilled takeaways are the core of this file\n\n\
          5. **Behavior adjustments**\n\
-            - Examples: answer directly when impatient, infer intent before expanding, condense on "one point"\n\
+            - Examples: answer directly when impatient, infer intent before expanding, condense on \"one point\"\n\
             - Why: without a behavior change, it is not experience\n\n\
          6. **Edge cases**\n\
             - Examples: technical question is strategic, brevity still expects originality\n\
