@@ -2214,6 +2214,8 @@ fn load_openclaw_bootstrap_files(
 
     // MEMORY.md — curated long-term memory (main session only)
     inject_workspace_file(prompt, workspace_dir, "MEMORY.md", max_chars_per_file);
+    // experience.md — distilled operational experience (main session only)
+    inject_workspace_file(prompt, workspace_dir, "experience.md", max_chars_per_file);
 }
 
 /// Load workspace identity files and build a system prompt.
@@ -2223,7 +2225,7 @@ fn load_openclaw_bootstrap_files(
 /// 2. Safety — guardrail reminder
 /// 3. Skills — full skill instructions and tool metadata
 /// 4. Workspace — working directory
-/// 5. Bootstrap files — AGENTS, SOUL, TOOLS, IDENTITY, USER, BOOTSTRAP, MEMORY
+/// 5. Bootstrap files — AGENTS, SOUL, TOOLS, IDENTITY, USER, BOOTSTRAP, MEMORY, experience
 /// 6. Date & Time — timezone for cache stability
 /// 7. Runtime — host, OS, model
 ///
@@ -3416,6 +3418,11 @@ mod tests {
         )
         .unwrap();
         std::fs::write(tmp.path().join("MEMORY.md"), "# Memory\nUser likes Rust.").unwrap();
+        std::fs::write(
+            tmp.path().join("experience.md"),
+            "# experience.md\nAnswer directly first.",
+        )
+        .unwrap();
         tmp
     }
 
@@ -5396,6 +5403,14 @@ BTC is currently around $65,000 based on latest tool output."#
         );
         assert!(prompt.contains("### MEMORY.md"), "missing MEMORY.md");
         assert!(prompt.contains("User likes Rust"), "missing MEMORY content");
+        assert!(
+            prompt.contains("### experience.md"),
+            "missing experience.md"
+        );
+        assert!(
+            prompt.contains("Answer directly first."),
+            "missing experience content"
+        );
     }
 
     #[test]

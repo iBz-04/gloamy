@@ -108,6 +108,7 @@ impl PromptSection for IdentitySection {
             "HEARTBEAT.md",
             "BOOTSTRAP.md",
             "MEMORY.md",
+            "experience.md",
         ] {
             inject_workspace_file(&mut prompt, ctx.workspace_dir, file);
         }

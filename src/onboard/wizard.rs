@@ -5293,19 +5293,20 @@ async fn scaffold_workspace(workspace_dir: &Path, ctx: &ProjectContext) -> Resul
          1. Read `SOUL.md` — this is who you are\n\
          2. Read `USER.md` — this is who you're helping\n\
          3. Use `memory_recall` for recent context (daily notes are on-demand)\n\
-         4. If in MAIN SESSION (direct chat): `MEMORY.md` is already injected\n\n\
+         4. If in MAIN SESSION (direct chat): `MEMORY.md` + `experience.md` are already injected\n\n\
          Don't ask permission. Just do it.\n\n\
          ## Memory System\n\n\
          You wake up fresh each session. These files ARE your continuity:\n\n\
          - **Daily notes:** `memory/YYYY-MM-DD.md` — raw logs (accessed via memory tools)\n\
-         - **Long-term:** `MEMORY.md` — curated memories (auto-injected in main session)\n\n\
+         - **Long-term:** `MEMORY.md` — curated memories (auto-injected in main session)\n\
+         - **Experience:** `experience.md` — distilled lessons that change future behavior\n\n\
          Capture what matters. Decisions, context, things to remember.\n\
          Skip secrets unless asked to keep them.\n\n\
          ### Write It Down — No Mental Notes!\n\
          - Memory is limited — if you want to remember something, WRITE IT TO A FILE\n\
          - \"Mental notes\" don't survive session restarts. Files do.\n\
          - When someone says \"remember this\" -> update daily file or MEMORY.md\n\
-         - When you learn a lesson -> update AGENTS.md, TOOLS.md, or the relevant skill\n\n\
+         - When you learn a reusable lesson -> update experience.md\n\n\
          ## Safety\n\n\
          - Don't exfiltrate private data. Ever.\n\
          - Don't run destructive commands without asking.\n\
@@ -5322,7 +5323,7 @@ async fn scaffold_workspace(workspace_dir: &Path, ctx: &ProjectContext) -> Resul
          Keep local notes (SSH hosts, device names, etc.) in `TOOLS.md`.\n\n\
          ## Crash Recovery\n\n\
          - If a run stops unexpectedly, recover context before acting.\n\
-         - Check `MEMORY.md` + latest `memory/*.md` notes to avoid duplicate work.\n\
+         - Check `MEMORY.md`, `experience.md`, + latest `memory/*.md` notes to avoid duplicate work.\n\
          - Resume from the last confirmed step, not from scratch.\n\n\
          ## Sub-task Scoping\n\n\
          - Break complex work into focused sub-tasks with clear success criteria.\n\
@@ -5469,6 +5470,59 @@ async fn scaffold_workspace(workspace_dir: &Path, ctx: &ProjectContext) -> Resul
          ## Open Loops\n\
          (Track unfinished tasks and follow-ups here)\n";
 
+    let experience = "\
+         # experience.md — Distilled Operational Experience\n\n\
+         *Lessons earned through action that should change how the agent behaves in later situations.*\n\n\
+         ## Rule\n\
+         **Only write to `experience.md` when an event produces a reusable lesson that should influence future behavior.**\n\n\
+         ## What Belongs Here\n\
+         1. **Repeated user patterns**\n\
+            - Examples: vague questions that want decisions, "simple" that wants depth, frustration at broad answers\n\
+            - Why: helps recognize patterns earlier next time\n\n\
+         2. **Failure patterns**\n\
+            - Examples: answered too generally, missed implementation detail, misread tone, skipped a step\n\
+            - Why: real experience comes from repeated or important mistakes\n\n\
+         3. **Successful strategies**\n\
+            - Examples: lead with the answer, give examples before theory, compress when brevity is asked\n\
+            - Why: reuse what consistently works\n\n\
+         4. **Lessons learned**\n\
+            - Examples: clarity beats completeness when overwhelmed, tone matters as much as content\n\
+            - Why: distilled takeaways are the core of this file\n\n\
+         5. **Behavior adjustments**\n\
+            - Examples: answer directly when impatient, infer intent before expanding, condense on "one point"\n\
+            - Why: without a behavior change, it is not experience\n\n\
+         6. **Edge cases**\n\
+            - Examples: technical question is strategic, brevity still expects originality\n\
+            - Why: prevents repeating subtle failures\n\n\
+         7. **Domain-specific instincts**\n\
+            - Examples: startup ideas need a wedge, debugging starts with env/auth/version/config\n\
+            - Why: makes behavior feel seasoned in a domain\n\n\
+         8. **Confidence and reliability notes**\n\
+            - Examples: be cautious with partial context, verify time-sensitive facts\n\
+            - Why: experience should create humility too\n\n\
+         ## What Should Never Be Stored Here\n\
+         - Raw chat logs\n\
+         - Temporary task state\n\
+         - User personal memory\n\
+         - Tool traces\n\
+         - Random facts\n\
+         - Untested assumptions\n\n\
+         ## Entry Format (required)\n\
+         ## Experience: [short title]\n\n\
+         Context:\n\
+         What kind of situation this came from.\n\n\
+         Observed Pattern:\n\
+         What kept happening or what mattered.\n\n\
+         Lesson:\n\
+         The distilled takeaway.\n\n\
+         Behavior Change:\n\
+         What the agent should do differently next time.\n\n\
+         Confidence:\n\
+         Low / Medium / High\n\
+         \n\
+         Applies When:\n\
+         Which future situations this should influence.\n";
+
     let files: Vec<(&str, String)> = vec![
         ("IDENTITY.md", identity),
         ("AGENTS.md", agents),
@@ -5478,6 +5532,7 @@ async fn scaffold_workspace(workspace_dir: &Path, ctx: &ProjectContext) -> Resul
         ("TOOLS.md", tools.to_string()),
         ("BOOTSTRAP.md", bootstrap),
         ("MEMORY.md", memory.to_string()),
+        ("experience.md", experience.to_string()),
     ];
 
     // Create subdirectories
@@ -6030,6 +6085,7 @@ mod tests {
             "TOOLS.md",
             "BOOTSTRAP.md",
             "MEMORY.md",
+            "experience.md",
         ];
         for f in &expected {
             assert!(tmp.path().join(f).exists(), "missing file: {f}");
@@ -6300,6 +6356,7 @@ mod tests {
             "TOOLS.md",
             "BOOTSTRAP.md",
             "MEMORY.md",
+            "experience.md",
         ] {
             let content = tokio::fs::read_to_string(tmp.path().join(f)).await.unwrap();
             assert!(!content.trim().is_empty(), "{f} should not be empty");
@@ -6345,6 +6402,29 @@ mod tests {
         assert!(
             memory.contains("auto-injected"),
             "MEMORY.md should mention it's auto-injected"
+        );
+    }
+
+    #[tokio::test]
+    async fn experience_md_defines_behavior_change_format() {
+        let tmp = TempDir::new().unwrap();
+        let ctx = ProjectContext::default();
+        scaffold_workspace(tmp.path(), &ctx).await.unwrap();
+
+        let experience = tokio::fs::read_to_string(tmp.path().join("experience.md"))
+            .await
+            .unwrap();
+        assert!(
+            experience.contains("Lessons earned through action"),
+            "experience.md should define its purpose"
+        );
+        assert!(
+            experience.contains("Behavior Change:"),
+            "experience.md should include behavior change section"
+        );
+        assert!(
+            experience.contains("Applies When:"),
+            "experience.md should include applies-when section"
         );
     }
 
