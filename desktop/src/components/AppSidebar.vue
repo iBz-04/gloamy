@@ -32,8 +32,8 @@ const navItems: Array<LeafNavItem | GroupNavItem> = [
       { icon: 'ph:first-aid-kit-fill', label: 'Doctor', to: '/doctor' },
     ],
   },
-  { icon: 'ph:link-simple-fill', label: 'Authentication/Pairing', to: '/authentication' },
-  { icon: 'ph:gear-six-fill', label: 'Settings & Theme', to: '/settings' },
+  { icon: 'ph:shield-check-fill', label: 'Authentication', to: '/authentication' },
+  { icon: 'ph:gear-six-fill', label: 'Settings', to: '/settings' },
 ]
 
 const openGroups = ref<Record<string, boolean>>({
@@ -53,19 +53,6 @@ const isGroupActive = (children: LeafNavItem[]) => children.some((child) => isRo
 const isGroupNavItem = (item: LeafNavItem | GroupNavItem): item is GroupNavItem => 'children' in item
 
 const getNavItemKey = (item: LeafNavItem | GroupNavItem) => (isGroupNavItem(item) ? `group-${item.label}` : item.to)
-
-const projects = [
-  { name: 'Work', icon: 'ph:flask-fill' },
-  { name: 'Calendar', icon: 'ph:calendar-blank-fill' },
-]
-
-const tasks = [
-  { label: 'Optimize onboarding flow', icon: 'ph:arrow-arc-right-fill', color: 'text-blue-500' },
-  { label: 'Prepare Q3 product roadmap', icon: 'ph:note-pencil-fill', color: 'text-muted-foreground' },
-  { label: 'Analyze user feedback from beta test', icon: 'ph:note-pencil-fill', color: 'text-muted-foreground' },
-  { label: 'Investigate slow page load reports', icon: 'ph:note-pencil-fill', color: 'text-muted-foreground' },
-  { label: 'Document API integration guidelin...', icon: 'ph:note-pencil-fill', color: 'text-muted-foreground' },
-]
 </script>
 
 <template>
@@ -157,45 +144,6 @@ const tasks = [
         </RouterLink>
       </template>
     </nav>
-
-    <div v-if="!isCollapsed" class="mt-6 px-2 flex-1 overflow-y-auto">
-      <div class="flex items-center justify-between px-3 mb-1">
-        <span class="text-[11px] font-medium text-muted-foreground uppercase tracking-wider">Projects</span>
-        <button class="text-muted-foreground hover:text-foreground transition-colors">
-          <Icon icon="ph:plus-fill" class="size-3.5" />
-        </button>
-      </div>
-      <div class="flex flex-col gap-0.5">
-        <button
-          v-for="project in projects"
-          :key="project.name"
-          class="flex items-center gap-3 px-3 py-1.5 text-[13px] text-muted-foreground hover:text-foreground hover:bg-muted/25 rounded-md transition-colors duration-150"
-        >
-          <Icon :icon="project.icon" class="size-4 shrink-0" />
-          <span>{{ project.name }}</span>
-        </button>
-      </div>
-
-      <div class="flex items-center justify-between px-3 mt-5 mb-1">
-        <span class="text-[11px] font-medium text-muted-foreground uppercase tracking-wider flex items-center gap-1">
-          All tasks
-          <Icon icon="ph:caret-down" class="size-3" />
-        </span>
-        <button class="text-muted-foreground hover:text-foreground transition-colors">
-          <Icon icon="ph:funnel-simple-fill" class="size-3.5" />
-        </button>
-      </div>
-      <div class="flex flex-col gap-0.5">
-        <button
-          v-for="task in tasks"
-          :key="task.label"
-          class="flex items-center gap-3 px-3 py-1.5 text-[13px] text-muted-foreground hover:text-foreground hover:bg-muted/25 rounded-md transition-colors duration-150 text-left"
-        >
-          <Icon :icon="task.icon" :class="['size-4 shrink-0', task.color]" />
-          <span class="truncate">{{ task.label }}</span>
-        </button>
-      </div>
-    </div>
 
     <div class="mt-auto border-t border-border px-2 py-2 flex items-center" :class="isCollapsed ? 'justify-center' : 'justify-between px-4'">
       <div class="flex items-center gap-3">
