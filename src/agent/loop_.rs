@@ -2783,6 +2783,11 @@ pub async fn run(
     } else {
         (None, None)
     };
+    let one_key = if config.one.enabled {
+        config.one.api_key.as_deref()
+    } else {
+        None
+    };
     let mut tools_registry = tools::all_tools_with_runtime(
         Arc::new(config.clone()),
         &security,
@@ -2790,6 +2795,7 @@ pub async fn run(
         mem.clone(),
         composio_key,
         composio_entity_id,
+        one_key,
         &config.browser,
         &config.http_request,
         &config.web_fetch,
@@ -2924,6 +2930,12 @@ pub async fn run(
         tool_descs.push((
             "composio",
             "Execute actions on 1000+ apps via Composio (Gmail, Notion, GitHub, Slack, etc.). Use action='list' to discover, 'execute' to run (optionally with connected_account_id), 'connect' to OAuth.",
+        ));
+    }
+    if config.one.enabled {
+        tool_descs.push((
+            "one",
+            "Execute actions on 200+ apps via One CLI (Gmail, Slack, GitHub, etc.). Use list_connections, search_actions, get_action_knowledge, execute_action.",
         ));
     }
     tool_descs.push((
@@ -3310,6 +3322,11 @@ pub async fn process_message(config: Config, message: &str) -> Result<String> {
     } else {
         (None, None)
     };
+    let one_key = if config.one.enabled {
+        config.one.api_key.as_deref()
+    } else {
+        None
+    };
     let mut tools_registry = tools::all_tools_with_runtime(
         Arc::new(config.clone()),
         &security,
@@ -3317,6 +3334,7 @@ pub async fn process_message(config: Config, message: &str) -> Result<String> {
         mem.clone(),
         composio_key,
         composio_entity_id,
+        one_key,
         &config.browser,
         &config.http_request,
         &config.web_fetch,
@@ -3386,6 +3404,12 @@ pub async fn process_message(config: Config, message: &str) -> Result<String> {
     }
     if config.composio.enabled {
         tool_descs.push(("composio", "Execute actions on 1000+ apps via Composio."));
+    }
+    if config.one.enabled {
+        tool_descs.push((
+            "one",
+            "Execute actions on 200+ apps via One CLI (list_connections, search_actions, get_action_knowledge, execute_action).",
+        ));
     }
     if config.peripherals.enabled && !config.peripherals.boards.is_empty() {
         tool_descs.push(("gpio_read", "Read GPIO pin value on connected hardware."));

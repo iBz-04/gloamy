@@ -220,6 +220,19 @@ Notes:
 - Typical flow: call `connect`, complete browser OAuth, then run `execute` for the desired tool action.
 - If Composio returns a missing connected-account reference error, call `list_accounts` (optionally with `app`) and pass the returned `connected_account_id` to `execute`.
 
+## `[one]`
+
+| Key | Default | Purpose |
+|---|---|---|
+| `enabled` | `false` | Enable One CLI managed integrations |
+| `api_key` | unset | One API key used by the `one` tool |
+
+Notes:
+
+- Backward compatibility: legacy `enable = true` is accepted as an alias for `enabled = true`.
+- If `enabled = false` or `api_key` is missing, the `one` tool is not registered.
+- One executes actions via the local `one --agent` CLI; ensure `one init` has been run on the host.
+
 ## `[cost]`
 
 | Key | Default | Purpose |

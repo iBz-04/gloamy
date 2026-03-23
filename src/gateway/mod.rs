@@ -377,6 +377,11 @@ pub async fn run_gateway(host: &str, port: u16, config: Config) -> Result<()> {
     } else {
         (None, None)
     };
+    let one_key = if config.one.enabled {
+        config.one.api_key.as_deref()
+    } else {
+        None
+    };
 
     let tools_registry_raw = tools::all_tools_with_runtime(
         Arc::new(config.clone()),
@@ -385,6 +390,7 @@ pub async fn run_gateway(host: &str, port: u16, config: Config) -> Result<()> {
         Arc::clone(&mem),
         composio_key,
         composio_entity_id,
+        one_key,
         &config.browser,
         &config.http_request,
         &config.web_fetch,

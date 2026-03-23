@@ -44,6 +44,7 @@ pub mod memory_forget;
 pub mod memory_recall;
 pub mod memory_store;
 pub mod model_routing_config;
+pub mod one;
 pub mod pdf_read;
 pub mod proxy_config;
 pub mod pushover;
@@ -83,6 +84,7 @@ pub use memory_forget::MemoryForgetTool;
 pub use memory_recall::MemoryRecallTool;
 pub use memory_store::MemoryStoreTool;
 pub use model_routing_config::ModelRoutingConfigTool;
+pub use one::OneTool;
 pub use pdf_read::PdfReadTool;
 pub use proxy_config::ProxyConfigTool;
 pub use pushover::PushoverTool;
@@ -167,6 +169,7 @@ pub fn all_tools(
     memory: Arc<dyn Memory>,
     composio_key: Option<&str>,
     composio_entity_id: Option<&str>,
+    one_key: Option<&str>,
     browser_config: &crate::config::BrowserConfig,
     http_config: &crate::config::HttpRequestConfig,
     web_fetch_config: &crate::config::WebFetchConfig,
@@ -182,6 +185,7 @@ pub fn all_tools(
         memory,
         composio_key,
         composio_entity_id,
+        one_key,
         browser_config,
         http_config,
         web_fetch_config,
@@ -201,6 +205,7 @@ pub fn all_tools_with_runtime(
     memory: Arc<dyn Memory>,
     composio_key: Option<&str>,
     composio_entity_id: Option<&str>,
+    one_key: Option<&str>,
     browser_config: &crate::config::BrowserConfig,
     http_config: &crate::config::HttpRequestConfig,
     web_fetch_config: &crate::config::WebFetchConfig,
@@ -314,6 +319,12 @@ pub fn all_tools_with_runtime(
         }
     }
 
+    if let Some(key) = one_key {
+        if !key.is_empty() {
+            tool_arcs.push(Arc::new(OneTool::new(key, security.clone())));
+        }
+    }
+
     // Add delegation tool when agents are configured
     if !agents.is_empty() {
         let delegate_agents: HashMap<String, DelegateAgentConfig> = agents
@@ -395,6 +406,7 @@ mod tests {
             mem,
             None,
             None,
+            None,
             &browser,
             &http,
             &crate::config::WebFetchConfig::default(),
@@ -435,6 +447,7 @@ mod tests {
             Arc::new(Config::default()),
             &security,
             mem,
+            None,
             None,
             None,
             &browser,
@@ -587,6 +600,7 @@ mod tests {
             mem,
             None,
             None,
+            None,
             &browser,
             &http,
             &crate::config::WebFetchConfig::default(),
@@ -618,6 +632,7 @@ mod tests {
             Arc::new(Config::default()),
             &security,
             mem,
+            None,
             None,
             None,
             &browser,

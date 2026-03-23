@@ -4,8 +4,9 @@ use crate::config::schema::{
 };
 use crate::config::{
     AutonomyConfig, BrowserConfig, ChannelsConfig, ComposioConfig, Config, DiscordConfig,
-    HeartbeatConfig, IMessageConfig, LarkConfig, MatrixConfig, MemoryConfig, ObservabilityConfig,
-    RuntimeConfig, SecretsConfig, SlackConfig, StorageConfig, TelegramConfig, WebhookConfig,
+    HeartbeatConfig, IMessageConfig, LarkConfig, MatrixConfig, MemoryConfig, OneConfig,
+    ObservabilityConfig, RuntimeConfig, SecretsConfig, SlackConfig, StorageConfig, TelegramConfig,
+    WebhookConfig,
 };
 use crate::hardware::{self, HardwareConfig};
 use crate::memory::{
@@ -102,19 +103,14 @@ pub async fn run_wizard(force: bool) -> Result<Config> {
     let tunnel_config = setup_tunnel()?;
 
     print_step(5, 9, "Tool Mode & Security");
-    let (composio_config, secrets_config) = setup_tool_mode()?;
+    let (composio_config, one_config, secrets_config) = setup_tool_mode()?;
 
     print_step(6, 9, "Hardware (Physical World)");
     let hardware_config = setup_hardware()?;
 
-    print_step(7, 9, "Memory Configuration");
-    let memory_config = setup_memory()?;
-
-    print_step(8, 9, "Project Context (Personalize Your Agent)");
-    let project_ctx = setup_project_context()?;
-
-    print_step(9, 9, "Workspace Files");
-    scaffold_workspace(&workspace_dir, &project_ctx).await?;
+    print_step(7, 9, "Workplace (Identity)");
+    println!("  Gloamy workspace: {}", style(workspace_dir.display()).cyan());
+    println!();
 
     // ── Build config ──
     // Defaults: SQLite memory, supervised autonomy, workspace-scoped, native runtime
@@ -144,11 +140,12 @@ pub async fn run_wizard(force: bool) -> Result<Config> {
         heartbeat: HeartbeatConfig::default(),
         cron: crate::config::CronConfig::default(),
         channels_config,
-        memory: memory_config, // User-selected memory backend
+        memory: MemoryConfig::default(), // Defaults to default memory
         storage: StorageConfig::default(),
         tunnel: tunnel_config,
         gateway: crate::config::GatewayConfig::default(),
         composio: composio_config,
+        one: one_config,
         secrets: secrets_config,
         browser: BrowserConfig::default(),
         http_request: crate::config::HttpRequestConfig::default(),
@@ -500,6 +497,7 @@ async fn run_quick_setup_with_home(
         tunnel: crate::config::TunnelConfig::default(),
         gateway: crate::config::GatewayConfig::default(),
         composio: ComposioConfig::default(),
+        one: crate::config::schema::OneConfig::default(),
         secrets: SecretsConfig::default(),
         browser: BrowserConfig::default(),
         http_request: crate::config::HttpRequestConfig::default(),
@@ -2915,7 +2913,7 @@ fn provider_supports_device_flow(provider_name: &str) -> bool {
 
 // ── Step 5: Tool Mode & Security ────────────────────────────────
 
-fn setup_tool_mode() -> Result<(ComposioConfig, SecretsConfig)> {
+fn setup_tool_mode() -> Result<(ComposioConfig, OneConfig, SecretsConfig)> {
     print_bullet("Choose how Gloamy connects to external apps.");
     print_bullet("You can always change this later in config.toml.");
     println!();
@@ -2923,6 +2921,7 @@ fn setup_tool_mode() -> Result<(ComposioConfig, SecretsConfig)> {
     let options = vec![
         "Sovereign (local only) — you manage API keys, full privacy (default)",
         "Composio (managed OAuth) — 1000+ apps via OAuth, no raw keys shared",
+        "One CLI (managed) — 200+ apps via One CLI (Gmail, Slack, GitHub, ...)",
     ];
 
     let choice = Select::new()
@@ -2931,48 +2930,80 @@ fn setup_tool_mode() -> Result<(ComposioConfig, SecretsConfig)> {
         .default(0)
         .interact()?;
 
-    let composio_config = if choice == 1 {
-        println!();
-        println!(
-            "  {} {}",
-            style("Composio Setup").white().bold(),
-            style("— 1000+ OAuth integrations (Gmail, Notion, GitHub, Slack, ...)").dim()
-        );
-        print_bullet("Get your API key at: https://app.composio.dev/settings");
-        print_bullet("Gloamy uses Composio as a tool — your core agent stays local.");
-        println!();
+    let mut composio_config = ComposioConfig::default();
+    let mut one_config = OneConfig::default();
 
-        let api_key: String = Input::new()
-            .with_prompt("  Composio API key (or Enter to skip)")
-            .allow_empty(true)
-            .interact_text()?;
+    match choice {
+        1 => {
+            println!();
+            println!(
+                "  {} {}",
+                style("Composio Setup").white().bold(),
+                style("— 1000+ OAuth integrations (Gmail, Notion, GitHub, Slack, ...)").dim()
+            );
+            print_bullet("Get your API key at: https://app.composio.dev/settings");
+            print_bullet("Gloamy uses Composio as a tool — your core agent stays local.");
+            println!();
 
-        if api_key.trim().is_empty() {
-            println!(
-                "  {} Skipped — set composio.api_key in config.toml later",
-                style("→").dim()
-            );
-            ComposioConfig::default()
-        } else {
-            println!(
-                "  {} Composio: {} (1000+ OAuth tools available)",
-                style("✓").green().bold(),
-                style("enabled").green()
-            );
-            ComposioConfig {
-                enabled: true,
-                api_key: Some(api_key),
-                ..ComposioConfig::default()
+            let api_key: String = Input::new()
+                .with_prompt("  Composio API key (or Enter to skip)")
+                .allow_empty(true)
+                .interact_text()?;
+
+            if api_key.trim().is_empty() {
+                println!(
+                    "  {} Skipped — set composio.api_key in config.toml later",
+                    style("→").dim()
+                );
+            } else {
+                println!(
+                    "  {} Composio: {} (1000+ OAuth tools available)",
+                    style("✓").green().bold(),
+                    style("enabled").green()
+                );
+                composio_config.enabled = true;
+                composio_config.api_key = Some(api_key);
             }
         }
-    } else {
-        println!(
-            "  {} Tool mode: {} — full privacy, you own every key",
-            style("✓").green().bold(),
-            style("Sovereign (local only)").green()
-        );
-        ComposioConfig::default()
-    };
+        2 => {
+            println!();
+            println!(
+                "  {} {}",
+                style("One CLI Setup").white().bold(),
+                style("— 200+ platform integrations (Gmail, Slack, GitHub, ...)").dim()
+            );
+            print_bullet("One uses the 'one' CLI on your machine.");
+            print_bullet("Get your API key at: https://app.one.picahq.com/");
+            println!();
+
+            let api_key: String = Input::new()
+                .with_prompt("  One API key (or Enter to skip)")
+                .allow_empty(true)
+                .interact_text()?;
+
+            if api_key.trim().is_empty() {
+                println!(
+                    "  {} Skipped — set one.api_key in config.toml later",
+                    style("→").dim()
+                );
+            } else {
+                println!(
+                    "  {} One CLI: {} (200+ integrations available)",
+                    style("✓").green().bold(),
+                    style("enabled").green()
+                );
+                one_config.enabled = true;
+                one_config.api_key = Some(api_key);
+            }
+        }
+        _ => {
+            println!(
+                "  {} Tool mode: {} — full privacy, you own every key",
+                style("✓").green().bold(),
+                style("Sovereign (local only)").green()
+            );
+        }
+    }
 
     // ── Encrypted secrets ──
     println!();
@@ -3000,7 +3031,7 @@ fn setup_tool_mode() -> Result<(ComposioConfig, SecretsConfig)> {
         );
     }
 
-    Ok((composio_config, secrets_config))
+    Ok((composio_config, one_config, secrets_config))
 }
 
 // ── Step 6: Hardware (Physical World) ───────────────────────────

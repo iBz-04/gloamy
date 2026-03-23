@@ -277,6 +277,11 @@ impl Agent {
         } else {
             None
         };
+        let one_key = if config.one.enabled {
+            config.one.api_key.as_deref()
+        } else {
+            None
+        };
 
         let tools = tools::all_tools_with_runtime(
             Arc::new(config.clone()),
@@ -285,6 +290,7 @@ impl Agent {
             memory.clone(),
             composio_key,
             composio_entity_id,
+            one_key,
             &config.browser,
             &config.http_request,
             &config.web_fetch,

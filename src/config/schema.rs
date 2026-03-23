@@ -37,6 +37,7 @@ const SUPPORTED_PROXY_SERVICE_KEYS: &[&str] = &[
     "channel.whatsapp",
     "tool.browser",
     "tool.composio",
+    "tool.one",
     "tool.http_request",
     "tool.pushover",
     "memory.embeddings",
@@ -161,6 +162,10 @@ pub struct Config {
     /// Composio managed OAuth tools integration (`[composio]`).
     #[serde(default)]
     pub composio: ComposioConfig,
+
+    /// One CLI integration for 200+ platforms (`[one]`).
+    #[serde(default)]
+    pub one: OneConfig,
 
     /// Secrets encryption configuration (`[secrets]`).
     #[serde(default)]
@@ -898,6 +903,30 @@ impl Default for ComposioConfig {
             enabled: false,
             api_key: None,
             entity_id: default_entity_id(),
+        }
+    }
+}
+
+// ── One (CLI-based tool integration) ─────────────────────────────
+
+/// One CLI integration for 200+ third-party platforms (`[one]` section).
+///
+/// Uses the One CLI (`one --agent`) to execute actions on Gmail, Slack, GitHub, etc.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub struct OneConfig {
+    /// Enable One CLI integration for 200+ platform integrations
+    #[serde(default, alias = "enable")]
+    pub enabled: bool,
+    /// One API key (stored encrypted when secrets.encrypt = true)
+    #[serde(default)]
+    pub api_key: Option<String>,
+}
+
+impl Default for OneConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            api_key: None,
         }
     }
 }
@@ -3635,6 +3664,7 @@ impl Default for Config {
             tunnel: TunnelConfig::default(),
             gateway: GatewayConfig::default(),
             composio: ComposioConfig::default(),
+            one: OneConfig::default(),
             secrets: SecretsConfig::default(),
             browser: BrowserConfig::default(),
             http_request: HttpRequestConfig::default(),
@@ -4089,6 +4119,12 @@ impl Config {
                 &store,
                 &mut config.composio.api_key,
                 "config.composio.api_key",
+            )?;
+
+            decrypt_optional_secret(
+                &store,
+                &mut config.one.api_key,
+                "config.one.api_key",
             )?;
 
             decrypt_optional_secret(
@@ -4727,6 +4763,12 @@ impl Config {
 
         encrypt_optional_secret(
             &store,
+            &mut config_to_save.one.api_key,
+            "config.one.api_key",
+        )?;
+
+        encrypt_optional_secret(
+            &store,
             &mut config_to_save.browser.computer_use.api_key,
             "config.browser.computer_use.api_key",
         )?;
@@ -5177,6 +5219,7 @@ default_temperature = 0.7
             tunnel: TunnelConfig::default(),
             gateway: GatewayConfig::default(),
             composio: ComposioConfig::default(),
+            one: OneConfig::default(),
             secrets: SecretsConfig::default(),
             browser: BrowserConfig::default(),
             http_request: HttpRequestConfig::default(),
@@ -5359,6 +5402,7 @@ tool_dispatcher = "xml"
             tunnel: TunnelConfig::default(),
             gateway: GatewayConfig::default(),
             composio: ComposioConfig::default(),
+            one: OneConfig::default(),
             secrets: SecretsConfig::default(),
             browser: BrowserConfig::default(),
             http_request: HttpRequestConfig::default(),
@@ -5407,6 +5451,7 @@ tool_dispatcher = "xml"
         config.config_path = dir.join("config.toml");
         config.api_key = Some("root-credential".into());
         config.composio.api_key = Some("composio-credential".into());
+        config.one.api_key = Some("one-credential".into());
         config.browser.computer_use.api_key = Some("browser-credential".into());
         config.web_search.brave_api_key = Some("brave-credential".into());
         config.storage.provider.config.db_url = Some("postgres://user:pw@host/db".into());
@@ -5446,6 +5491,10 @@ tool_dispatcher = "xml"
             store.decrypt(composio_encrypted).unwrap(),
             "composio-credential"
         );
+
+        let one_encrypted = stored.one.api_key.as_deref().unwrap();
+        assert!(crate::security::SecretStore::is_encrypted(one_encrypted));
+        assert_eq!(store.decrypt(one_encrypted).unwrap(), "one-credential");
 
         let browser_encrypted = stored.browser.computer_use.api_key.as_deref().unwrap();
         assert!(crate::security::SecretStore::is_encrypted(
@@ -6183,6 +6232,8 @@ default_temperature = 0.7
         let c = Config::default();
         assert!(!c.composio.enabled);
         assert!(c.composio.api_key.is_none());
+        assert!(!c.one.enabled);
+        assert!(c.one.api_key.is_none());
         assert!(c.secrets.encrypt);
         assert!(!c.browser.enabled);
         assert!(c.browser.allowed_domains.is_empty());

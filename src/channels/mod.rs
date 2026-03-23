@@ -3112,6 +3112,11 @@ async fn start_channels_internal(config: Config, run_scheduler: bool) -> Result<
     } else {
         (None, None)
     };
+    let one_key = if config.one.enabled {
+        config.one.api_key.as_deref()
+    } else {
+        None
+    };
     // Build system prompt from workspace identity files + skills
     let workspace = config.workspace_dir.clone();
     let tools_registry = Arc::new(tools::all_tools_with_runtime(
@@ -3121,6 +3126,7 @@ async fn start_channels_internal(config: Config, run_scheduler: bool) -> Result<
         Arc::clone(&mem),
         composio_key,
         composio_entity_id,
+        one_key,
         &config.browser,
         &config.http_request,
         &config.web_fetch,
@@ -3170,6 +3176,12 @@ async fn start_channels_internal(config: Config, run_scheduler: bool) -> Result<
         tool_descs.push((
             "composio",
             "Execute actions on 1000+ apps via Composio (Gmail, Notion, GitHub, Slack, etc.). Use action='list' to discover actions, 'list_accounts' to retrieve connected account IDs, 'execute' to run (optionally with connected_account_id), and 'connect' for OAuth.",
+        ));
+    }
+    if config.one.enabled {
+        tool_descs.push((
+            "one",
+            "Execute actions on 200+ apps via One CLI (list_connections, search_actions, get_action_knowledge, execute_action).",
         ));
     }
     tool_descs.push((
