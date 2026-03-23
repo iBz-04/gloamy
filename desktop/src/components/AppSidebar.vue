@@ -16,24 +16,24 @@ type GroupNavItem = { icon: string; label: string; children: LeafNavItem[] }
 const isCollapsed = computed(() => state.value.leftSidebarCollapsed)
 
 const navItems: Array<LeafNavItem | GroupNavItem> = [
-  { icon: 'ph:chat-circle-text', label: 'Agent Chat', to: '/' },
-  { icon: 'ph:circles-four', label: 'Dashboard', to: '/agent-chat' },
-  { icon: 'ph:toolbox', label: 'Tools', to: '/tools' },
-  { icon: 'ph:calendar-check', label: 'Cron Jobs', to: '/cron-jobs' },
-  { icon: 'ph:puzzle-piece', label: 'Integrations', to: '/integrations' },
-  { icon: 'ph:archive', label: 'Memory', to: '/memory' },
-  { icon: 'ph:sliders-horizontal', label: 'Configuration', to: '/configuration' },
-  { icon: 'ph:megaphone-simple', label: 'Cost Tracking', to: '/cost-tracking' },
+  { icon: 'ph:chat-circle-text-fill', label: 'Agent Chat', to: '/' },
+  { icon: 'ph:circles-four-fill', label: 'Dashboard', to: '/agent-chat' },
+  { icon: 'ph:toolbox-fill', label: 'Tools', to: '/tools' },
+  { icon: 'ph:calendar-check-fill', label: 'Cron Jobs', to: '/cron-jobs' },
+  { icon: 'ph:puzzle-piece-fill', label: 'Integrations', to: '/integrations' },
+  { icon: 'ph:archive-fill', label: 'Memory', to: '/memory' },
+  { icon: 'ph:sliders-horizontal-fill', label: 'Configuration', to: '/configuration' },
+  { icon: 'ph:megaphone-simple-fill', label: 'Cost Tracking', to: '/cost-tracking' },
   {
-    icon: 'ph:heartbeat',
+    icon: 'ph:heartbeat-fill',
     label: 'Diagnostics',
     children: [
       { icon: 'ph:pulse-fill', label: 'Logs', to: '/logs' },
       { icon: 'ph:first-aid-kit-fill', label: 'Doctor', to: '/doctor' },
     ],
   },
-  { icon: 'ph:link-simple', label: 'Authentication/Pairing', to: '/authentication' },
-  { icon: 'ph:gear-six', label: 'Settings & Theme', to: '/settings' },
+  { icon: 'ph:link-simple-fill', label: 'Authentication/Pairing', to: '/authentication' },
+  { icon: 'ph:gear-six-fill', label: 'Settings & Theme', to: '/settings' },
 ]
 
 const openGroups = ref<Record<string, boolean>>({
@@ -55,16 +55,16 @@ const isGroupNavItem = (item: LeafNavItem | GroupNavItem): item is GroupNavItem 
 const getNavItemKey = (item: LeafNavItem | GroupNavItem) => (isGroupNavItem(item) ? `group-${item.label}` : item.to)
 
 const projects = [
-  { name: 'Work', icon: 'ph:flask' },
-  { name: 'Calendar', icon: 'ph:calendar-blank' },
+  { name: 'Work', icon: 'ph:flask-fill' },
+  { name: 'Calendar', icon: 'ph:calendar-blank-fill' },
 ]
 
 const tasks = [
-  { label: 'Optimize onboarding flow', icon: 'ph:arrow-arc-right', color: 'text-blue-500' },
-  { label: 'Prepare Q3 product roadmap', icon: 'ph:note-pencil', color: 'text-muted-foreground' },
-  { label: 'Analyze user feedback from beta test', icon: 'ph:note-pencil', color: 'text-muted-foreground' },
-  { label: 'Investigate slow page load reports', icon: 'ph:note-pencil', color: 'text-muted-foreground' },
-  { label: 'Document API integration guidelin...', icon: 'ph:note-pencil', color: 'text-muted-foreground' },
+  { label: 'Optimize onboarding flow', icon: 'ph:arrow-arc-right-fill', color: 'text-blue-500' },
+  { label: 'Prepare Q3 product roadmap', icon: 'ph:note-pencil-fill', color: 'text-muted-foreground' },
+  { label: 'Analyze user feedback from beta test', icon: 'ph:note-pencil-fill', color: 'text-muted-foreground' },
+  { label: 'Investigate slow page load reports', icon: 'ph:note-pencil-fill', color: 'text-muted-foreground' },
+  { label: 'Document API integration guidelin...', icon: 'ph:note-pencil-fill', color: 'text-muted-foreground' },
 ]
 </script>
 
@@ -162,7 +162,7 @@ const tasks = [
       <div class="flex items-center justify-between px-3 mb-1">
         <span class="text-[11px] font-medium text-muted-foreground uppercase tracking-wider">Projects</span>
         <button class="text-muted-foreground hover:text-foreground transition-colors">
-          <Icon icon="ph:plus" class="size-3.5" />
+          <Icon icon="ph:plus-fill" class="size-3.5" />
         </button>
       </div>
       <div class="flex flex-col gap-0.5">
@@ -182,7 +182,7 @@ const tasks = [
           <Icon icon="ph:caret-down" class="size-3" />
         </span>
         <button class="text-muted-foreground hover:text-foreground transition-colors">
-          <Icon icon="ph:funnel-simple" class="size-3.5" />
+          <Icon icon="ph:funnel-simple-fill" class="size-3.5" />
         </button>
       </div>
       <div class="flex flex-col gap-0.5">
@@ -201,10 +201,10 @@ const tasks = [
       <div class="flex items-center gap-3">
         <ThemeSwitch />
         <button v-if="!isCollapsed" class="text-muted-foreground hover:text-foreground transition-colors">
-          <Icon icon="ph:squares-four" class="size-4" />
+          <Icon icon="ph:squares-four-fill" class="size-4" />
         </button>
         <button v-if="!isCollapsed" class="text-muted-foreground hover:text-foreground transition-colors">
-          <Icon icon="ph:bookmark-simple" class="size-4" />
+          <Icon icon="ph:bookmark-simple-fill" class="size-4" />
         </button>
       </div>
     </div>
