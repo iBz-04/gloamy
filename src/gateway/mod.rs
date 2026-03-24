@@ -698,6 +698,12 @@ pub async fn run_gateway(host: &str, port: u16, config: Config) -> Result<()> {
         // ── Config PUT with larger body limit ──
         .merge(config_put_router)
         .with_state(state)
+        .layer(
+            tower_http::cors::CorsLayer::new()
+                .allow_origin(tower_http::cors::Any)
+                .allow_methods(tower_http::cors::Any)
+                .allow_headers(tower_http::cors::Any),
+        )
         .layer(RequestBodyLimitLayer::new(MAX_BODY_SIZE))
         .layer(TimeoutLayer::with_status_code(
             StatusCode::REQUEST_TIMEOUT,

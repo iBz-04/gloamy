@@ -1,3 +1,5 @@
+import type { StatusResponse, CostSummary } from './types'
+
 export class UnauthorizedError extends Error {
   constructor() {
     super('Unauthorized')
@@ -17,6 +19,16 @@ function normalizePath(path: string): string {
     return path
   }
   return path.startsWith('/') ? path : `/${path}`
+}
+
+function unwrapField<T>(value: T | Record<string, T>, key: string): T {
+  if (value !== null && typeof value === 'object' && !Array.isArray(value) && key in value) {
+    const unwrapped = (value as Record<string, T | undefined>)[key]
+    if (unwrapped !== undefined) {
+      return unwrapped
+    }
+  }
+  return value as T
 }
 
 export async function apiFetch<T = unknown>(
@@ -76,4 +88,14 @@ export async function pair(baseUrl: string, code: string): Promise<{ token: stri
   }
 
   return response.json() as Promise<{ token: string }>
+}
+
+export function getStatus(baseUrl: string, token?: string | null): Promise<StatusResponse> {
+  return apiFetch<StatusResponse>(baseUrl, '/api/status', {}, token)
+}
+
+export function getCost(baseUrl: string, token?: string | null): Promise<CostSummary> {
+  return apiFetch<CostSummary | { cost: CostSummary }>(baseUrl, '/api/cost', {}, token).then(data =>
+    unwrapField(data, 'cost'),
+  )
 }

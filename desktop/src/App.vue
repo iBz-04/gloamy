@@ -2,6 +2,7 @@
 import { onBeforeUnmount, onMounted, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { ConfigProvider } from 'reka-ui'
+import { Icon } from '@iconify/vue'
 import AppSidebar from '@/components/AppSidebar.vue'
 import AppTopbar from '@/components/AppTopbar.vue'
 import { TooltipProvider } from '@/components/ui/tooltip'
@@ -11,10 +12,18 @@ import { useAuthStore } from '@/stores/auth'
 const router = useRouter()
 const auth = useAuthStore()
 
+onMounted(async () => {
+  if (!auth.isLoaded)
+    await auth.load()
+})
+
 // Watch for authentication state changes to handle logout/login redirection
 watch(
-  () => auth.isAuthenticated,
-  (authenticated) => {
+  () => ({ authenticated: auth.isAuthenticated, loaded: auth.isLoaded }),
+  ({ authenticated, loaded }) => {
+    if (!loaded)
+      return
+
     const currentPath = router.currentRoute.value.path
     if (!authenticated) {
       if (currentPath !== '/authentication') {
@@ -23,7 +32,9 @@ watch(
     }
     else {
       if (currentPath === '/authentication') {
-        router.replace('/')
+        const redirect = router.currentRoute.value.query.redirect
+        const nextPath = typeof redirect === 'string' && redirect.trim().length > 0 ? redirect : '/'
+        router.replace(nextPath)
       }
     }
   },

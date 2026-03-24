@@ -5,20 +5,20 @@ import PlaceholderPage from '@/pages/placeholder.vue'
 const routes = [
   {
     path: '/',
+    name: 'dashboard',
+    component: () => import('@/pages/dashboard.vue'),
+    meta: {
+      title: 'Dashboard',
+      description: 'Monitor your agent runtime at a glance.',
+    },
+  },
+  {
+    path: '/chat',
     name: 'agent-chat',
     component: () => import('@/pages/home.vue'),
     meta: {
       title: 'Agent Chat',
       description: 'Chat directly with your Gloamy agent.',
-    },
-  },
-  {
-    path: '/agent-chat',
-    name: 'dashboard',
-    component: PlaceholderPage,
-    meta: {
-      title: 'Dashboard',
-      description: 'Monitor your agent runtime at a glance.',
     },
   },
   {

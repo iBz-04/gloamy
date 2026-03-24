@@ -10,12 +10,15 @@ const BASE_URL_KEY = 'api_base_url'
 export const DEFAULT_BASE_URL = (import.meta.env.VITE_GLOAMY_API_BASE as string | undefined)
   ?? 'http://127.0.0.1:42617'
 
+export type AuthState = 'unknown' | 'checking' | 'authenticated' | 'unauthenticated' | 'unreachable'
+
 export const useAuthStore = defineStore('auth', () => {
   const token = ref<string | null>(null)
   const baseUrl = ref<string>(DEFAULT_BASE_URL)
   const isLoaded = ref(false)
+  const authState = ref<AuthState>('unknown')
 
-  const isAuthenticated = computed(() => Boolean(token.value))
+  const isAuthenticated = computed(() => authState.value === 'authenticated')
 
   async function load() {
     if (isLoaded.value)
@@ -33,8 +36,36 @@ export const useAuthStore = defineStore('auth', () => {
     catch (error) {
       console.error('Failed to load auth state:', error)
     }
-    finally {
-      isLoaded.value = true
+
+    if (token.value)
+      await validateToken()
+    else
+      authState.value = 'unauthenticated'
+
+    isLoaded.value = true
+  }
+
+  async function validateToken(): Promise<boolean> {
+    if (!token.value) {
+      authState.value = 'unauthenticated'
+      return false
+    }
+
+    authState.value = 'checking'
+
+    try {
+      await apiFetch(baseUrl.value, '/api/status', {}, token.value)
+      authState.value = 'authenticated'
+      return true
+    }
+    catch (error) {
+      if (error instanceof UnauthorizedError) {
+        await clearToken()
+        authState.value = 'unauthenticated'
+        return false
+      }
+      authState.value = 'unreachable'
+      return false
     }
   }
 
@@ -49,12 +80,20 @@ export const useAuthStore = defineStore('auth', () => {
     token.value = value
     await store.set(TOKEN_KEY, value)
     await store.save()
+    const ok = await validateToken()
+    if (!ok) {
+      if (authState.value === 'unreachable')
+        throw new Error('Daemon unreachable. Check that it is running and the API base URL is correct.')
+
+      throw new Error('Invalid token. Pair again to obtain a valid bearer token.')
+    }
   }
 
   async function clearToken() {
     token.value = null
     await store.set(TOKEN_KEY, '')
     await store.save()
+    authState.value = 'unauthenticated'
   }
 
   async function pair(code: string) {
@@ -83,8 +122,10 @@ export const useAuthStore = defineStore('auth', () => {
     token,
     baseUrl,
     isLoaded,
+    authState,
     isAuthenticated,
     load,
+    validateToken,
     setBaseUrl,
     setToken,
     clearToken,

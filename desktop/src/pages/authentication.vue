@@ -1,6 +1,7 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, ref, unref } from 'vue'
 import { Icon } from '@iconify/vue'
+import type { AuthState } from '@/stores/auth'
 import { useAuthStore } from '@/stores/auth'
 
 const auth = useAuthStore()
@@ -13,10 +14,29 @@ const notice = ref('')
 
 const isAuthenticated = computed(() => auth.isAuthenticated)
 const isReady = computed(() => auth.isLoaded)
+const authState = computed<AuthState>(() => unref(auth.authState) as AuthState)
+
+const daemonPaired = ref<boolean | null>(null)
 
 onMounted(async () => {
   if (!auth.isLoaded)
     await auth.load()
+
+  try {
+    const baseUrl = String(unref(auth.baseUrl) ?? '').trim().replace(/\/+$/, '')
+    if (!baseUrl)
+      return
+
+    const response = await fetch(`${baseUrl}/health`)
+    if (!response.ok)
+      return
+
+    const data = await response.json().catch(() => null) as any
+    if (data && typeof data.paired === 'boolean')
+      daemonPaired.value = data.paired
+  }
+  catch {
+  }
 })
 
 const resetMessages = () => {
@@ -28,6 +48,16 @@ const handleAuthenticate = async () => {
   resetMessages()
   const trimmedCode = code.value.trim()
   const trimmedToken = tokenInput.value.trim()
+
+  if (trimmedToken && /^[a-f0-9]{64}$/i.test(trimmedToken)) {
+    error.value = 'That looks like a hashed token from config.toml. You need the plaintext bearer token (starts with zc_) from a successful /pair response.'
+    return
+  }
+
+  if (trimmedCode.length >= 6 && daemonPaired.value === true) {
+    error.value = 'This daemon is already paired. Pairing codes are only available on first setup. Paste an existing bearer token (zc_...) or clear gateway.paired_tokens in config.toml and restart the daemon to re-pair.'
+    return
+  }
 
   if (trimmedCode.length >= 6) {
     loading.value = true
@@ -80,12 +110,20 @@ const handleLogout = async () => {
           </h1>
 
           <div class="w-full space-y-6">
-            <div v-if="!isReady" class="flex justify-center py-6">
+            <div v-if="!isReady || authState === 'checking'" class="flex justify-center py-6">
               <Icon icon="ph:circle-notch" class="size-6 animate-spin text-muted-foreground/40" />
+            </div>
+
+            <div v-else-if="authState === 'unreachable'" class="text-sm text-red-500 font-bold text-center">
+              Daemon unreachable. Start the daemon and confirm the API base URL.
             </div>
 
             <template v-else-if="!isAuthenticated">
               <div class="space-y-4">
+                <div v-if="daemonPaired === true" class="text-xs text-muted-foreground text-center">
+                  This daemon is already paired. If you lost your bearer token, clear gateway.paired_tokens in config.toml and restart the daemon to generate a new pairing code.
+                </div>
+
                 <div class="space-y-1.5">
                   <label class="text-xs font-medium text-foreground">Pairing code</label>
                   <input
@@ -97,6 +135,12 @@ const handleLogout = async () => {
                     @keyup.enter="handleAuthenticate"
                     autofocus
                   >
+                </div>
+
+                <div class="flex items-center gap-3 py-2">
+                  <div class="flex-1 h-px bg-border"></div>
+                  <span class="text-xs font-medium text-muted-foreground">OR</span>
+                  <div class="flex-1 h-px bg-border"></div>
                 </div>
 
                 <div class="space-y-1.5">

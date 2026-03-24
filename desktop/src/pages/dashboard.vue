@@ -1,0 +1,351 @@
+<script setup lang="ts">
+import { onMounted, onUnmounted, ref, computed } from 'vue'
+import { Icon } from '@iconify/vue'
+import { useAuthStore } from '@/stores/auth'
+import type { StatusResponse, CostSummary } from '@/lib/types'
+
+const auth = useAuthStore()
+const status = ref<StatusResponse | null>(null)
+const cost = ref<CostSummary | null>(null)
+const trendHistory = ref<number[]>([])
+const refreshTimer = ref<number | null>(null)
+const loading = ref(true)
+const error = ref<string | null>(null)
+
+function formatUSD(value: number): string {
+  return `$${value.toFixed(4)}`
+}
+
+const maxCost = computed(() => {
+  if (!cost.value) return 0.001
+  return Math.max(
+    cost.value.session_cost_usd,
+    cost.value.daily_cost_usd,
+    cost.value.monthly_cost_usd,
+    0.001
+  )
+})
+
+const healthStatus = (s: string) => {
+  const st = s.toLowerCase()
+  if (st === 'ok' || st === 'healthy') return 'success'
+  if (st === 'warn' || st === 'warning' || st === 'degraded') return 'warning'
+  return 'error'
+}
+
+const providerIcon = computed(() => {
+  const provider = (status.value?.provider || '').toLowerCase()
+  if (provider.includes('openai')) return 'simple-icons:openai'
+  if (provider.includes('anthropic') || provider.includes('claude')) return 'simple-icons:anthropic'
+  if (provider.includes('gemini') || provider.includes('google')) return 'simple-icons:googlegemini'
+  if (provider.includes('groq')) return 'simple-icons:groq'
+  if (provider.includes('mistral')) return 'simple-icons:mistralai'
+  if (provider.includes('xai') || provider.includes('grok')) return 'simple-icons:xai'
+  if (provider.includes('openrouter')) return 'simple-icons:openrouter'
+  if (provider.includes('ollama')) return 'simple-icons:ollama'
+  return 'ph:cpu'
+})
+
+const componentCount = computed(() => {
+  if (!status.value) return 0
+  return Object.keys(status.value.health.components).length
+})
+
+const healthyCount = computed(() => {
+  if (!status.value) return 0
+  return Object.values(status.value.health.components)
+    .filter(c => healthStatus(c.status) === 'success')
+    .length
+})
+
+const healthLabel = computed(() => {
+  if (componentCount.value === 0) return 'No data'
+  if (healthyCount.value === componentCount.value) return 'Excellent'
+  if (healthyCount.value >= Math.ceil(componentCount.value * 0.6)) return 'Stable'
+  return 'Degraded'
+})
+
+const healthFilledBars = computed(() => {
+  if (componentCount.value === 0) return 0
+  return Math.round((healthyCount.value / componentCount.value) * 40)
+})
+
+const healthRatio = computed(() => {
+  if (componentCount.value === 0) return 0
+  return healthyCount.value / componentCount.value
+})
+
+const healthProgressColor = computed(() => {
+  const low = { r: 106, g: 58, b: 42 }
+  const high = { r: 45, g: 79, b: 30 }
+  const t = Math.min(Math.max(healthRatio.value, 0), 1)
+  const r = Math.round(low.r + (high.r - low.r) * t)
+  const g = Math.round(low.g + (high.g - low.g) * t)
+  const b = Math.round(low.b + (high.b - low.b) * t)
+  return `rgb(${r}, ${g}, ${b})`
+})
+
+const trendChangePercent = computed(() => {
+  const history = trendHistory.value
+  if (history.length < 2) return 0
+  const first = history[0] ?? 0
+  const last = history[history.length - 1] ?? 0
+  if (first <= 0) return 0
+  return ((last - first) / first) * 100
+})
+
+const trendClass = computed(() => trendChangePercent.value >= 0 ? 'text-emerald-500' : 'text-rose-500')
+
+function pushTrendSample(summary: CostSummary) {
+  const sample = Math.max(summary.total_tokens, summary.request_count, 1)
+  trendHistory.value = [...trendHistory.value, sample].slice(-30)
+}
+
+async function fetchData(showLoading = false) {
+  if (showLoading) {
+    loading.value = true
+    error.value = null
+  }
+  try {
+    const [s, c] = await Promise.all([
+      auth.fetchWithAuth<StatusResponse>('/api/status'),
+      auth.fetchWithAuth<{ cost: CostSummary } | CostSummary>('/api/cost'),
+    ])
+
+    status.value = s
+
+    const latestCost = c && typeof c === 'object' && !Array.isArray(c) && 'cost' in c
+      ? (c as { cost: CostSummary }).cost
+      : (c as CostSummary)
+
+    cost.value = latestCost
+    pushTrendSample(latestCost)
+  } catch (err: any) {
+    if (!status.value || !cost.value) {
+      error.value = err.message || 'Failed to load dashboard'
+    }
+  } finally {
+    if (showLoading) {
+      loading.value = false
+    }
+  }
+}
+
+const sparklinePoints = computed(() => {
+  if (trendHistory.value.length === 0) return ''
+  const data: number[] = trendHistory.value.length === 1
+    ? [trendHistory.value[0] ?? 0, trendHistory.value[0] ?? 0]
+    : trendHistory.value
+  const w = 600
+  const h = 80
+  const min = data.reduce((acc, n) => n < acc ? n : acc, data[0] ?? 0)
+  const max = data.reduce((acc, n) => n > acc ? n : acc, data[0] ?? 0)
+  const range = Math.max(max - min, 1)
+  const pts = data.map((v, i) => {
+    const x = (i / (data.length - 1)) * w
+    const normalized = (v - min) / range
+    const y = h - normalized * (h - 12) - 6
+    return `${x},${y}`
+  })
+  return pts.join(' ')
+})
+
+onMounted(async () => {
+  await fetchData(true)
+  refreshTimer.value = window.setInterval(() => {
+    fetchData(false)
+  }, 30000)
+})
+
+onUnmounted(() => {
+  if (refreshTimer.value !== null) {
+    window.clearInterval(refreshTimer.value)
+  }
+})
+</script>
+
+<template>
+  <div class="h-full flex flex-col overflow-y-auto px-8 py-10 bg-background text-[14px]">
+    <div v-if="loading" class="flex-1 flex items-center justify-center">
+      <Icon icon="ph:circle-notch" class="size-6 animate-spin text-muted-foreground" />
+    </div>
+
+    <div v-else-if="error" class="flex-1 flex items-center justify-center px-6">
+      <div class="max-w-md w-full p-6 rounded-[4px] border border-border/50 bg-destructive/5 text-center">
+        <h3 class="text-lg font-medium text-foreground mb-2">Failed to load Dashboard</h3>
+        <p class="text-sm text-muted-foreground mb-6">{{ error }}</p>
+        <button
+          @click="fetchData(true)"
+          class="px-4 py-2 bg-primary text-primary-foreground rounded-[4px] text-sm font-medium hover:opacity-90 transition-opacity"
+        >
+          Try Again
+        </button>
+      </div>
+    </div>
+
+    <div v-else-if="status && cost" class="space-y-3 max-w-5xl mx-auto w-full">
+      <!-- Main stats card with two columns -->
+      <section>
+        <div class="rounded-lg border border-border/50 bg-card/20 flex">
+          <!-- Left: Health score with bar chart -->
+          <div class="flex-1 p-4">
+            <div class="text-[11px] text-muted-foreground mb-1">Health</div>
+            <div class="text-[28px] font-medium text-foreground tracking-tight leading-none">
+              {{ healthyCount }}/{{ componentCount }}
+            </div>
+            <div class="text-[11px] text-muted-foreground mt-0.5 mb-3">
+              {{ healthLabel }}
+            </div>
+            <!-- Vertical bar chart -->
+            <div class="flex items-end gap-[2px] h-[18px]">
+              <div 
+                v-for="(_, i) in 40" 
+                :key="i" 
+                class="w-[3px] rounded-[1px]"
+                :class="i < healthFilledBars ? 'h-full' : 'bg-border h-full'"
+                :style="i < healthFilledBars ? { backgroundColor: healthProgressColor } : undefined"
+              />
+            </div>
+          </div>
+
+          <!-- Divider -->
+          <div class="w-px bg-border/50 my-3" />
+
+          <!-- Right: Provider info -->
+          <div class="flex-1 p-4">
+            <div class="flex items-center gap-1.5 text-[11px] text-muted-foreground mb-1">
+              <Icon :icon="providerIcon" class="size-3" />
+              <span>{{ status.provider || 'Provider' }}</span>
+              <span class="text-[10px] text-muted-foreground/80">Provider Tokens</span>
+            </div>
+            <div class="text-[28px] font-medium text-foreground tracking-tight leading-none">
+              {{ cost.total_tokens.toLocaleString() }}
+            </div>
+            <div class="text-[10px] text-muted-foreground mt-1">tokens</div>
+            <div class="mt-6 flex items-center justify-between">
+              <span class="text-[11px] text-muted-foreground">runtime trend</span>
+              <span class="text-[11px]" :class="trendClass">{{ Math.abs(trendChangePercent).toFixed(1) }}%{{ trendChangePercent >= 0 ? '↑' : '↓' }}</span>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Token Timeline chart -->
+      <section>
+        <div class="p-4 rounded-lg border border-border/50 bg-card/20">
+          <div class="text-[11px] text-muted-foreground mb-0.5">Token Usage (Runtime Samples)</div>
+          <div class="text-[24px] font-medium text-foreground tracking-tight leading-none">{{ cost.total_tokens.toLocaleString() }}</div>
+          <div class="flex items-center gap-1.5 mt-1 mb-3">
+            <span class="text-[11px] text-emerald-500">↑ {{ cost.request_count }}</span>
+            <span class="text-[11px] text-muted-foreground">samples update every 30s while open</span>
+          </div>
+          <svg viewBox="0 0 600 80" class="w-full h-[80px]" preserveAspectRatio="none">
+            <polyline
+              :points="sparklinePoints"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="1.5"
+              stroke-linejoin="round"
+              stroke-linecap="round"
+              class="text-foreground"
+            />
+          </svg>
+        </div>
+      </section>
+
+      <div class="grid grid-cols-1 lg:grid-cols-2 gap-3">
+        <!-- Cost Section -->
+        <section>
+          <div class="p-4 rounded-lg border border-border/50 bg-card/20 h-full">
+            <div class="text-[11px] text-muted-foreground mb-3">Cost Overview</div>
+
+            <div class="space-y-3">
+              <div v-for="item in [
+                { label: 'Session', value: cost.session_cost_usd, color: 'bg-foreground' },
+                { label: 'Daily', value: cost.daily_cost_usd, color: 'bg-emerald-500' },
+                { label: 'Monthly', value: cost.monthly_cost_usd, color: 'bg-primary' }
+              ]" :key="item.label" class="space-y-1">
+                <div class="flex justify-between items-end">
+                  <span class="text-[11px] text-muted-foreground">{{ item.label }}</span>
+                  <span class="text-[12px] font-mono text-foreground">{{ formatUSD(item.value) }}</span>
+                </div>
+                <div class="h-[2px] w-full bg-border overflow-hidden rounded-full">
+                  <div
+                    class="h-full transition-all duration-1000"
+                    :class="item.color"
+                    :style="{ width: `${Math.max((item.value / maxCost) * 100, 2)}%` }"
+                  />
+                </div>
+              </div>
+            </div>
+
+            <div class="mt-4 pt-3 border-t border-border/50 grid grid-cols-2 gap-3">
+              <div>
+                <div class="text-[10px] text-muted-foreground mb-0.5">Tokens</div>
+                <div class="text-[16px] font-mono text-foreground tracking-tight">{{ cost.total_tokens.toLocaleString() }}</div>
+              </div>
+              <div class="text-right">
+                <div class="text-[10px] text-muted-foreground mb-0.5">Requests</div>
+                <div class="text-[16px] font-mono text-foreground tracking-tight">{{ cost.request_count.toLocaleString() }}</div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- Channels & Health combined -->
+        <section>
+          <div class="rounded-lg border border-border/50 bg-card/20 flex h-full">
+            <!-- Channels -->
+            <div class="flex-1 p-4">
+              <div class="text-[11px] text-muted-foreground mb-2">Channels</div>
+              <div class="space-y-0">
+                <template v-for="(active, name) in status.channels" :key="name">
+                  <div v-if="active" class="flex items-center justify-between py-1.5 border-b border-border/30 last:border-0">
+                    <span class="text-[12px] text-foreground capitalize">{{ name }}</span>
+                    <span class="text-[10px] text-emerald-500">Active</span>
+                  </div>
+                </template>
+                <p v-if="!Object.values(status.channels).some(active => active)" class="text-[11px] text-muted-foreground py-1">
+                  No active channels
+                </p>
+              </div>
+            </div>
+
+            <!-- Divider -->
+            <div class="w-px bg-border/50 my-3" />
+
+            <!-- Health -->
+            <div class="flex-1 p-4">
+              <div class="text-[11px] text-muted-foreground mb-2">Components</div>
+              <div class="space-y-0">
+                <div
+                  v-for="(comp, name) in status.health.components"
+                  :key="name"
+                  class="flex items-center justify-between py-1.5 border-b border-border/30 last:border-0"
+                >
+                  <span class="text-[12px] text-foreground capitalize">{{ name }}</span>
+                  <span class="text-[10px]" :class="{
+                    'text-emerald-500': healthStatus(comp.status) === 'success',
+                    'text-orange-500': healthStatus(comp.status) === 'warning',
+                    'text-destructive': healthStatus(comp.status) === 'error',
+                  }">
+                    {{ comp.status.toUpperCase() }}
+                  </span>
+                </div>
+                <p v-if="Object.keys(status.health.components).length === 0" class="text-[11px] text-muted-foreground py-1">
+                  No components
+                </p>
+              </div>
+            </div>
+          </div>
+        </section>
+      </div>
+    </div>
+  </div>
+</template>
+
+<style scoped>
+.font-mono {
+  font-family: 'JetBrains Mono', 'Fira Code', monospace;
+}
+</style>
