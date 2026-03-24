@@ -314,6 +314,10 @@ pub struct TelegramChannel {
 }
 
 impl TelegramChannel {
+    fn is_message_not_modified(error_body: &str) -> bool {
+        error_body.contains("message is not modified")
+    }
+
     pub fn new(bot_token: String, allowed_users: Vec<String>, mention_only: bool) -> Self {
         let normalized_allowed = Self::normalize_allowed_users(allowed_users);
         let pairing = if normalized_allowed.is_empty() {
@@ -2363,6 +2367,9 @@ impl Channel for TelegramChannel {
 
         let html_status = resp.status();
         let html_err = resp.text().await.unwrap_or_default();
+        if Self::is_message_not_modified(&html_err) {
+            return Ok(());
+        }
         tracing::debug!(
             status = %html_status,
             error = %html_err,
@@ -2389,6 +2396,9 @@ impl Channel for TelegramChannel {
 
         let plain_status = resp.status();
         let plain_err = resp.text().await.unwrap_or_default();
+        if Self::is_message_not_modified(&plain_err) {
+            return Ok(());
+        }
 
         // Edit failed entirely — fall back to new message
         tracing::warn!(

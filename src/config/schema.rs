@@ -6,6 +6,7 @@ use directories::UserDirs;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use std::io;
 use std::path::{Path, PathBuf};
 use std::sync::{OnceLock, RwLock};
 #[cfg(unix)]
@@ -57,6 +58,56 @@ const SUPPORTED_PROXY_SERVICE_SELECTORS: &[&str] = &[
 static RUNTIME_PROXY_CONFIG: OnceLock<RwLock<ProxyConfig>> = OnceLock::new();
 static RUNTIME_PROXY_CLIENT_CACHE: OnceLock<RwLock<HashMap<String, reqwest::Client>>> =
     OnceLock::new();
+
+fn parse_env_value(raw: &str) -> String {
+    let raw = raw.trim();
+    let unquoted = if raw.len() >= 2
+        && ((raw.starts_with('"') && raw.ends_with('"'))
+            || (raw.starts_with('\'') && raw.ends_with('\'')))
+    {
+        &raw[1..raw.len() - 1]
+    } else {
+        raw
+    };
+
+    unquoted.split_once(" #").map_or_else(
+        || unquoted.trim().to_string(),
+        |(value, _)| value.trim().to_string(),
+    )
+}
+
+async fn load_env_file(path: &Path) -> Result<()> {
+    let contents = match fs::read_to_string(path).await {
+        Ok(contents) => contents,
+        Err(error) => {
+            if error.kind() == io::ErrorKind::NotFound {
+                return Ok(());
+            }
+            tracing::warn!(path = %path.display(), error = %error, "Failed to read .env file");
+            return Ok(());
+        }
+    };
+
+    for line in contents.lines() {
+        let line = line.trim();
+        if line.is_empty() || line.starts_with('#') {
+            continue;
+        }
+
+        let line = line.strip_prefix("export ").map(str::trim).unwrap_or(line);
+        if let Some((key, value)) = line.split_once('=') {
+            let key = key.trim();
+            if key.is_empty() {
+                continue;
+            }
+            if std::env::var_os(key).is_none() {
+                std::env::set_var(key, parse_env_value(value));
+            }
+        }
+    }
+
+    Ok(())
+}
 
 // ── Top-level config ──────────────────────────────────────────────
 
@@ -4069,6 +4120,8 @@ impl Config {
         fs::create_dir_all(&workspace_dir)
             .await
             .context("Failed to create workspace directory")?;
+
+        load_env_file(&workspace_dir.join(".env")).await?;
 
         if config_path.exists() {
             // Warn if config file is world-readable (may contain API keys)

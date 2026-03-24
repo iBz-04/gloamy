@@ -1,4 +1,5 @@
 import { createMemoryHistory, createRouter } from 'vue-router'
+import { useAuthStore } from '@/stores/auth'
 import PlaceholderPage from '@/pages/placeholder.vue'
 
 const routes = [
@@ -95,7 +96,7 @@ const routes = [
   {
     path: '/authentication',
     name: 'authentication',
-    component: PlaceholderPage,
+    component: () => import('@/pages/authentication.vue'),
     meta: {
       title: 'Authentication & Pairing',
       description: 'Pair new clients and manage credentials.',
@@ -115,6 +116,25 @@ const routes = [
 const router = createRouter({
   history: createMemoryHistory(),
   routes,
+})
+
+router.beforeEach(async (to) => {
+  const auth = useAuthStore()
+  if (!auth.isLoaded)
+    await auth.load()
+
+  const isAuthRoute = to.path === '/authentication'
+
+  if (!auth.isAuthenticated && !isAuthRoute) {
+    return { path: '/authentication', query: { redirect: to.fullPath } }
+  }
+
+  if (auth.isAuthenticated && isAuthRoute) {
+    // Allow authenticated users to visit the auth page (e.g. to logout or change token)
+    return true
+  }
+
+  return true
 })
 
 export default router

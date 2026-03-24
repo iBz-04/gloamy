@@ -5,10 +5,16 @@ import { computed, ref } from 'vue'
 import { useRoute } from 'vue-router'
 import { useUIStateStore } from '@/stores/uiState'
 import ThemeSwitch from '@/components/ThemeSwitch.vue'
+import { useAuthStore } from '@/stores/auth'
 
 const route = useRoute()
 const uiStore = useUIStateStore()
+const auth = useAuthStore()
 const { state } = storeToRefs(uiStore)
+
+const logout = async () => {
+  await auth.logout()
+}
 
 type LeafNavItem = { icon: string; label: string; to: string }
 type GroupNavItem = { icon: string; label: string; children: LeafNavItem[] }
@@ -32,7 +38,6 @@ const navItems: Array<LeafNavItem | GroupNavItem> = [
       { icon: 'ph:first-aid-kit-fill', label: 'Doctor', to: '/doctor' },
     ],
   },
-  { icon: 'ph:shield-check-fill', label: 'Authentication', to: '/authentication' },
   { icon: 'ph:gear-six-fill', label: 'Settings', to: '/settings' },
 ]
 
@@ -148,11 +153,12 @@ const getNavItemKey = (item: LeafNavItem | GroupNavItem) => (isGroupNavItem(item
     <div class="mt-auto border-t border-border px-2 py-2 flex items-center" :class="isCollapsed ? 'justify-center' : 'justify-between px-4'">
       <div class="flex items-center gap-3">
         <ThemeSwitch />
-        <button v-if="!isCollapsed" class="text-muted-foreground hover:text-foreground transition-colors">
-          <Icon icon="ph:squares-four-fill" class="size-4" />
-        </button>
-        <button v-if="!isCollapsed" class="text-muted-foreground hover:text-foreground transition-colors">
-          <Icon icon="ph:bookmark-simple-fill" class="size-4" />
+        <button
+          class="size-6 rounded-full bg-primary text-primary-foreground flex items-center justify-center text-[10px] font-bold hover:bg-primary/90 transition-colors shrink-0"
+          title="Sign Out"
+          @click="logout"
+        >
+          G
         </button>
       </div>
     </div>
