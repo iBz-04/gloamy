@@ -1,3 +1,4 @@
+pub mod cost_tracking;
 pub mod log;
 pub mod multi;
 pub mod noop;
@@ -12,6 +13,7 @@ pub mod verbose;
 pub use self::log::LogObserver;
 #[allow(unused_imports)]
 pub use self::multi::MultiObserver;
+pub use cost_tracking::CostTrackingObserver;
 pub use noop::NoopObserver;
 #[cfg(feature = "observability-otel")]
 pub use otel::OtelObserver;

@@ -3090,8 +3090,22 @@ async fn start_channels_internal(config: Config, run_scheduler: bool) -> Result<
         );
     }
 
-    let observer: Arc<dyn Observer> =
+    let base_observer: Arc<dyn Observer> =
         Arc::from(observability::create_observer(&config.observability));
+    let observer: Arc<dyn Observer> = if config.cost.enabled {
+        match crate::cost::CostTracker::new(config.cost.clone(), &config.workspace_dir) {
+            Ok(ct) => Arc::new(observability::CostTrackingObserver::new(
+                base_observer,
+                Arc::new(ct),
+            )),
+            Err(e) => {
+                tracing::warn!("Failed to create cost tracker for channels: {e}");
+                base_observer
+            }
+        }
+    } else {
+        base_observer
+    };
     let runtime: Arc<dyn runtime::RuntimeAdapter> =
         Arc::from(runtime::create_runtime(&config.runtime)?);
     let security = Arc::new(SecurityPolicy::from_config(

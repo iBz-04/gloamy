@@ -170,7 +170,7 @@ onMounted(async () => {
   await fetchData(true)
   refreshTimer.value = window.setInterval(() => {
     fetchData(false)
-  }, 30000)
+  }, 10000)
 })
 
 onUnmounted(() => {
@@ -181,7 +181,7 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <div class="h-full flex flex-col overflow-y-auto px-6 py-6 bg-background text-[14px]">
+  <div class="h-full flex flex-col overflow-y-auto px-6 py-6 bg-background text-[15px]">
     <div v-if="loading" class="flex-1 flex items-center justify-center">
       <Icon icon="ph:circle-notch" class="size-6 animate-spin text-muted-foreground" />
     </div>
@@ -205,11 +205,14 @@ onUnmounted(() => {
         <div class="rounded-lg border border-border/50 bg-card/20 flex">
           <!-- Left: Health score with bar chart -->
           <div class="flex-1 p-4">
-            <div class="text-[11px] text-muted-foreground mb-1">Health</div>
+            <div class="flex items-center gap-1.5 text-[12px] text-muted-foreground mb-1">
+              <Icon icon="ph:heart-fill" class="size-3.5" />
+              <span>Health</span>
+            </div>
             <div class="text-[28px] font-medium text-foreground tracking-tight leading-none">
               {{ healthyCount }}/{{ componentCount }}
             </div>
-            <div class="text-[11px] text-muted-foreground mt-0.5 mb-3">
+            <div class="text-[12px] text-muted-foreground mt-0.5 mb-3">
               {{ healthLabel }}
             </div>
             <!-- Vertical bar chart -->
@@ -229,18 +232,18 @@ onUnmounted(() => {
 
           <!-- Right: Provider info -->
           <div class="flex-1 p-4">
-            <div class="flex items-center gap-1.5 text-[11px] text-muted-foreground mb-1">
-              <Icon :icon="providerIcon" class="size-3" />
+            <div class="flex items-center gap-1.5 text-[12px] text-muted-foreground mb-1">
+              <Icon :icon="providerIcon" class="size-3.5" />
               <span>{{ status.provider || 'Provider' }}</span>
-              <span class="text-[10px] text-muted-foreground/80">Provider Tokens</span>
+              <span class="text-[11px] text-muted-foreground/80">Provider Tokens</span>
             </div>
             <div class="text-[28px] font-medium text-foreground tracking-tight leading-none">
               {{ cost.total_tokens.toLocaleString() }}
             </div>
-            <div class="text-[10px] text-muted-foreground mt-1">tokens</div>
+            <div class="text-[11px] text-muted-foreground mt-1">tokens</div>
             <div class="mt-6 flex items-center justify-between">
-              <span class="text-[11px] text-muted-foreground">runtime trend</span>
-              <span class="text-[11px]" :class="trendClass">{{ Math.abs(trendChangePercent).toFixed(1) }}%{{ trendChangePercent >= 0 ? '↑' : '↓' }}</span>
+              <span class="text-[12px] text-muted-foreground">runtime trend</span>
+              <span class="text-[12px]" :class="trendClass">{{ Math.abs(trendChangePercent).toFixed(1) }}%{{ trendChangePercent >= 0 ? '↑' : '↓' }}</span>
             </div>
           </div>
         </div>
@@ -249,11 +252,14 @@ onUnmounted(() => {
       <!-- Token Timeline chart -->
       <section>
         <div class="p-4 rounded-lg border border-border/50 bg-card/20">
-          <div class="text-[11px] text-muted-foreground mb-0.5">Token Usage (Runtime Samples)</div>
+          <div class="flex items-center gap-1.5 text-[12px] text-muted-foreground mb-0.5">
+            <Icon icon="ph:coins-fill" class="size-3.5" />
+            <span>Token Usage (Runtime Samples)</span>
+          </div>
           <div class="text-[24px] font-medium text-foreground tracking-tight leading-none">{{ cost.total_tokens.toLocaleString() }}</div>
           <div class="flex items-center gap-1.5 mt-1 mb-3">
-            <span class="text-[11px] text-emerald-500">↑ {{ cost.request_count }}</span>
-            <span class="text-[11px] text-muted-foreground">samples update every 30s while open</span>
+            <span class="text-[12px] text-emerald-500">↑ {{ cost.request_count }}</span>
+            <span class="text-[12px] text-muted-foreground">samples update every 10s while open</span>
           </div>
           <svg viewBox="0 0 600 160" class="w-full h-[200px]" preserveAspectRatio="none">
             <polyline
@@ -273,7 +279,10 @@ onUnmounted(() => {
         <!-- Cost Section -->
         <section>
           <div class="p-4 rounded-lg border border-border/50 bg-card/20 h-full">
-            <div class="text-[11px] text-muted-foreground mb-3">Cost Overview</div>
+            <div class="flex items-center gap-1.5 text-[12px] text-muted-foreground mb-3">
+              <Icon icon="ph:wallet-fill" class="size-3.5" />
+              <span>Cost Overview</span>
+            </div>
 
             <div class="space-y-4">
               <div v-for="item in [
@@ -282,8 +291,8 @@ onUnmounted(() => {
                 { label: 'Monthly', value: cost.monthly_cost_usd, color: 'bg-primary' }
               ]" :key="item.label" class="space-y-1.5">
                 <div class="flex justify-between items-end">
-                  <span class="text-[11px] text-muted-foreground">{{ item.label }}</span>
-                  <span class="text-[12px] font-mono text-foreground">{{ formatUSD(item.value) }}</span>
+                  <span class="text-[12px] text-muted-foreground">{{ item.label }}</span>
+                  <span class="text-[13px] font-mono text-foreground">{{ formatUSD(item.value) }}</span>
                 </div>
                 <div class="h-[8px] w-full bg-border overflow-hidden rounded-full">
                   <div
@@ -297,12 +306,12 @@ onUnmounted(() => {
 
             <div class="mt-4 pt-3 border-t border-border/50 grid grid-cols-2 gap-3">
               <div>
-                <div class="text-[10px] text-muted-foreground mb-0.5">Tokens</div>
-                <div class="text-[16px] font-mono text-foreground tracking-tight">{{ cost.total_tokens.toLocaleString() }}</div>
+                <div class="text-[11px] text-muted-foreground mb-0.5">Tokens</div>
+                <div class="text-[18px] font-mono text-foreground tracking-tight">{{ cost.total_tokens.toLocaleString() }}</div>
               </div>
               <div class="text-right">
-                <div class="text-[10px] text-muted-foreground mb-0.5">Requests</div>
-                <div class="text-[16px] font-mono text-foreground tracking-tight">{{ cost.request_count.toLocaleString() }}</div>
+                <div class="text-[11px] text-muted-foreground mb-0.5">Requests</div>
+                <div class="text-[18px] font-mono text-foreground tracking-tight">{{ cost.request_count.toLocaleString() }}</div>
               </div>
             </div>
           </div>
@@ -311,18 +320,21 @@ onUnmounted(() => {
         <!-- Channels -->
         <section>
           <div class="p-4 rounded-lg border border-border/50 bg-card/20 h-full">
-            <div class="text-[11px] text-muted-foreground mb-2">Channels</div>
+            <div class="flex items-center gap-1.5 text-[12px] text-muted-foreground mb-2">
+              <Icon icon="ph:chat-circle-fill" class="size-3.5" />
+              <span>Channels</span>
+            </div>
             <div class="space-y-0">
               <template v-for="(active, name) in status.channels" :key="name">
                 <div v-if="active" class="flex items-center justify-between py-2 border-b border-border/30 last:border-0">
                   <div class="flex items-center gap-2">
                     <Icon :icon="channelIcon(String(name))" class="size-3.5" />
-                    <span class="text-[12px] text-foreground capitalize">{{ name }}</span>
+                    <span class="text-[13px] text-foreground capitalize">{{ name }}</span>
                   </div>
-                  <span class="text-[10px] text-emerald-500">Active</span>
+                  <span class="text-[11px] text-emerald-500">Active</span>
                 </div>
               </template>
-              <p v-if="!Object.values(status.channels).some(active => active)" class="text-[11px] text-muted-foreground py-1">
+              <p v-if="!Object.values(status.channels).some(active => active)" class="text-[12px] text-muted-foreground py-1">
                 No active channels
               </p>
             </div>
@@ -332,16 +344,19 @@ onUnmounted(() => {
         <!-- Components -->
         <section>
           <div class="p-4 rounded-lg border border-border/50 bg-card/20 h-full">
-            <div class="text-[11px] text-muted-foreground mb-2">Components</div>
+            <div class="flex items-center gap-1.5 text-[12px] text-muted-foreground mb-2">
+              <Icon icon="ph:squares-four-fill" class="size-3.5" />
+              <span>Components</span>
+            </div>
             <div class="space-y-0">
               <div
                 v-for="(comp, name) in status.health.components"
                 :key="name"
                 class="flex items-center justify-between py-2 border-b border-border/30 last:border-0"
               >
-                <span class="text-[12px] text-foreground capitalize">{{ name }}</span>
+                <span class="text-[13px] text-foreground capitalize">{{ name }}</span>
                 <span
-                  class="size-2 rounded-full"
+                  class="size-[10px] rounded-full"
                   :class="{
                     'bg-emerald-500': healthStatus(comp.status) === 'success',
                     'bg-orange-500': healthStatus(comp.status) === 'warning',
@@ -349,7 +364,7 @@ onUnmounted(() => {
                   }"
                 />
               </div>
-              <p v-if="Object.keys(status.health.components).length === 0" class="text-[11px] text-muted-foreground py-1">
+              <p v-if="Object.keys(status.health.components).length === 0" class="text-[12px] text-muted-foreground py-1">
                 No components
               </p>
             </div>

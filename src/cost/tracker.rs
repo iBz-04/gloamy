@@ -135,9 +135,17 @@ impl CostTracker {
 
     /// Get the current cost summary.
     pub fn get_summary(&self) -> Result<CostSummary> {
-        let (daily_cost, monthly_cost) = {
+        let (daily_cost, monthly_cost, monthly_tokens, monthly_request_count) = {
             let mut storage = self.lock_storage();
-            storage.get_aggregated_costs()?
+            let (daily_cost, monthly_cost) = storage.get_aggregated_costs()?;
+            let (monthly_tokens, monthly_request_count) =
+                storage.get_usage_totals_for_month(storage.cached_year, storage.cached_month)?;
+            (
+                daily_cost,
+                monthly_cost,
+                monthly_tokens,
+                monthly_request_count,
+            )
         };
 
         let session_costs = self.lock_session_costs();
@@ -145,19 +153,14 @@ impl CostTracker {
             .iter()
             .map(|record| record.usage.cost_usd)
             .sum();
-        let total_tokens: u64 = session_costs
-            .iter()
-            .map(|record| record.usage.total_tokens)
-            .sum();
-        let request_count = session_costs.len();
         let by_model = build_session_model_stats(&session_costs);
 
         Ok(CostSummary {
             session_cost_usd: session_cost,
             daily_cost_usd: daily_cost,
             monthly_cost_usd: monthly_cost,
-            total_tokens,
-            request_count,
+            total_tokens: monthly_tokens,
+            request_count: monthly_request_count,
             by_model,
         })
     }
@@ -399,6 +402,21 @@ impl CostStorage {
 
         Ok(cost)
     }
+
+    fn get_usage_totals_for_month(&self, year: i32, month: u32) -> Result<(u64, usize)> {
+        let mut total_tokens: u64 = 0;
+        let mut request_count: usize = 0;
+
+        self.for_each_record(|record| {
+            let timestamp = record.usage.timestamp.naive_utc();
+            if timestamp.year() == year && timestamp.month() == month {
+                total_tokens += record.usage.total_tokens;
+                request_count += 1;
+            }
+        })?;
+
+        Ok((total_tokens, request_count))
+    }
 }
 
 #[cfg(test)]
@@ -532,5 +550,20 @@ mod tests {
         assert!(err
             .to_string()
             .contains("Estimated cost must be a finite, non-negative value"));
+    }
+
+    #[test]
+    fn summary_includes_persisted_monthly_tokens_after_restart() {
+        let tmp = TempDir::new().unwrap();
+        let first_tracker = CostTracker::new(enabled_config(), tmp.path()).unwrap();
+        first_tracker
+            .record_usage(TokenUsage::new("test/model", 1200, 800, 1.0, 1.0))
+            .unwrap();
+
+        let second_tracker = CostTracker::new(enabled_config(), tmp.path()).unwrap();
+        let summary = second_tracker.get_summary().unwrap();
+
+        assert_eq!(summary.total_tokens, 2000);
+        assert_eq!(summary.request_count, 1);
     }
 }
