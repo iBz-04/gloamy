@@ -33,7 +33,7 @@ const routes = [
   {
     path: '/cron-jobs',
     name: 'cron-jobs',
-    component: PlaceholderPage,
+    component: () => import('@/pages/cron-jobs.vue'),
     meta: {
       title: 'Cron Jobs',
       description: 'Manage scheduled automations and routines.',
@@ -42,7 +42,7 @@ const routes = [
   {
     path: '/integrations',
     name: 'integrations',
-    component: PlaceholderPage,
+    component: () => import('@/pages/integrations.vue'),
     meta: {
       title: 'Integrations',
       description: 'Connect channels, providers, and peripherals.',
