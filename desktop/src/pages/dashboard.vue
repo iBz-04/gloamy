@@ -128,15 +128,20 @@ async function fetchData(showLoading = false) {
       auth.fetchWithAuth<{ cost: CostSummary } | CostSummary>('/api/cost'),
     ])
 
+    console.log('[dashboard] raw status response:', JSON.stringify(s))
+    console.log('[dashboard] raw cost response:', JSON.stringify(c))
+
     status.value = s
 
     const latestCost = c && typeof c === 'object' && !Array.isArray(c) && 'cost' in c
       ? (c as { cost: CostSummary }).cost
       : (c as CostSummary)
 
+    console.log('[dashboard] resolved cost object:', JSON.stringify(latestCost))
     cost.value = latestCost
     pushTrendSample(latestCost)
   } catch (err: any) {
+    console.error('[dashboard] fetchData error:', err)
     if (!status.value || !cost.value) {
       error.value = err.message || 'Failed to load dashboard'
     }
@@ -235,7 +240,7 @@ onUnmounted(() => {
             <div class="flex items-center gap-1.5 text-[12px] text-muted-foreground mb-1">
               <Icon :icon="providerIcon" class="size-3.5" />
               <span>{{ status.provider || 'Provider' }}</span>
-              <span class="text-[11px] text-muted-foreground/80">Provider Tokens</span>
+              <span class="text-[11px] text-muted-foreground/80">Provider</span>
             </div>
             <div class="text-[28px] font-medium text-foreground tracking-tight leading-none">
               {{ cost.total_tokens.toLocaleString() }}
@@ -254,7 +259,7 @@ onUnmounted(() => {
         <div class="p-4 rounded-lg border border-border/50 bg-card/20">
           <div class="flex items-center gap-1.5 text-[12px] text-muted-foreground mb-0.5">
             <Icon icon="ph:coins-fill" class="size-3.5" />
-            <span>Token Usage (Runtime Samples)</span>
+            <span>Token Usage</span>
           </div>
           <div class="text-[24px] font-medium text-foreground tracking-tight leading-none">{{ cost.total_tokens.toLocaleString() }}</div>
           <div class="flex items-center gap-1.5 mt-1 mb-3">

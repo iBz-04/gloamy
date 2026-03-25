@@ -24,7 +24,7 @@ const routes = [
   {
     path: '/tools',
     name: 'tools',
-    component: PlaceholderPage,
+    component: () => import('@/pages/tools.vue'),
     meta: {
       title: 'Tools',
       description: 'Configure and inspect available tools.',
