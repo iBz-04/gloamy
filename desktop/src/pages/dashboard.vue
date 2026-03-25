@@ -96,6 +96,22 @@ const trendChangePercent = computed(() => {
 
 const trendClass = computed(() => trendChangePercent.value >= 0 ? 'text-emerald-500' : 'text-rose-500')
 
+function channelIcon(name: string): string {
+  const n = String(name).toLowerCase()
+  if (n.includes('slack')) return 'logos:slack-icon'
+  if (n.includes('telegram')) return 'logos:telegram'
+  if (n.includes('discord')) return 'logos:discord-icon'
+  if (n.includes('whatsapp')) return 'logos:whatsapp-icon'
+  if (n.includes('signal')) return 'logos:signal-icon'
+  if (n.includes('matrix')) return 'logos:matrix'
+  if (n.includes('teams')) return 'logos:microsoft-teams'
+  if (n.includes('irc')) return 'logos:irc'
+  if (n.includes('cli')) return 'ph:terminal'
+  if (n.includes('web')) return 'ph:globe'
+  if (n.includes('clawdtalk')) return 'ph:chat-circle'
+  return 'ph:plug'
+}
+
 function pushTrendSample(summary: CostSummary) {
   const sample = Math.max(summary.total_tokens, summary.request_count, 1)
   trendHistory.value = [...trendHistory.value, sample].slice(-30)
@@ -137,14 +153,14 @@ const sparklinePoints = computed(() => {
     ? [trendHistory.value[0] ?? 0, trendHistory.value[0] ?? 0]
     : trendHistory.value
   const w = 600
-  const h = 80
+  const h = 160
   const min = data.reduce((acc, n) => n < acc ? n : acc, data[0] ?? 0)
   const max = data.reduce((acc, n) => n > acc ? n : acc, data[0] ?? 0)
   const range = Math.max(max - min, 1)
   const pts = data.map((v, i) => {
     const x = (i / (data.length - 1)) * w
     const normalized = (v - min) / range
-    const y = h - normalized * (h - 12) - 6
+    const y = h - normalized * (h - 20) - 10
     return `${x},${y}`
   })
   return pts.join(' ')
@@ -165,7 +181,7 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <div class="h-full flex flex-col overflow-y-auto px-8 py-10 bg-background text-[14px]">
+  <div class="h-full flex flex-col overflow-y-auto px-6 py-6 bg-background text-[14px]">
     <div v-if="loading" class="flex-1 flex items-center justify-center">
       <Icon icon="ph:circle-notch" class="size-6 animate-spin text-muted-foreground" />
     </div>
@@ -183,7 +199,7 @@ onUnmounted(() => {
       </div>
     </div>
 
-    <div v-else-if="status && cost" class="space-y-3 max-w-5xl mx-auto w-full">
+    <div v-else-if="status && cost" class="space-y-2.5 w-full">
       <!-- Main stats card with two columns -->
       <section>
         <div class="rounded-lg border border-border/50 bg-card/20 flex">
@@ -197,7 +213,7 @@ onUnmounted(() => {
               {{ healthLabel }}
             </div>
             <!-- Vertical bar chart -->
-            <div class="flex items-end gap-[2px] h-[18px]">
+            <div class="flex items-end gap-[2px] h-[32px]">
               <div 
                 v-for="(_, i) in 40" 
                 :key="i" 
@@ -239,7 +255,7 @@ onUnmounted(() => {
             <span class="text-[11px] text-emerald-500">↑ {{ cost.request_count }}</span>
             <span class="text-[11px] text-muted-foreground">samples update every 30s while open</span>
           </div>
-          <svg viewBox="0 0 600 80" class="w-full h-[80px]" preserveAspectRatio="none">
+          <svg viewBox="0 0 600 160" class="w-full h-[200px]" preserveAspectRatio="none">
             <polyline
               :points="sparklinePoints"
               fill="none"
@@ -253,23 +269,23 @@ onUnmounted(() => {
         </div>
       </section>
 
-      <div class="grid grid-cols-1 lg:grid-cols-2 gap-3">
+      <div class="grid grid-cols-3 gap-2.5">
         <!-- Cost Section -->
         <section>
           <div class="p-4 rounded-lg border border-border/50 bg-card/20 h-full">
             <div class="text-[11px] text-muted-foreground mb-3">Cost Overview</div>
 
-            <div class="space-y-3">
+            <div class="space-y-4">
               <div v-for="item in [
                 { label: 'Session', value: cost.session_cost_usd, color: 'bg-foreground' },
                 { label: 'Daily', value: cost.daily_cost_usd, color: 'bg-emerald-500' },
                 { label: 'Monthly', value: cost.monthly_cost_usd, color: 'bg-primary' }
-              ]" :key="item.label" class="space-y-1">
+              ]" :key="item.label" class="space-y-1.5">
                 <div class="flex justify-between items-end">
                   <span class="text-[11px] text-muted-foreground">{{ item.label }}</span>
                   <span class="text-[12px] font-mono text-foreground">{{ formatUSD(item.value) }}</span>
                 </div>
-                <div class="h-[2px] w-full bg-border overflow-hidden rounded-full">
+                <div class="h-[8px] w-full bg-border overflow-hidden rounded-full">
                   <div
                     class="h-full transition-all duration-1000"
                     :class="item.color"
@@ -292,50 +308,50 @@ onUnmounted(() => {
           </div>
         </section>
 
-        <!-- Channels & Health combined -->
+        <!-- Channels -->
         <section>
-          <div class="rounded-lg border border-border/50 bg-card/20 flex h-full">
-            <!-- Channels -->
-            <div class="flex-1 p-4">
-              <div class="text-[11px] text-muted-foreground mb-2">Channels</div>
-              <div class="space-y-0">
-                <template v-for="(active, name) in status.channels" :key="name">
-                  <div v-if="active" class="flex items-center justify-between py-1.5 border-b border-border/30 last:border-0">
+          <div class="p-4 rounded-lg border border-border/50 bg-card/20 h-full">
+            <div class="text-[11px] text-muted-foreground mb-2">Channels</div>
+            <div class="space-y-0">
+              <template v-for="(active, name) in status.channels" :key="name">
+                <div v-if="active" class="flex items-center justify-between py-2 border-b border-border/30 last:border-0">
+                  <div class="flex items-center gap-2">
+                    <Icon :icon="channelIcon(String(name))" class="size-3.5" />
                     <span class="text-[12px] text-foreground capitalize">{{ name }}</span>
-                    <span class="text-[10px] text-emerald-500">Active</span>
                   </div>
-                </template>
-                <p v-if="!Object.values(status.channels).some(active => active)" class="text-[11px] text-muted-foreground py-1">
-                  No active channels
-                </p>
-              </div>
-            </div>
-
-            <!-- Divider -->
-            <div class="w-px bg-border/50 my-3" />
-
-            <!-- Health -->
-            <div class="flex-1 p-4">
-              <div class="text-[11px] text-muted-foreground mb-2">Components</div>
-              <div class="space-y-0">
-                <div
-                  v-for="(comp, name) in status.health.components"
-                  :key="name"
-                  class="flex items-center justify-between py-1.5 border-b border-border/30 last:border-0"
-                >
-                  <span class="text-[12px] text-foreground capitalize">{{ name }}</span>
-                  <span class="text-[10px]" :class="{
-                    'text-emerald-500': healthStatus(comp.status) === 'success',
-                    'text-orange-500': healthStatus(comp.status) === 'warning',
-                    'text-destructive': healthStatus(comp.status) === 'error',
-                  }">
-                    {{ comp.status.toUpperCase() }}
-                  </span>
+                  <span class="text-[10px] text-emerald-500">Active</span>
                 </div>
-                <p v-if="Object.keys(status.health.components).length === 0" class="text-[11px] text-muted-foreground py-1">
-                  No components
-                </p>
+              </template>
+              <p v-if="!Object.values(status.channels).some(active => active)" class="text-[11px] text-muted-foreground py-1">
+                No active channels
+              </p>
+            </div>
+          </div>
+        </section>
+
+        <!-- Components -->
+        <section>
+          <div class="p-4 rounded-lg border border-border/50 bg-card/20 h-full">
+            <div class="text-[11px] text-muted-foreground mb-2">Components</div>
+            <div class="space-y-0">
+              <div
+                v-for="(comp, name) in status.health.components"
+                :key="name"
+                class="flex items-center justify-between py-2 border-b border-border/30 last:border-0"
+              >
+                <span class="text-[12px] text-foreground capitalize">{{ name }}</span>
+                <span
+                  class="size-2 rounded-full"
+                  :class="{
+                    'bg-emerald-500': healthStatus(comp.status) === 'success',
+                    'bg-orange-500': healthStatus(comp.status) === 'warning',
+                    'bg-destructive': healthStatus(comp.status) === 'error',
+                  }"
+                />
               </div>
+              <p v-if="Object.keys(status.health.components).length === 0" class="text-[11px] text-muted-foreground py-1">
+                No components
+              </p>
             </div>
           </div>
         </section>
