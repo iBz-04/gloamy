@@ -29,7 +29,6 @@ const navItems: Array<LeafNavItem | GroupNavItem> = [
   { icon: 'ph:puzzle-piece-fill', label: 'Integrations', to: '/integrations' },
   { icon: 'ph:archive-fill', label: 'Memory', to: '/memory' },
   { icon: 'ph:sliders-horizontal-fill', label: 'Configuration', to: '/configuration' },
-  { icon: 'ph:megaphone-simple-fill', label: 'Cost Tracking', to: '/cost-tracking' },
   {
     icon: 'ph:heartbeat-fill',
     label: 'Diagnostics',

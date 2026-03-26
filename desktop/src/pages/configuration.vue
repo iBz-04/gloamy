@@ -339,8 +339,8 @@ onUnmounted(() => {
           >
             <Icon v-if="saving" icon="ph:circle-notch" class="size-3.5 animate-spin" />
             <Icon v-else-if="saveSuccess" icon="ph:check" class="size-3.5" />
-            <Icon v-else icon="ph:floppy-disk" class="size-3.5" />
-            {{ saving ? 'Saving...' : saveSuccess ? 'Saved' : 'Save Changes' }}
+            <Icon v-else icon="ph:check-square-offset" class="size-3.5" />
+            {{ saving ? 'Saving...' : saveSuccess ? 'Saved' : 'Save' }}
           </button>
         </div>
       </div>
@@ -446,8 +446,8 @@ onUnmounted(() => {
                     <template v-if="entry.type === 'boolean'">
                       <button
                         @click="toggleBoolean(entry)"
-                        class="flex items-center gap-2 px-3 py-1 rounded-lg transition-colors"
-                        :class="entry.value === 'true' ? 'bg-emerald-500/10 text-emerald-600' : 'bg-card/60 text-muted-foreground'"
+                        class="flex items-center gap-2 px-3 py-1 rounded-lg transition-colors hover:bg-card/40"
+                        :class="entry.value === 'true' ? 'text-emerald-600' : 'text-muted-foreground'"
                       >
                         <Icon
                           :icon="entry.value === 'true' ? 'ph:toggle-right-fill' : 'ph:toggle-left'"
