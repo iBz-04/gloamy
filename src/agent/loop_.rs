@@ -2755,6 +2755,7 @@ pub async fn run(
             Ok(ct) => Arc::new(observability::CostTrackingObserver::new(
                 base_observer,
                 Arc::new(ct),
+                config.cost.prices.clone(),
             )),
             Err(e) => {
                 tracing::warn!("Failed to create cost tracker for CLI agent: {e}");

@@ -3097,6 +3097,7 @@ async fn start_channels_internal(config: Config, run_scheduler: bool) -> Result<
             Ok(ct) => Arc::new(observability::CostTrackingObserver::new(
                 base_observer,
                 Arc::new(ct),
+                config.cost.prices.clone(),
             )),
             Err(e) => {
                 tracing::warn!("Failed to create cost tracker for channels: {e}");
