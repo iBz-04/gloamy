@@ -8,7 +8,10 @@ use axum::{
     http::{header, HeaderMap, StatusCode},
     response::{IntoResponse, Json},
 };
+use chrono::Utc;
+use serde::Serialize;
 use serde::Deserialize;
+use std::path::{Path as FsPath, PathBuf};
 
 const MASKED_SECRET: &str = "***MASKED***";
 
@@ -66,7 +69,110 @@ pub struct CronAddBody {
     pub command: String,
 }
 
+#[derive(Deserialize)]
+pub struct LogsQuery {
+    pub limit: Option<usize>,
+}
+
+#[derive(Serialize)]
+struct ApiLogEntry {
+    id: String,
+    timestamp: String,
+    level: String,
+    source: String,
+    message: String,
+}
+
 // ── Handlers ────────────────────────────────────────────────────
+
+fn detect_log_level(line: &str, default_level: &str) -> &'static str {
+    let upper = line.to_ascii_uppercase();
+    if upper.contains(" ERROR ") || upper.starts_with("ERROR") {
+        "error"
+    } else if upper.contains(" WARN ") || upper.starts_with("WARN") {
+        "warn"
+    } else if upper.contains(" DEBUG ") || upper.starts_with("DEBUG") {
+        "debug"
+    } else if upper.contains(" INFO ") || upper.starts_with("INFO") {
+        "info"
+    } else if default_level == "error" {
+        "error"
+    } else {
+        "info"
+    }
+}
+
+fn read_log_file_entries(
+    path: &FsPath,
+    source: &str,
+    default_level: &str,
+    per_file_limit: usize,
+) -> Vec<ApiLogEntry> {
+    let content = match std::fs::read_to_string(path) {
+        Ok(content) => content,
+        Err(_) => return Vec::new(),
+    };
+
+    let lines: Vec<&str> = content.lines().filter(|line| !line.trim().is_empty()).collect();
+    let start = lines.len().saturating_sub(per_file_limit);
+
+    lines[start..]
+        .iter()
+        .enumerate()
+        .map(|(idx, line)| {
+            let message = line.trim().to_string();
+            let level = detect_log_level(&message, default_level).to_string();
+            ApiLogEntry {
+                id: format!("{}-{}", source, idx),
+                timestamp: Utc::now().to_rfc3339(),
+                level,
+                source: source.to_string(),
+                message,
+            }
+        })
+        .collect()
+}
+
+/// GET /api/logs — daemon logs (stdout/stderr tail)
+pub async fn handle_api_logs(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Query(params): Query<LogsQuery>,
+) -> impl IntoResponse {
+    if let Err(e) = require_auth(&state, &headers) {
+        return e.into_response();
+    }
+
+    let limit = params.limit.unwrap_or(200).clamp(1, 1000);
+    let per_file_limit = limit;
+    let config = state.config.lock().clone();
+    let logs_dir: PathBuf = config
+        .config_path
+        .parent()
+        .map_or_else(|| PathBuf::from("."), PathBuf::from)
+        .join("logs");
+
+    let mut logs = Vec::new();
+    logs.extend(read_log_file_entries(
+        &logs_dir.join("daemon.stdout.log"),
+        "daemon",
+        "info",
+        per_file_limit,
+    ));
+    logs.extend(read_log_file_entries(
+        &logs_dir.join("daemon.stderr.log"),
+        "daemon",
+        "error",
+        per_file_limit,
+    ));
+
+    if logs.len() > limit {
+        let start = logs.len() - limit;
+        logs = logs.split_off(start);
+    }
+
+    Json(serde_json::json!({ "logs": logs })).into_response()
+}
 
 /// GET /api/status — system status overview
 pub async fn handle_api_status(

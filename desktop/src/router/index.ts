@@ -78,16 +78,16 @@ const routes = [
   {
     path: '/logs',
     name: 'logs',
-    component: PlaceholderPage,
+    component: () => import('@/pages/logs.vue'),
     meta: {
       title: 'Logs',
-      description: 'Trace actions, events, and transport logs.',
+      description: 'System logs and debugging.',
     },
   },
   {
     path: '/doctor',
     name: 'doctor',
-    component: PlaceholderPage,
+    component: () => import('@/pages/doctor.vue'),
     meta: {
       title: 'Doctor',
       description: 'Run diagnostics to catch misconfiguration.',

@@ -65,10 +65,19 @@ onBeforeUnmount(() => {
           <main class="flex-1 overflow-hidden flex flex-col">
             <AppTopbar />
             <div class="flex-1 overflow-hidden">
-              <router-view v-slot="{ Component }">
-                <Transition name="page" mode="out-in">
-                  <component :is="Component" />
-                </Transition>
+              <router-view v-slot="{ Component, route }">
+                <Suspense>
+                  <template #default>
+                    <Transition name="page" mode="out-in">
+                      <component :is="Component" :key="route.path" />
+                    </Transition>
+                  </template>
+                  <template #fallback>
+                    <div class="h-full w-full flex items-center justify-center">
+                      <Icon icon="ph:circle-notch" class="size-6 animate-spin text-muted-foreground/40" />
+                    </div>
+                  </template>
+                </Suspense>
               </router-view>
             </div>
           </main>
