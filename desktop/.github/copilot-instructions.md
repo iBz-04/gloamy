@@ -122,6 +122,6 @@ no unecessary comments, short and important comments only when needed , a commen
 
 do not use any black borders, use cololr pallete in the ui we already use , use reuasble components 
 
-no file should be more than 500 lins of code, even 500 is too much
+no file should be more than 500 lines of code, even 500 is too much
 
 
