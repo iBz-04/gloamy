@@ -60,7 +60,7 @@ const routes = [
   {
     path: '/configuration',
     name: 'configuration',
-    component: PlaceholderPage,
+    component: () => import('@/pages/configuration.vue'),
     meta: {
       title: 'Configuration',
       description: 'Review runtime configuration and overrides.',
