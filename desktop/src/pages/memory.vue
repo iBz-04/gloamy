@@ -119,6 +119,13 @@ const searchQuery = ref('')
 const sortBy = ref<'updatedAt' | 'key' | 'size'>('updatedAt')
 const sortOrder = ref<'asc' | 'desc'>('desc')
 const selectedMemories = ref<Set<string>>(new Set())
+const editingMemoryId = ref<string | null>(null)
+const editingKey = ref('')
+const editingValue = ref('')
+const editingCategory = ref<MemoryEntry['category']>('core')
+const memoryCategoryOptions: MemoryEntry['category'][] = ['core', 'daily', 'conversation', 'preference']
+const actionMenuMemoryId = ref<string | null>(null)
+const deleteConfirmMemoryId = ref<string | null>(null)
 
 const pinnedMemories = computed(() => {
   return memories.value.filter(m => m.pinned).slice(0, 5)
@@ -153,6 +160,13 @@ const filteredMemories = computed(() => {
   })
 
   return result
+})
+
+const deleteTargetMemory = computed(() => {
+  if (!deleteConfirmMemoryId.value) {
+    return null
+  }
+  return memories.value.find(memory => memory.id === deleteConfirmMemoryId.value) ?? null
 })
 
 function formatDate(date: Date): string {
@@ -223,12 +237,84 @@ function copyMemory(memory: MemoryEntry) {
 }
 
 function deleteMemory(id: string) {
+  if (editingMemoryId.value === id) {
+    cancelEdit()
+  }
+  if (actionMenuMemoryId.value === id) {
+    actionMenuMemoryId.value = null
+  }
+  if (deleteConfirmMemoryId.value === id) {
+    deleteConfirmMemoryId.value = null
+  }
   memories.value = memories.value.filter(m => m.id !== id)
   selectedMemories.value.delete(id)
 }
 
 function togglePin(memory: MemoryEntry) {
   memory.pinned = !memory.pinned
+}
+
+function startEdit(memory: MemoryEntry) {
+  actionMenuMemoryId.value = null
+  editingMemoryId.value = memory.id
+  editingKey.value = memory.key
+  editingValue.value = memory.value
+  editingCategory.value = memory.category
+}
+
+function cancelEdit() {
+  editingMemoryId.value = null
+  editingKey.value = ''
+  editingValue.value = ''
+  editingCategory.value = 'core'
+}
+
+function saveEdit(id: string) {
+  const key = editingKey.value.trim()
+  const value = editingValue.value.trim()
+
+  if (!key || !value) {
+    return
+  }
+
+  const memory = memories.value.find(item => item.id === id)
+  if (!memory) {
+    cancelEdit()
+    return
+  }
+
+  memory.key = key
+  memory.value = value
+  memory.category = editingCategory.value
+  memory.updatedAt = new Date()
+  memory.size = new TextEncoder().encode(value).length
+
+  cancelEdit()
+}
+
+function toggleActionMenu(id: string) {
+  if (actionMenuMemoryId.value === id) {
+    actionMenuMemoryId.value = null
+    return
+  }
+  actionMenuMemoryId.value = id
+}
+
+function openDeleteConfirmModal(id: string) {
+  deleteConfirmMemoryId.value = id
+  actionMenuMemoryId.value = null
+}
+
+function closeDeleteConfirmModal() {
+  deleteConfirmMemoryId.value = null
+}
+
+function confirmDeleteFromModal() {
+  if (!deleteConfirmMemoryId.value) {
+    return
+  }
+  deleteMemory(deleteConfirmMemoryId.value)
+  deleteConfirmMemoryId.value = null
 }
 </script>
 
@@ -346,7 +432,29 @@ function togglePin(memory: MemoryEntry) {
             <!-- Name with icon -->
             <div class="flex items-center gap-3 min-w-0">
               <Icon :icon="categoryIcon(memory.category)" :class="['size-4 flex-shrink-0', categoryColor(memory.category)]" />
-              <div class="min-w-0">
+              <div v-if="editingMemoryId === memory.id" class="min-w-0 flex-1 space-y-1">
+                <input
+                  v-model="editingKey"
+                  type="text"
+                  class="w-full px-2 py-1 text-[12px] bg-card/60 border border-border/50 rounded-md focus:outline-none focus:ring-1 focus:ring-primary/50"
+                  placeholder="Memory key"
+                />
+                <input
+                  v-model="editingValue"
+                  type="text"
+                  class="w-full px-2 py-1 text-[12px] bg-card/60 border border-border/50 rounded-md focus:outline-none focus:ring-1 focus:ring-primary/50"
+                  placeholder="Memory value"
+                />
+                <select
+                  v-model="editingCategory"
+                  class="w-full px-2 py-1 text-[12px] bg-card/60 border border-border/50 rounded-md focus:outline-none focus:ring-1 focus:ring-primary/50"
+                >
+                  <option v-for="option in memoryCategoryOptions" :key="option" :value="option">
+                    {{ option.charAt(0).toUpperCase() + option.slice(1) }}
+                  </option>
+                </select>
+              </div>
+              <div v-else class="min-w-0">
                 <p class="text-foreground font-medium truncate">{{ memory.key }}</p>
                 <p class="text-[11px] text-muted-foreground truncate">{{ memory.value }}</p>
               </div>
@@ -363,33 +471,98 @@ function togglePin(memory: MemoryEntry) {
             </div>
 
             <!-- Actions -->
-            <div class="flex items-center justify-end gap-1">
-              <button
-                @click="copyMemory(memory)"
-                class="px-2.5 py-1 text-[11px] font-medium border border-border/50 rounded-lg hover:bg-card/50 transition-colors flex items-center gap-1"
-              >
-                <Icon icon="ph:copy" class="size-3" />
-                Copy
-              </button>
-              <button
-                @click="togglePin(memory)"
-                class="size-7 flex items-center justify-center rounded-lg hover:bg-card/50 transition-colors"
-                :class="memory.pinned ? 'text-amber-500' : 'text-muted-foreground'"
-                :title="memory.pinned ? 'Unpin' : 'Pin'"
-              >
-                <Icon :icon="memory.pinned ? 'ph:push-pin-fill' : 'ph:push-pin'" class="size-4" />
-              </button>
-              <button
-                @click="deleteMemory(memory.id)"
-                class="size-7 flex items-center justify-center rounded-lg hover:bg-destructive/10 text-muted-foreground hover:text-destructive transition-colors"
-                title="Delete"
-              >
-                <Icon icon="ph:dots-three-bold" class="size-4" />
-              </button>
+            <div class="relative flex items-center justify-end gap-1">
+              <template v-if="editingMemoryId === memory.id">
+                <button
+                  @click="saveEdit(memory.id)"
+                  class="px-2.5 py-1 text-[11px] font-medium border border-border/50 rounded-lg hover:bg-card/50 transition-colors flex items-center gap-1"
+                >
+                  <Icon icon="ph:floppy-disk" class="size-3" />
+                  Save
+                </button>
+                <button
+                  @click="cancelEdit"
+                  class="px-2.5 py-1 text-[11px] font-medium border border-border/50 rounded-lg hover:bg-card/50 transition-colors flex items-center gap-1"
+                >
+                  <Icon icon="ph:x" class="size-3" />
+                  Cancel
+                </button>
+              </template>
+              <template v-else>
+                <button
+                  @click="copyMemory(memory)"
+                  class="px-2.5 py-1 text-[11px] font-medium border border-border/50 rounded-lg hover:bg-card/50 transition-colors flex items-center gap-1"
+                >
+                  <Icon icon="ph:copy" class="size-3" />
+                  Copy
+                </button>
+                <button
+                  @click="togglePin(memory)"
+                  class="size-7 flex items-center justify-center rounded-lg hover:bg-card/50 transition-colors"
+                  :class="memory.pinned ? 'text-amber-500' : 'text-muted-foreground'"
+                  :title="memory.pinned ? 'Unpin' : 'Pin'"
+                >
+                  <Icon :icon="memory.pinned ? 'ph:push-pin-fill' : 'ph:push-pin'" class="size-4" />
+                </button>
+                <button
+                  @click="toggleActionMenu(memory.id)"
+                  class="size-7 flex items-center justify-center rounded-lg hover:bg-card/50 text-muted-foreground hover:text-foreground transition-colors"
+                  title="More actions"
+                >
+                  <Icon icon="ph:dots-three-bold" class="size-4" />
+                </button>
+                <div
+                  v-if="actionMenuMemoryId === memory.id"
+                  class="absolute right-0 top-9 z-20 w-28 rounded-lg border border-border/60 bg-card p-1 shadow-lg"
+                >
+                  <button
+                    @click="startEdit(memory)"
+                    class="w-full px-2 py-1.5 text-left text-[12px] rounded-md hover:bg-card/80 transition-colors flex items-center gap-1.5"
+                  >
+                    <Icon icon="ph:pencil-simple" class="size-3.5" />
+                    Edit
+                  </button>
+                  <button
+                    @click="openDeleteConfirmModal(memory.id)"
+                    class="w-full px-2 py-1.5 text-left text-[12px] rounded-md hover:bg-destructive/10 text-destructive transition-colors flex items-center gap-1.5"
+                  >
+                    <Icon icon="ph:trash" class="size-3.5" />
+                    Delete
+                  </button>
+                </div>
+              </template>
             </div>
           </div>
         </div>
       </section>
+    </div>
+  </div>
+
+  <div
+    v-if="deleteConfirmMemoryId"
+    class="fixed inset-0 z-50 flex items-center justify-center bg-black/45 px-4"
+    @click.self="closeDeleteConfirmModal"
+  >
+    <div class="w-full max-w-sm rounded-xl border border-border/60 bg-background p-4 shadow-2xl">
+      <h3 class="text-[15px] font-semibold text-foreground">Delete memory?</h3>
+      <p class="mt-2 text-[13px] text-muted-foreground">
+        This will permanently remove
+        <span class="font-medium text-foreground">{{ deleteTargetMemory?.key || 'this memory' }}</span>.
+      </p>
+      <div class="mt-4 flex items-center justify-end gap-2">
+        <button
+          @click="closeDeleteConfirmModal"
+          class="px-3 py-1.5 text-[12px] font-medium border border-border/60 rounded-lg hover:bg-card/60 transition-colors"
+        >
+          Cancel
+        </button>
+        <button
+          @click="confirmDeleteFromModal"
+          class="px-3 py-1.5 text-[12px] font-medium rounded-lg bg-destructive text-destructive-foreground hover:opacity-90 transition-opacity"
+        >
+          Delete
+        </button>
+      </div>
     </div>
   </div>
 </template>
