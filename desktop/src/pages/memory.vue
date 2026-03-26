@@ -6,7 +6,7 @@ interface MemoryEntry {
   id: string
   key: string
   value: string
-  category: 'core' | 'daily' | 'conversation' | 'preference'
+  category: 'core' | 'daily' | 'conversation' | 'preference' | 'experience' | 'self_learning'
   createdAt: Date
   updatedAt: Date
   size: number
@@ -107,6 +107,24 @@ const memories = ref<MemoryEntry[]>([
     updatedAt: new Date('2024-07-18T14:01:00'),
     size: 384,
   },
+  {
+    id: '11',
+    key: 'agent_experience_google_docs',
+    value: 'When a doc was just created, return the existing doc link instead of creating a duplicate doc.',
+    category: 'experience',
+    createdAt: new Date('2026-03-20'),
+    updatedAt: new Date('2026-03-20T18:15:00'),
+    size: 148,
+  },
+  {
+    id: '12',
+    key: 'self_learning_telegram_link_format',
+    value: 'In Telegram replies, prefer explicit clickable URL formatting when sending generated document links.',
+    category: 'self_learning',
+    createdAt: new Date('2026-03-22'),
+    updatedAt: new Date('2026-03-22T09:45:00'),
+    size: 162,
+  },
 ])
 
 const categories = computed(() => {
@@ -123,7 +141,7 @@ const editingMemoryId = ref<string | null>(null)
 const editingKey = ref('')
 const editingValue = ref('')
 const editingCategory = ref<MemoryEntry['category']>('core')
-const memoryCategoryOptions: MemoryEntry['category'][] = ['core', 'daily', 'conversation', 'preference']
+const memoryCategoryOptions: MemoryEntry['category'][] = ['core', 'daily', 'conversation', 'preference', 'experience', 'self_learning']
 const actionMenuMemoryId = ref<string | null>(null)
 const deleteConfirmMemoryId = ref<string | null>(null)
 
@@ -187,12 +205,21 @@ function formatSize(bytes: number): string {
   return `${(bytes / (1024 * 1024 * 1024)).toFixed(1)} GB`
 }
 
+function formatCategoryLabel(category: string): string {
+  return category
+    .split('_')
+    .map(part => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(' ')
+}
+
 function categoryIcon(category: string): string {
   switch (category) {
     case 'core': return 'ph:user-circle-fill'
     case 'daily': return 'ph:calendar-fill'
     case 'conversation': return 'ph:chat-circle-text-fill'
     case 'preference': return 'ph:gear-six-fill'
+    case 'experience': return 'ph:graduation-cap-fill'
+    case 'self_learning': return 'ph:books-fill'
     default: return 'ph:file-fill'
   }
 }
@@ -203,6 +230,8 @@ function categoryColor(category: string): string {
     case 'daily': return 'text-amber-500'
     case 'conversation': return 'text-emerald-500'
     case 'preference': return 'text-purple-500'
+    case 'experience': return 'text-cyan-500'
+    case 'self_learning': return 'text-fuchsia-500'
     default: return 'text-muted-foreground'
   }
 }
@@ -344,7 +373,7 @@ function confirmDeleteFromModal() {
             ? 'bg-foreground text-background'
             : 'text-muted-foreground hover:text-foreground hover:bg-card/50'"
         >
-          {{ cat === 'All' ? 'All' : cat.charAt(0).toUpperCase() + cat.slice(1) }}
+          {{ cat === 'All' ? 'All' : formatCategoryLabel(cat) }}
         </button>
       </div>
     </div>
@@ -372,7 +401,7 @@ function confirmDeleteFromModal() {
 
             <!-- Title -->
             <p class="text-[13px] font-medium text-foreground truncate">{{ memory.key }}</p>
-            <p class="text-[11px] text-muted-foreground truncate mt-0.5">{{ memory.category }}</p>
+            <p class="text-[11px] text-muted-foreground truncate mt-0.5">{{ formatCategoryLabel(memory.category) }}</p>
           </div>
         </div>
       </section>
@@ -450,7 +479,7 @@ function confirmDeleteFromModal() {
                   class="w-full px-2 py-1 text-[12px] bg-card/60 border border-border/50 rounded-md focus:outline-none focus:ring-1 focus:ring-primary/50"
                 >
                   <option v-for="option in memoryCategoryOptions" :key="option" :value="option">
-                    {{ option.charAt(0).toUpperCase() + option.slice(1) }}
+                    {{ formatCategoryLabel(option) }}
                   </option>
                 </select>
               </div>
