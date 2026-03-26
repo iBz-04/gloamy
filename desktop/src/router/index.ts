@@ -51,7 +51,7 @@ const routes = [
   {
     path: '/memory',
     name: 'memory',
-    component: PlaceholderPage,
+    component: () => import('@/pages/memory.vue'),
     meta: {
       title: 'Memory',
       description: 'Inspect or purge conversation memory stores.',
