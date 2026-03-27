@@ -8,11 +8,11 @@ version = "0.1.7"
 edition = "2021"
 authors = ["iBz-04"]
 license = "MIT OR Apache-2.0"
-description = "Zero overhead. Zero compromise. 100% Rust. The fastest, smallest AI assistant."
+description = "Rust-first autonomous agent runtime for CLI, channels, gateway, and hardware workflows."
 repository = "https://github.com/iBz-04/gloamy"
 readme = "README.md"
-keywords = ["ai", "agent", "cli", "assistant", "chatbot"]
-categories = ["command-line-utilities", "api-bindings"]
+keywords = ["agent-runtime", "llm", "automation", "cli", "gateway"]
+categories = ["command-line-utilities", "network-programming", "asynchronous"]
 rust-version = "1.87"
 
 [dependencies]
