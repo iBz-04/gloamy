@@ -49,6 +49,7 @@ High-level repository map:
 - [`src/gateway/`](src/gateway): HTTP and websocket gateway
 - [`src/runtime/`](src/runtime): runtime adapters
 - [`src/peripherals/`](src/peripherals): hardware integrations
+- [`desktop/`](desktop): Tauri + Vue desktop application
 - [`docs/`](docs): operator, reference, and contribution docs
 
 ## Key Properties
@@ -157,6 +158,20 @@ cargo run -- onboard --api-key YOUR_OPENAI_KEY --provider openai --model gpt-5-m
 ```
 
 This path is faster, but the interactive onboarding flow is the better default for first setup.
+
+## Desktop App
+
+This repository also includes a desktop application in [`desktop/`](desktop), built with Tauri (Rust backend) and Vue 3 (frontend).
+
+If you want to run the desktop UI locally:
+
+```bash
+cd desktop
+pnpm install
+pnpm tauri dev
+```
+
+For desktop-specific setup, development, and packaging details, see [`desktop/README.md`](desktop/README.md).
 
 ## Running Modes
 
@@ -419,7 +434,7 @@ Start from the docs hub:
 - Operations: [`docs/operations/README.md`](docs/operations/README.md)
 - Security: [`docs/security/README.md`](docs/security/README.md)
 - Hardware: [`docs/hardware/README.md`](docs/hardware/README.md)
-- Contributing: [`docs/contributing/README.md`](docs/contributing/README.md)
+- Contributing workflow: [`docs/pr-workflow.md`](docs/pr-workflow.md)
 
 High-signal runtime references:
 
@@ -436,13 +451,12 @@ Official source of truth:
 
 - [https://github.com/iBz-04/gloamy](https://github.com/iBz-04/gloamy)
 
-If you encounter impersonation or a misleading fork, review [`TRADEMARK.md`](TRADEMARK.md) and open an issue in the official repository.
+If you encounter impersonation or a misleading fork, open an issue in the official repository.
 
 ## Contributing
 
 If you want to contribute:
 
-- start with [`CONTRIBUTING.md`](CONTRIBUTING.md)
 - review [`AGENTS.md`](AGENTS.md) for repository engineering expectations
 - read [`docs/pr-workflow.md`](docs/pr-workflow.md)
 - use [`docs/reviewer-playbook.md`](docs/reviewer-playbook.md) for review standards
@@ -457,15 +471,4 @@ Good entry points:
 
 ## License
 
-Gloamy is dual-licensed:
-
-- [MIT](LICENSE-MIT)
-- [Apache 2.0](LICENSE-APACHE)
-
-Trademark and project identity guidance:
-
-- [`TRADEMARK.md`](TRADEMARK.md)
-
-Contributor agreement:
-
-- [`CLA.md`](CLA.md)
+Gloamy is licensed under [MIT](LICENSE).

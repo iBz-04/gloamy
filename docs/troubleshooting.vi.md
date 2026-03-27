@@ -1,7 +1,7 @@
-# Vietnamese Troubleshooting (Moved)
+# Vietnamese Troubleshooting (Compatibility Stub)
 
-Canonical page:
+Vietnamese localized troubleshooting docs are not present in this repository snapshot.
 
-- [i18n/vi/troubleshooting.md](i18n/vi/troubleshooting.md)
+Use the canonical English guide:
 
-Compatibility shim only.
+- [troubleshooting.md](troubleshooting.md)

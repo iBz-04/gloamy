@@ -1,8 +1,8 @@
 # Gloamy Release Process
 
-This runbook defines the maintainers' standard release flow.
+This runbook defines the maintainers' standard release flow for the workflows currently present in this repository.
 
-Last verified: **February 21, 2026**.
+Last verified: **March 27, 2026**.
 
 ## Release Goals
 
@@ -11,123 +11,69 @@ Last verified: **February 21, 2026**.
 - Verify multi-target artifacts before publish.
 - Keep release cadence regular even with high PR volume.
 
-## Standard Cadence
-
-- Patch/minor releases: weekly or bi-weekly.
-- Emergency security fixes: out-of-band.
-- Never wait for very large commit batches to accumulate.
-
 ## Workflow Contract
 
-Release automation lives in:
+Release automation currently lives in:
 
-- `.github/workflows/pub-release.yml`
-- `.github/workflows/pub-homebrew-core.yml` (manual Homebrew formula PR, bot-owned)
+- `.github/workflows/release.yml` (`Beta Release`)
+- `.github/workflows/promote-release.yml` (`Promote Release`)
 
-Modes:
+### Beta release path
 
-- Tag push `v*`: publish mode.
-- Manual dispatch: verification-only or publish mode.
-- Weekly schedule: verification-only mode.
+- Trigger: every push to `master`.
+- Output:
+  - prerelease GitHub tag/version in form `v<cargo-version>-beta.<run-number>`
+  - build artifacts (`tar.gz`/`zip`) and `SHA256SUMS`
+  - Docker images tagged with beta tag and `beta`
 
-Publish-mode guardrails:
+### Stable release path
 
-- Tag must match semver-like format `vX.Y.Z[-suffix]`.
-- Tag must already exist on origin.
-- Tag commit must be reachable from `origin/master`.
-- Matching GHCR image tag (`ghcr.io/<owner>/<repo>:<tag>`) must be available before GitHub Release publish completes.
-- Artifacts are verified before publish.
+- Trigger: manual `workflow_dispatch` of `Promote Release` with input `version` (`X.Y.Z`).
+- Guardrails enforced by workflow:
+  - input must be semver `X.Y.Z`
+  - `Cargo.toml` version must exactly match input version
+  - stable tag `vX.Y.Z` must not already exist on origin
+- Output:
+  - stable GitHub release (`vX.Y.Z`) with build artifacts and `SHA256SUMS`
+  - Docker images tagged with `vX.Y.Z` and `latest`
 
 ## Maintainer Procedure
 
 ### 1) Preflight on `master`
 
-1. Ensure required checks are green on latest `master`.
-2. Confirm no high-priority incidents or known regressions are open.
-3. Confirm installer and Docker workflows are healthy on recent `master` commits.
+1. Ensure CI is green for the target commit.
+2. Confirm no known high-priority regressions are unresolved.
+3. Confirm release matrix targets are still expected (Linux x86_64/aarch64, macOS arm64, Windows x86_64).
 
-### 2) Run verification build (no publish)
+### 2) Beta verification (automatic)
 
-Run `Pub Release` manually:
+1. Merge release-ready changes to `master`.
+2. Monitor `Beta Release` workflow run.
+3. Verify prerelease assets and Docker `beta` tag update.
 
-- `publish_release`: `false`
-- `release_ref`: `master`
+### 3) Promote stable release (manual)
 
-Expected outcome:
+1. Ensure `Cargo.toml` has the intended stable version.
+2. Run `Promote Release` workflow manually with `version=<Cargo.toml version>`.
+3. Monitor `validate`, `build`, `publish`, and `docker` jobs.
 
-- Full target matrix builds successfully.
-- `verify-artifacts` confirms all expected archives exist.
-- No GitHub Release is published.
-
-### 3) Cut release tag
-
-From a clean local checkout synced to `origin/master`:
-
-```bash
-scripts/release/cut_release_tag.sh vX.Y.Z --push
-```
-
-This script enforces:
-
-- clean working tree
-- `HEAD == origin/master`
-- non-duplicate tag
-- semver-like tag format
-
-### 4) Monitor publish run
-
-After tag push, monitor:
-
-1. `Pub Release` publish mode
-2. `Pub Docker Img` publish job
-
-Expected publish outputs:
-
-- release archives
-- `SHA256SUMS`
-- `CycloneDX` and `SPDX` SBOMs
-- cosign signatures/certificates
-- GitHub Release notes + assets
-
-### 5) Post-release validation
+### 4) Post-release validation
 
 1. Verify GitHub Release assets are downloadable.
-2. Verify GHCR tags for the released version (`vX.Y.Z`) and release commit SHA tag (`sha-<12>`).
-3. Verify install paths that rely on release assets (for example bootstrap binary download).
-
-### 6) Publish Homebrew Core formula (bot-owned)
-
-Run `Pub Homebrew Core` manually:
-
-- `release_tag`: `vX.Y.Z`
-- `dry_run`: `true` first, then `false`
-
-Required repository settings for non-dry-run:
-
-- secret: `HOMEBREW_CORE_BOT_TOKEN` (token from a dedicated bot account, not a personal maintainer account)
-- variable: `HOMEBREW_CORE_BOT_FORK_REPO` (for example `gloamy-release-bot/homebrew-core`)
-- optional variable: `HOMEBREW_CORE_BOT_EMAIL`
-
-Workflow guardrails:
-
-- release tag must match `Cargo.toml` version
-- formula source URL and SHA256 are updated from the tagged tarball
-- formula license is normalized to `Apache-2.0 OR MIT`
-- PR is opened from the bot fork into `Homebrew/homebrew-core:master`
+2. Verify checksum file is present and non-empty.
+3. Verify GHCR tags (`vX.Y.Z`, `latest`) are published.
+4. Smoke-test one installation path that consumes release assets.
 
 ## Emergency / Recovery Path
 
-If tag-push release fails after artifacts are validated:
+If stable promotion fails:
 
-1. Fix workflow or packaging issue on `master`.
-2. Re-run manual `Pub Release` in publish mode with:
-   - `publish_release=true`
-   - `release_tag=<existing tag>`
-   - `release_ref` is automatically pinned to `release_tag` in publish mode
-3. Re-validate released assets.
+1. Fix the issue on `master`.
+2. Re-run `Promote Release` with the same target version if no tag was created.
+3. If tag was already created but publish steps failed, resolve the workflow issue and re-run the failed job path.
 
 ## Operational Notes
 
 - Keep release changes small and reversible.
-- Prefer one release issue/checklist per version so handoff is clear.
-- Avoid publishing from ad-hoc feature branches.
+- Prefer one release checklist/issue per version so handoff is clear.
+- Avoid ad-hoc release operations outside the documented workflows.

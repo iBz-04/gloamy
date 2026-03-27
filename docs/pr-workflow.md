@@ -355,7 +355,7 @@ This keeps context loss low and avoids repeated deep dives.
 - [README.md](./README.md) — documentation taxonomy and navigation.
 - [ci-map.md](./ci-map.md) — CI workflow ownership and triage map.
 - [reviewer-playbook.md](./reviewer-playbook.md) — reviewer execution model.
-- [actions-source-policy.md](./actions-source-policy.md) — action source allowlist policy.
+- [../.github/workflows/master-branch-flow.md](../.github/workflows/master-branch-flow.md) — branch and merge workflow contract.
 
 ---
 

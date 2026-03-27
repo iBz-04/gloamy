@@ -139,4 +139,4 @@ curl -s "https://api.z.ai/api/coding/paas/v4/models" \
 
 - [Gloamy README](../README.md)
 - [Custom Provider Endpoints](./custom-providers.md)
-- [Contributing Guide](../CONTRIBUTING.md)
+- [PR Workflow](./pr-workflow.md)

@@ -16,16 +16,9 @@ Last reviewed: **February 18, 2026**.
 | Doc | Type | Audience |
 |---|---|---|
 | `README.md` | Current Guide | all readers |
-| `README.zh-CN.md` | Current Guide (localized) | Chinese readers |
-| `README.ja.md` | Current Guide (localized) | Japanese readers |
-| `README.ru.md` | Current Guide (localized) | Russian readers |
-| `README.vi.md` | Current Guide (localized) | Vietnamese readers |
 | `docs/README.md` | Current Guide (hub) | all readers |
-| `docs/README.zh-CN.md` | Current Guide (localized hub) | Chinese readers |
-| `docs/README.ja.md` | Current Guide (localized hub) | Japanese readers |
-| `docs/README.ru.md` | Current Guide (localized hub) | Russian readers |
-| `docs/README.vi.md` | Current Guide (localized hub) | Vietnamese readers |
 | `docs/SUMMARY.md` | Current Guide (unified TOC) | all readers |
+| `docs/i18n/README.md` | Current Guide (localization index) | localization contributors |
 | `docs/structure/README.md` | Current Guide (structure map) | all readers |
 
 ## Collection Index Docs
@@ -37,7 +30,6 @@ Last reviewed: **February 18, 2026**.
 | `docs/operations/README.md` | Current Guide | operators |
 | `docs/security/README.md` | Current Guide | operators/contributors |
 | `docs/hardware/README.md` | Current Guide | hardware builders |
-| `docs/contributing/README.md` | Current Guide | contributors/reviewers |
 | `docs/project/README.md` | Current Guide | maintainers |
 
 ## Current Guides & References
@@ -72,7 +64,6 @@ Last reviewed: **February 18, 2026**.
 | `docs/pr-workflow.md` | Policy |
 | `docs/reviewer-playbook.md` | Process |
 | `docs/ci-map.md` | Process |
-| `docs/actions-source-policy.md` | Policy |
 
 ## Proposal / Roadmap Docs
 

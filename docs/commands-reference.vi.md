@@ -1,7 +1,7 @@
-# Vietnamese Commands Reference (Moved)
+# Vietnamese Commands Reference (Compatibility Stub)
 
-Canonical page:
+Vietnamese localized commands reference is not present in this repository snapshot.
 
-- [i18n/vi/commands-reference.md](i18n/vi/commands-reference.md)
+Use the canonical English reference:
 
-Compatibility shim only.
+- [commands-reference.md](commands-reference.md)

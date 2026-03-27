@@ -8,7 +8,7 @@ For broader documentation navigation, use [`docs/README.md`](./README.md).
 - **Purpose:** define a deterministic reviewer operating model that keeps review quality high under heavy PR volume.
 - **Audience:** maintainers, reviewers, and agent-assisted reviewers.
 - **Scope:** intake triage, risk-to-depth routing, deep-review checks, automation overrides, and handoff protocol.
-- **Non-goals:** replacing PR policy authority in `CONTRIBUTING.md` or workflow authority in CI files.
+- **Non-goals:** replacing PR policy authority in `AGENTS.md`/`docs/pr-workflow.md` or workflow authority in CI files.
 
 ---
 
@@ -97,7 +97,7 @@ If any intake requirement fails, leave one actionable checklist comment instead 
 - Compatibility/migration impacts are clear.
 - No personal/sensitive data leakage in diff artifacts; examples/tests remain neutral and project-scoped.
 - If identity-like wording exists, it uses Gloamy/project-native roles (not personal or real-world identities).
-- Naming and architecture boundaries follow project contracts (`AGENTS.md`, `CONTRIBUTING.md`).
+- Naming and architecture boundaries follow project contracts (`AGENTS.md`, `docs/pr-workflow.md`).
 
 ### 3.3 Deep review checklist (high risk)
 
@@ -180,7 +180,7 @@ If handing off review to another maintainer/agent, include:
 - [README.md](./README.md) — documentation taxonomy and navigation.
 - [pr-workflow.md](./pr-workflow.md) — governance workflow and merge contract.
 - [ci-map.md](./ci-map.md) — CI ownership and triage map.
-- [actions-source-policy.md](./actions-source-policy.md) — action source allowlist policy.
+- [../.github/workflows/master-branch-flow.md](../.github/workflows/master-branch-flow.md) — branch and merge workflow contract.
 
 ---
 

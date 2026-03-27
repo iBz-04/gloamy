@@ -15,7 +15,7 @@ Repository convention:
 
 Workflow behavior documentation in this directory:
 
-- `.github/workflows/main-branch-flow.md`
+- `.github/workflows/master-branch-flow.md`
 
 Current workflow helper scripts:
 
