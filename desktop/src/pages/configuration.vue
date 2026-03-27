@@ -62,7 +62,10 @@ const sectionMeta: Record<string, { icon: string; description: string }> = {
   'peripherals': { icon: 'ph:cpu', description: 'Hardware boards' },
   'hardware': { icon: 'ph:circuit-board', description: 'Hardware config' },
   'transcription': { icon: 'ph:microphone', description: 'Voice transcription' },
+  'agents': { icon: 'ph:users-three', description: 'Sub-agent delegates' },
+  'hooks': { icon: 'ph:anchor', description: 'Lifecycle hooks' },
 }
+
 
 const hasChanges = computed(() => rawConfig.value !== originalConfig.value)
 
@@ -112,6 +115,53 @@ function parseValue(raw: string): string {
     return trimmed.slice(1, -1)
   }
   return trimmed
+}
+
+const showAddModal = ref(false)
+const newEntryKey = ref('')
+const newEntryValue = ref('')
+const newEntrySection = ref('General')
+const newEntrySectionValue = ref('')
+
+function openAddModal() {
+  newEntryKey.value = ''
+  newEntryValue.value = ''
+  newEntrySectionValue.value = ''
+  newEntrySection.value = activeSection.value === 'All' ? 'General' : activeSection.value
+  showAddModal.value = true
+}
+
+function addNewEntry() {
+  if (!newEntryKey.value.trim()) return
+
+  const sectionToUse = newEntrySection.value === 'New Section' ? newEntrySectionValue.value : newEntrySection.value
+  if (!sectionToUse) return
+
+  const lines = rawConfig.value.split('\n')
+  const targetHeader = `[${sectionToUse}]`
+  
+  let insertionIndex = -1
+  if (sectionToUse === 'General') {
+    insertionIndex = lines.findIndex(l => l.trim() !== '' && !l.trim().startsWith('#') && !l.trim().startsWith('['))
+    if (insertionIndex === -1) insertionIndex = lines.length
+  } else {
+    const headerIndex = lines.findIndex(l => l.trim() === targetHeader)
+    if (headerIndex !== -1) {
+      insertionIndex = lines.findIndex((l, i) => i > headerIndex && l.trim().startsWith('['))
+      if (insertionIndex === -1) insertionIndex = lines.length
+    } else {
+      lines.push('', targetHeader)
+      insertionIndex = lines.length
+    }
+  }
+
+  const formattedValue = detectType(newEntryValue.value) === 'string' && !newEntryValue.value.startsWith('"')
+    ? `"${newEntryValue.value}"`
+    : newEntryValue.value
+
+  lines.splice(insertionIndex, 0, `${newEntryKey.value} = ${formattedValue}`)
+  rawConfig.value = lines.join('\n')
+  showAddModal.value = false
 }
 
 const sections = computed<ConfigSection[]>(() => {
@@ -342,6 +392,14 @@ onUnmounted(() => {
             <Icon v-else icon="ph:check-square-offset" class="size-3.5" />
             {{ saving ? 'Saving...' : saveSuccess ? 'Saved' : 'Save' }}
           </button>
+          
+          <button
+            @click="openAddModal"
+            class="px-4 py-1.5 text-[12px] font-medium rounded-lg bg-card/50 text-foreground border border-border/50 hover:bg-card transition-all flex items-center gap-1.5"
+          >
+            <Icon icon="ph:plus" class="size-3.5" />
+            New Entry
+          </button>
         </div>
       </div>
 
@@ -521,6 +579,87 @@ onUnmounted(() => {
         </div>
       </div>
     </div>
+
+    <!-- Add Entry Modal -->
+    <Teleport to="body">
+      <div
+        v-if="showAddModal"
+        class="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/50"
+        @click.self="showAddModal = false"
+      >
+        <div class="w-full max-w-sm mx-4 mb-4 sm:mb-0 bg-card border border-border/60 rounded-2xl shadow-2xl overflow-hidden">
+          <!-- Header -->
+          <div class="flex items-center justify-between px-5 py-4 border-b border-border/40">
+            <span class="text-[14px] font-semibold text-foreground">New Config Entry</span>
+            <button
+              @click="showAddModal = false"
+              class="size-7 flex items-center justify-center rounded-lg hover:bg-muted/50 transition-colors"
+            >
+              <Icon icon="ph:x" class="size-4 text-muted-foreground" />
+            </button>
+          </div>
+
+          <!-- Body -->
+          <div class="px-5 py-4 space-y-3">
+            <!-- Section -->
+            <div class="space-y-1">
+              <label class="text-[11px] font-medium text-muted-foreground uppercase tracking-wider">Section</label>
+              <input
+                v-model="newEntrySection"
+                list="section-suggestions"
+                type="text"
+                placeholder="e.g. agents.coder"
+                class="w-full px-3 py-2 text-[13px] font-mono bg-background border border-border/60 rounded-lg focus:outline-none focus:ring-1 focus:ring-primary/50 focus:border-primary/50 text-foreground placeholder:text-muted-foreground/40"
+              />
+              <datalist id="section-suggestions">
+                <option v-for="name in sectionNames.filter(n => n !== 'All')" :key="name" :value="name" />
+              </datalist>
+            </div>
+
+            <!-- Key -->
+            <div class="space-y-1">
+              <label class="text-[11px] font-medium text-muted-foreground uppercase tracking-wider">Key</label>
+              <input
+                v-model="newEntryKey"
+                type="text"
+                placeholder="e.g. system_prompt"
+                autofocus
+                class="w-full px-3 py-2 text-[13px] font-mono bg-background border border-border/60 rounded-lg focus:outline-none focus:ring-1 focus:ring-primary/50 focus:border-primary/50 text-foreground placeholder:text-muted-foreground/40"
+              />
+            </div>
+
+            <!-- Value -->
+            <div class="space-y-1">
+              <label class="text-[11px] font-medium text-muted-foreground uppercase tracking-wider">Value</label>
+              <input
+                v-model="newEntryValue"
+                type="text"
+                placeholder="true, 42, or &quot;some text&quot;"
+                @keydown.enter="addNewEntry"
+                class="w-full px-3 py-2 text-[13px] font-mono bg-background border border-border/60 rounded-lg focus:outline-none focus:ring-1 focus:ring-primary/50 focus:border-primary/50 text-foreground placeholder:text-muted-foreground/40"
+              />
+            </div>
+          </div>
+
+          <!-- Footer -->
+          <div class="flex items-center justify-end gap-2 px-5 py-4 border-t border-border/40">
+            <button
+              @click="showAddModal = false"
+              class="px-4 py-1.5 text-[13px] text-muted-foreground hover:text-foreground hover:bg-muted/40 rounded-lg transition-colors"
+            >
+              Cancel
+            </button>
+            <button
+              @click="addNewEntry"
+              :disabled="!newEntryKey.trim()"
+              class="px-4 py-1.5 text-[13px] font-semibold bg-foreground text-background rounded-lg hover:opacity-90 disabled:opacity-30 disabled:cursor-not-allowed transition-all"
+            >
+              Add
+            </button>
+          </div>
+        </div>
+      </div>
+    </Teleport>
   </div>
 </template>
 

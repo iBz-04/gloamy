@@ -15,7 +15,6 @@ const isCollapsed = computed(() => state.value.leftSidebarCollapsed)
 
 const navItems: Array<LeafNavItem | GroupNavItem> = [
   { icon: 'ph:circles-four-fill', label: 'Dashboard', to: '/' },
-  { icon: 'ph:chat-circle-text-fill', label: 'Agent Chat', to: '/chat' },
   { icon: 'ph:toolbox-fill', label: 'Tools', to: '/tools' },
   { icon: 'ph:calendar-check-fill', label: 'Cron Jobs', to: '/cron-jobs' },
   { icon: 'ph:puzzle-piece-fill', label: 'Integrations', to: '/integrations' },

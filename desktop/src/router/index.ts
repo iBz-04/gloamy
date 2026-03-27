@@ -13,15 +13,6 @@ const routes = [
     },
   },
   {
-    path: '/chat',
-    name: 'agent-chat',
-    component: () => import('@/pages/home.vue'),
-    meta: {
-      title: 'Agent Chat',
-      description: 'Chat directly with your Gloamy agent.',
-    },
-  },
-  {
     path: '/tools',
     name: 'tools',
     component: () => import('@/pages/tools.vue'),
