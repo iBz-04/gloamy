@@ -4,17 +4,9 @@ import { storeToRefs } from 'pinia'
 import { computed, ref } from 'vue'
 import { useRoute } from 'vue-router'
 import { useUIStateStore } from '@/stores/uiState'
-import ThemeSwitch from '@/components/ThemeSwitch.vue'
-import { useAuthStore } from '@/stores/auth'
-
 const route = useRoute()
 const uiStore = useUIStateStore()
-const auth = useAuthStore()
 const { state } = storeToRefs(uiStore)
-
-const logout = async () => {
-  await auth.logout()
-}
 
 type LeafNavItem = { icon: string; label: string; to: string }
 type GroupNavItem = { icon: string; label: string; children: LeafNavItem[] }
@@ -37,7 +29,6 @@ const navItems: Array<LeafNavItem | GroupNavItem> = [
       { icon: 'ph:first-aid-kit-fill', label: 'Doctor', to: '/doctor' },
     ],
   },
-  { icon: 'ph:gear-six-fill', label: 'Settings', to: '/settings' },
 ]
 
 const openGroups = ref<Record<string, boolean>>({
@@ -149,17 +140,24 @@ const getNavItemKey = (item: LeafNavItem | GroupNavItem) => (isGroupNavItem(item
       </template>
     </nav>
 
-    <div class="mt-auto border-t border-border px-2 py-2 flex items-center" :class="isCollapsed ? 'justify-center' : 'justify-between px-4'">
-      <div class="flex items-center gap-3">
-        <ThemeSwitch />
-        <button
-          class="size-6 rounded-full bg-primary text-primary-foreground flex items-center justify-center text-[10px] font-bold hover:bg-primary/90 transition-colors shrink-0"
-          title="Sign Out"
-          @click="logout"
-        >
-          G
-        </button>
-      </div>
+    <div class="mt-auto px-2 pb-4 pt-2">
+      <RouterLink
+        v-motion
+        :initial="{ opacity: 0, x: -10 }"
+        :enter="{ opacity: 1, x: 0, transition: { delay: 300 } }"
+        to="/settings"
+        class="flex items-center gap-3 px-3 py-2 text-[13px] font-medium rounded-md transition-colors duration-150"
+        :class="[
+          isRouteActive('/settings')
+            ? 'text-foreground bg-muted/40'
+            : 'text-muted-foreground hover:text-foreground hover:bg-muted/25',
+          isCollapsed ? 'justify-center !px-2' : '',
+        ]"
+        :title="isCollapsed ? 'Settings' : undefined"
+      >
+        <Icon icon="ph:gear-six-fill" class="size-[18px] shrink-0" />
+        <span v-if="!isCollapsed">Settings</span>
+      </RouterLink>
     </div>
   </aside>
 </template>

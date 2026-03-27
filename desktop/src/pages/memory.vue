@@ -565,33 +565,34 @@ function confirmDeleteFromModal() {
         </div>
       </section>
     </div>
-  </div>
-
-  <div
-    v-if="deleteConfirmMemoryId"
-    class="fixed inset-0 z-50 flex items-center justify-center bg-black/45 px-4"
-    @click.self="closeDeleteConfirmModal"
-  >
-    <div class="w-full max-w-sm rounded-xl border border-border/60 bg-background p-4 shadow-2xl">
-      <h3 class="text-[15px] font-semibold text-foreground">Delete memory?</h3>
-      <p class="mt-2 text-[13px] text-muted-foreground">
-        This will permanently remove
-        <span class="font-medium text-foreground">{{ deleteTargetMemory?.key || 'this memory' }}</span>.
-      </p>
-      <div class="mt-4 flex items-center justify-end gap-2">
-        <button
-          @click="closeDeleteConfirmModal"
-          class="px-3 py-1.5 text-[12px] font-medium border border-border/60 rounded-lg hover:bg-card/60 transition-colors"
-        >
-          Cancel
-        </button>
-        <button
-          @click="confirmDeleteFromModal"
-          class="px-3 py-1.5 text-[12px] font-medium rounded-lg bg-destructive text-destructive-foreground hover:opacity-90 transition-opacity"
-        >
-          Delete
-        </button>
+    <Teleport to="body">
+      <div
+        v-if="deleteConfirmMemoryId"
+        class="fixed inset-0 z-50 flex items-center justify-center bg-black/45 px-4"
+        @click.self="closeDeleteConfirmModal"
+      >
+        <div class="w-full max-w-sm rounded-xl border border-border/60 bg-background p-4 shadow-2xl">
+          <h3 class="text-[15px] font-semibold text-foreground">Delete memory?</h3>
+          <p class="mt-2 text-[13px] text-muted-foreground">
+            This will permanently remove
+            <span class="font-medium text-foreground">{{ deleteTargetMemory?.key || 'this memory' }}</span>.
+          </p>
+          <div class="mt-4 flex items-center justify-end gap-2">
+            <button
+              @click="closeDeleteConfirmModal"
+              class="px-3 py-1.5 text-[12px] font-medium border border-border/60 rounded-lg hover:bg-card/60 transition-colors"
+            >
+              Cancel
+            </button>
+            <button
+              @click="confirmDeleteFromModal"
+              class="px-3 py-1.5 text-[12px] font-medium rounded-lg bg-destructive text-destructive-foreground hover:opacity-90 transition-opacity"
+            >
+              Delete
+            </button>
+          </div>
+        </div>
       </div>
-    </div>
+    </Teleport>
   </div>
 </template>

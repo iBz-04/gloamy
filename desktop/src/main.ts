@@ -19,9 +19,11 @@ app.use(router)
 app.use(i18n)
 app.use(MotionPlugin)
 
-initAppSettings()
-
-app.mount('#app')
+initAppSettings().then(() => {
+  router.isReady().then(() => {
+    app.mount('#app')
+  })
+})
 
 async function initAppSettings() {
   const settingsStore = useSettingsStore()

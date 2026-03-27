@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { onMounted, onUnmounted, ref, computed } from 'vue'
+import { useLocalStorage } from '@vueuse/core'
 import { Icon } from '@iconify/vue'
 import { useAuthStore } from '@/stores/auth'
 import type { StatusResponse, CostSummary } from '@/lib/types'
@@ -7,7 +8,7 @@ import type { StatusResponse, CostSummary } from '@/lib/types'
 const auth = useAuthStore()
 const status = ref<StatusResponse | null>(null)
 const cost = ref<CostSummary | null>(null)
-const trendHistory = ref<number[]>([])
+const trendHistory = useLocalStorage<number[]>('dashboard-trend-history', [])
 const refreshTimer = ref<number | null>(null)
 const loading = ref(true)
 const error = ref<string | null>(null)
