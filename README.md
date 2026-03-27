@@ -1,6 +1,15 @@
-# Gloamy
+<div align="center">
+   <h1>Gloamy</h1>
+</div>
 
-Gloamy is an autonomous agent runtime for running an intern across multiple cli, social channels, daemon and hardware integrations.
+<p align="center">
+  <img src="https://res.cloudinary.com/diekemzs9/image/upload/v1774631483/hairy_gloam-3_den5zj.png" alt="Gloamy Mascot" width="250"/>
+</p>
+
+
+# Intro
+
+Gloamy is an autonomous agent runtime for running across multiple cli, social channels, daemon and hardware integrations.
 
 It is built around explicit subsystem contracts:
 
