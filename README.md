@@ -8,8 +8,9 @@
 
 
 # Intro
+When the claws 🦞 are asleep the gloamies 🦉 come out to play !
 
-Gloamy is an autonomous agent runtime for running across multiple cli, social channels, daemon and hardware integrations.
+Hi I'm Gloamy, I execute tasks on your behalf without deleting your stuff, leaking your private business oh and I'm lightweight unlike that damn lobster  @openclaw .
 
 It is built around explicit subsystem contracts:
 
@@ -27,13 +28,14 @@ The project goal is simple: one runtime, one configuration model, and swappable 
 
 Gloamy can:
 
-- run as an interactive CLI agent
-- run as a long-lived daemon with configured channels
-- expose a local gateway for webhook and browser-based flows
-- route requests through multiple model providers
-- use local and remote tools with explicit security boundaries
-- persist context through multiple memory backends
-- integrate with hardware boards and peripherals
+- chat with you in your terminal
+- stay running in the background to handle messages
+- control apps on your pc with permissions
+- let you connect with it from your browser or other apps
+- use different AI models to answer questions
+- run tools and scripts on your computer or online, safely
+- remember things between sessions
+- connect to devices and smart hardware
 
 Out of the box, the runtime supports:
 
