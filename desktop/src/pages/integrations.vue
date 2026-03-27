@@ -96,6 +96,75 @@ function statusLabel(status: Integration['status']): string {
   return status
 }
 
+interface IntegrationLogo {
+  icon: string
+  color?: string
+}
+
+const integrationLogoMap: Record<string, IntegrationLogo> = {
+  Telegram: { icon: 'simple-icons:telegram', color: '#26A5E4' },
+  Discord: { icon: 'simple-icons:discord', color: '#5865F2' },
+  Slack: { icon: 'simple-icons:slack', color: '#4A154B' },
+  WhatsApp: { icon: 'simple-icons:whatsapp', color: '#25D366' },
+  Signal: { icon: 'simple-icons:signal', color: '#3A76F0' },
+  iMessage: { icon: 'simple-icons:imessage', color: '#34DA50' },
+  'Microsoft Teams': { icon: 'simple-icons:microsoftteams', color: '#6264A7' },
+  Matrix: { icon: 'simple-icons:matrix' },
+  'Nextcloud Talk': { icon: 'simple-icons:nextcloud', color: '#0082C9' },
+  Zalo: { icon: 'simple-icons:zalo', color: '#0068FF' },
+  'QQ Official': { icon: 'simple-icons:qq', color: '#EB1923' },
+  OpenRouter: { icon: 'simple-icons:openrouter', color: '#00A3FF' },
+  Anthropic: { icon: 'simple-icons:anthropic' },
+  OpenAI: { icon: 'simple-icons:openai' },
+  Google: { icon: 'simple-icons:googlegemini', color: '#8E75B2' },
+  xAI: { icon: 'simple-icons:x' },
+  Mistral: { icon: 'simple-icons:mistralai', color: '#FF7000' },
+  Ollama: { icon: 'simple-icons:ollama' },
+  Perplexity: { icon: 'simple-icons:perplexity', color: '#1FB8CD' },
+  'Hugging Face': { icon: 'simple-icons:huggingface', color: '#FFD21E' },
+  'Vercel AI': { icon: 'simple-icons:vercel' },
+  'Cloudflare AI': { icon: 'simple-icons:cloudflare', color: '#F38020' },
+  MiniMax: { icon: 'simple-icons:minimax', color: '#F04E23' },
+  'Amazon Bedrock': { icon: 'simple-icons:amazon', color: '#FF9900' },
+  GitHub: { icon: 'simple-icons:github' },
+  Notion: { icon: 'simple-icons:notion' },
+  'Apple Notes': { icon: 'simple-icons:apple' },
+  'Apple Reminders': { icon: 'simple-icons:apple' },
+  Obsidian: { icon: 'simple-icons:obsidian', color: '#7C3AED' },
+  Trello: { icon: 'simple-icons:trello', color: '#0052CC' },
+  Linear: { icon: 'simple-icons:linear', color: '#5E6AD2' },
+  Spotify: { icon: 'simple-icons:spotify', color: '#1DB954' },
+  Sonos: { icon: 'simple-icons:sonos' },
+  Shazam: { icon: 'simple-icons:shazam', color: '#0088FF' },
+  'Home Assistant': { icon: 'simple-icons:homeassistant', color: '#18BCF2' },
+  'Philips Hue': { icon: 'simple-icons:philipshue', color: '#0065D3' },
+  Gmail: { icon: 'simple-icons:gmail', color: '#EA4335' },
+  '1Password': { icon: 'simple-icons:1password', color: '#3B66BC' },
+  Canvas: { icon: 'simple-icons:canvas', color: '#E72429' },
+  'Twitter/X': { icon: 'simple-icons:x' },
+  macOS: { icon: 'simple-icons:apple' },
+  Linux: { icon: 'simple-icons:linux', color: '#FCC624' },
+  Windows: { icon: 'simple-icons:windows', color: '#0078D4' },
+  iOS: { icon: 'simple-icons:apple' },
+  Android: { icon: 'simple-icons:android', color: '#3DDC84' },
+}
+
+function integrationIcon(name: string): string {
+  return integrationLogoMap[name]?.icon ?? 'ph:puzzle-piece-fill'
+}
+
+function integrationIconClass(name: string): string {
+  if (!integrationLogoMap[name]) {
+    return 'text-primary'
+  }
+  return integrationLogoMap[name]?.color ? '' : 'text-foreground'
+}
+
+function integrationIconStyle(name: string): { color: string } | undefined {
+  const color = integrationLogoMap[name]?.color
+  return color ? { color } : undefined
+}
+
 async function fetchIntegrations(showLoading = true) {
   if (showLoading) {
     loading.value = true
@@ -189,7 +258,12 @@ onMounted(() => {
                 class="p-4 rounded-2xl border border-border/40 bg-card/20 hover:bg-card/40 hover:border-border/60 transition-all"
               >
                 <div class="flex items-center gap-2 pr-2 mb-1">
-                  <Icon icon="ph:puzzle-piece-fill" class="size-[16px] text-primary shrink-0" />
+                  <Icon
+                    :icon="integrationIcon(integration.name)"
+                    class="size-[16px] shrink-0"
+                    :class="integrationIconClass(integration.name)"
+                    :style="integrationIconStyle(integration.name)"
+                  />
                   <h3 class="font-sans text-[15px] font-medium text-foreground truncate">{{ integration.name }}</h3>
                 </div>
 

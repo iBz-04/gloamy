@@ -281,7 +281,7 @@ onUnmounted(() => {
         </div>
       </section>
 
-      <div class="grid grid-cols-3 gap-2.5">
+      <div class="grid grid-cols-3 gap-2.5 auto-rows-[320px]">
         <!-- Cost Section -->
         <section>
           <div class="p-4 rounded-lg border border-border/50 bg-card/20 h-full">
@@ -312,8 +312,8 @@ onUnmounted(() => {
 
             <div class="mt-4 pt-3 border-t border-border/50 grid grid-cols-2 gap-3">
               <div>
-                <div class="text-[11px] text-muted-foreground mb-0.5">Tokens</div>
-                <div class="text-[18px] font-mono text-foreground tracking-tight">{{ cost.total_tokens.toLocaleString() }}</div>
+                <div class="text-[11px] text-muted-foreground mb-0.5">Total Cost</div>
+                <div class="text-[18px] font-mono text-foreground tracking-tight">{{ formatUSD(cost.monthly_cost_usd) }}</div>
               </div>
               <div class="text-right">
                 <div class="text-[11px] text-muted-foreground mb-0.5">Requests</div>
@@ -325,12 +325,12 @@ onUnmounted(() => {
 
         <!-- Channels -->
         <section>
-          <div class="p-4 rounded-lg border border-border/50 bg-card/20 h-full">
+          <div class="p-4 rounded-lg border border-border/50 bg-card/20 h-full flex flex-col">
             <div class="flex items-center gap-1.5 text-[12px] text-muted-foreground mb-2">
               <Icon icon="ph:chat-circle-fill" class="size-3.5" />
               <span>Channels</span>
             </div>
-            <div class="space-y-0">
+            <div class="space-y-0 flex-1 min-h-0 overflow-y-auto pr-1">
               <template v-for="(active, name) in status.channels" :key="name">
                 <div v-if="active" class="flex items-center justify-between py-2 border-b border-border/30 last:border-0">
                   <div class="flex items-center gap-2">
@@ -349,12 +349,12 @@ onUnmounted(() => {
 
         <!-- Components -->
         <section>
-          <div class="p-4 rounded-lg border border-border/50 bg-card/20 h-full">
+          <div class="p-4 rounded-lg border border-border/50 bg-card/20 h-full flex flex-col">
             <div class="flex items-center gap-1.5 text-[12px] text-muted-foreground mb-2">
               <Icon icon="ph:squares-four-fill" class="size-3.5" />
               <span>Components</span>
             </div>
-            <div class="space-y-0">
+            <div class="space-y-0 flex-1 min-h-0 overflow-y-auto pr-1">
               <div
                 v-for="(comp, name) in status.health.components"
                 :key="name"
