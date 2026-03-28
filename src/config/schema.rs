@@ -1082,7 +1082,7 @@ pub struct BrowserConfig {
 }
 
 fn default_browser_backend() -> String {
-    "agent_browser".into()
+    "computer_use".into()
 }
 
 fn default_browser_webdriver_url() -> String {
@@ -1092,7 +1092,7 @@ fn default_browser_webdriver_url() -> String {
 impl Default for BrowserConfig {
     fn default() -> Self {
         Self {
-            enabled: false,
+            enabled: true,
             allowed_domains: Vec::new(),
             session_name: None,
             backend: default_browser_backend(),
@@ -5381,6 +5381,8 @@ reasoning_enabled = false
         assert_eq!(cfg.max_history_messages, 50);
         assert!(!cfg.parallel_tools);
         assert_eq!(cfg.tool_dispatcher, "auto");
+        assert!(cfg.self_learning);
+        assert_eq!(cfg.max_lessons_per_query, 3);
     }
 
     #[test]
@@ -5400,6 +5402,9 @@ tool_dispatcher = "xml"
         assert_eq!(parsed.agent.max_history_messages, 80);
         assert!(parsed.agent.parallel_tools);
         assert_eq!(parsed.agent.tool_dispatcher, "xml");
+        // Omitted fields should retain secure/default behavior.
+        assert!(parsed.agent.self_learning);
+        assert_eq!(parsed.agent.max_lessons_per_query, 3);
     }
 
     #[tokio::test]
@@ -6282,16 +6287,17 @@ default_temperature = 0.7
         assert!(!c.one.enabled);
         assert!(c.one.api_key.is_none());
         assert!(c.secrets.encrypt);
-        assert!(!c.browser.enabled);
+        assert!(c.browser.enabled);
+        assert_eq!(c.browser.backend, "computer_use");
         assert!(c.browser.allowed_domains.is_empty());
     }
 
     #[test]
-    async fn browser_config_default_disabled() {
+    async fn browser_config_default_enabled() {
         let b = BrowserConfig::default();
-        assert!(!b.enabled);
+        assert!(b.enabled);
         assert!(b.allowed_domains.is_empty());
-        assert_eq!(b.backend, "agent_browser");
+        assert_eq!(b.backend, "computer_use");
         assert!(b.native_headless);
         assert_eq!(b.native_webdriver_url, "http://127.0.0.1:9515");
         assert!(b.native_chrome_path.is_none());
@@ -6355,7 +6361,8 @@ config_path = "/tmp/config.toml"
 default_temperature = 0.7
 "#;
         let parsed: Config = toml::from_str(minimal).unwrap();
-        assert!(!parsed.browser.enabled);
+        assert!(parsed.browser.enabled);
+        assert_eq!(parsed.browser.backend, "computer_use");
         assert!(parsed.browser.allowed_domains.is_empty());
     }
 

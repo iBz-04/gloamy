@@ -1,0 +1,40 @@
+{
+  "version": 1,
+  "skills": {
+    "cloud-solution-architect": {
+      "source": "microsoft/skills",
+      "sourceType": "github",
+      "computedHash": "a2ad72ed97eb04000edddb60bc2feae33f4fe4e14727663e32ebb616c2edfe21"
+    },
+    "continual-learning": {
+      "source": "microsoft/skills",
+      "sourceType": "github",
+      "computedHash": "1f7c1a79d6ee166aac48591acbc9165778d2384fa9e84405099750b6e065c0c7"
+    },
+    "frontend-design-review": {
+      "source": "microsoft/skills",
+      "sourceType": "github",
+      "computedHash": "bdfcadec9604ec0225f337ffbcecb8c8a5ddf69b6b1a1335963df97a0665472e"
+    },
+    "github-issue-creator": {
+      "source": "microsoft/skills",
+      "sourceType": "github",
+      "computedHash": "1d19ed1e52436c28746d35f53113050d09b79c090a8bd3a6148b4570a3531374"
+    },
+    "podcast-generation": {
+      "source": "microsoft/skills",
+      "sourceType": "github",
+      "computedHash": "03945cb32ee3270d7063671d5a57e9341552d96b35bd6e2dbce5e8039ec8c929"
+    },
+    "skill-creator": {
+      "source": "microsoft/skills",
+      "sourceType": "github",
+      "computedHash": "5a4851efe2b68b3178075e630a26815c9f665d4ceb5fc224a33259f6d636a31e"
+    },
+    "vercel-cli": {
+      "source": "vercel/vercel",
+      "sourceType": "github",
+      "computedHash": "657b90f14ba7bb8b68279d50c7c5d0b9033dc0a847e345eb18fdfbe8e46aaa3b"
+    }
+  }
+}

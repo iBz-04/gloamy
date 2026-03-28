@@ -81,6 +81,8 @@ Operational note for container users:
 | `max_history_messages` | `50` | Maximum conversation history messages retained per session |
 | `parallel_tools` | `false` | Enable parallel tool execution within a single iteration |
 | `tool_dispatcher` | `auto` | Tool dispatch strategy |
+| `self_learning` | `true` | Learn from fail→success tool patterns and reuse lessons on future turns |
+| `max_lessons_per_query` | `3` | Maximum number of lesson memories injected into each turn |
 
 Notes:
 
@@ -88,6 +90,7 @@ Notes:
 - If a channel message exceeds this value, the runtime returns: `Agent exceeded maximum tool iterations (<value>)`.
 - In CLI, gateway, and channel tool loops, multiple independent tool calls are executed concurrently by default when the pending calls do not require approval gating; result order remains stable.
 - `parallel_tools` applies to the `Agent::turn()` API surface. It does not gate the runtime loop used by CLI, gateway, or channel handlers.
+- `self_learning` is enabled by default and stays active unless users explicitly set it to `false`.
 
 ## `[security.otp]`
 
@@ -284,10 +287,10 @@ Notes:
 
 | Key | Default | Purpose |
 |---|---|---|
-| `enabled` | `false` | Enable `browser_open` tool (opens URLs in the system browser without scraping) |
+| `enabled` | `true` | Enable `browser_open` tool (opens URLs in the system browser without scraping) |
 | `allowed_domains` | `[]` | Allowed domains for `browser_open` (exact/subdomain match, or `"*"` for all public domains) |
 | `session_name` | unset | Browser session name (for agent-browser automation) |
-| `backend` | `agent_browser` | Browser automation backend: `"agent_browser"`, `"rust_native"`, `"computer_use"`, or `"auto"` |
+| `backend` | `computer_use` | Browser automation backend: `"agent_browser"`, `"rust_native"`, `"computer_use"`, or `"auto"` |
 | `native_headless` | `true` | Headless mode for rust-native backend |
 | `native_webdriver_url` | `http://127.0.0.1:9515` | WebDriver endpoint URL for rust-native backend |
 | `native_chrome_path` | unset | Optional Chrome/Chromium executable path for rust-native backend |

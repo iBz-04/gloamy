@@ -287,7 +287,8 @@ fn config_nested_optional_sections_default_when_absent() {
     assert!(parsed.channels_config.telegram.is_none());
     assert!(!parsed.composio.enabled);
     assert!(parsed.composio.api_key.is_none());
-    assert!(!parsed.browser.enabled);
+    assert!(parsed.browser.enabled);
+    assert_eq!(parsed.browser.backend, "computer_use");
 }
 
 #[test]

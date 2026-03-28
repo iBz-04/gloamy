@@ -206,7 +206,7 @@ impl BrowserTool {
             security,
             allowed_domains,
             session_name,
-            "agent_browser".into(),
+            "computer_use".into(),
             true,
             "http://127.0.0.1:9515".into(),
             None,
@@ -2277,12 +2277,12 @@ mod tests {
     }
 
     #[test]
-    fn browser_tool_default_backend_is_agent_browser() {
+    fn browser_tool_default_backend_is_computer_use() {
         let security = Arc::new(SecurityPolicy::default());
         let tool = BrowserTool::new(security, vec!["example.com".into()], None);
         assert_eq!(
             tool.configured_backend().unwrap(),
-            BrowserBackendKind::AgentBrowser
+            BrowserBackendKind::ComputerUse
         );
     }
 

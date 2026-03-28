@@ -40,6 +40,19 @@ fn config_default_temperature_positive() {
     );
 }
 
+#[test]
+fn config_default_browser_computer_use_enabled() {
+    let config = Config::default();
+    assert!(
+        config.browser.enabled,
+        "browser should be enabled by default"
+    );
+    assert_eq!(
+        config.browser.backend, "computer_use",
+        "browser backend should default to computer_use"
+    );
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // AgentConfig defaults
 // ─────────────────────────────────────────────────────────────────────────────
@@ -77,6 +90,24 @@ fn agent_config_default_compact_context_off() {
     assert!(
         !agent.compact_context,
         "compact_context should default to false"
+    );
+}
+
+#[test]
+fn agent_config_default_self_learning_on() {
+    let agent = AgentConfig::default();
+    assert!(
+        agent.self_learning,
+        "self_learning should default to true until explicitly disabled by the user"
+    );
+}
+
+#[test]
+fn agent_config_default_max_lessons_per_query() {
+    let agent = AgentConfig::default();
+    assert_eq!(
+        agent.max_lessons_per_query, 3,
+        "default max_lessons_per_query should be 3"
     );
 }
 
