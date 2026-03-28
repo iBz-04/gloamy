@@ -6,6 +6,11 @@
       "sourceType": "github",
       "computedHash": "0eafe0971692cf8fcecb75f955595821452a835791d315db738f89ee49063a34"
     },
+    "building-components": {
+      "source": "vercel/components.build",
+      "sourceType": "github",
+      "computedHash": "ca96444b70257eb3f4f4c76dfdd4a32312c835fe3c8755d2e3d75ac78d384bfd"
+    },
     "cloud-solution-architect": {
       "source": "microsoft/skills",
       "sourceType": "github",
@@ -65,6 +70,11 @@
       "source": "vercel-labs/agent-browser",
       "sourceType": "github",
       "computedHash": "18664220dc6dc14b824b0b2de59fd43c1ae745cd0d0dbd663db27c741da1577b"
+    },
+    "web-design-guidelines": {
+      "source": "vercel-labs/agent-skills",
+      "sourceType": "github",
+      "computedHash": "a6a44d5498f7e8f68289902f3dedfc6f38ae0cee1e96527c80724cf27f727c2a"
     },
     "workflow": {
       "source": "vercel/workflow",
