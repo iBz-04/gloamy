@@ -206,6 +206,7 @@ Notes:
 - Precedence for enable flag: `GLOAMY_OPEN_SKILLS_ENABLED` → `skills.open_skills_enabled` in `config.toml` → default `false`.
 - `prompt_injection_mode = "compact"` is recommended on low-context local models to reduce startup prompt size while keeping skill files available on demand.
 - Skill loading and `gloamy skills install` both apply a static security audit. Skills that contain symlinks, script-like files, high-risk shell payload snippets, or unsafe markdown link traversal are rejected.
+- Gloamy ships built-in `docx`, `xlsx`, and `pptx` document skills independently of `open_skills_enabled`. On first runtime load, Gloamy materializes them under the config directory (next to `config.toml`) in `bundled-skills/<name>/SKILL.md` so they can be listed, audited, and read on demand in compact prompt mode.
 
 ## `[composio]`
 

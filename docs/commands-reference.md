@@ -179,6 +179,8 @@ Use `skills audit` to manually validate a candidate skill directory (or an insta
 
 Skill manifests (`SKILL.toml`) support `prompts` and `[[tools]]`; both are injected into the agent system prompt at runtime, so the model can follow skill instructions without manually reading skill files.
 
+Gloamy also ships built-in `docx`, `xlsx`, and `pptx` document skills. They are materialized under the user's Gloamy config directory on first run, appear in `gloamy skills list`, and can be audited by name with `gloamy skills audit docx` (or `xlsx` / `pptx`) without a separate install step.
+
 ### `migrate`
 
 - `gloamy migrate openclaw [--source <path>] [--dry-run]`

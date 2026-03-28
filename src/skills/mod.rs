@@ -11,6 +11,35 @@ mod audit;
 const OPEN_SKILLS_REPO_URL: &str = "https://github.com/besoeasy/open-skills";
 const OPEN_SKILLS_SYNC_MARKER: &str = ".gloamy-open-skills-sync";
 const OPEN_SKILLS_SYNC_INTERVAL_SECS: u64 = 60 * 60 * 24 * 7;
+const BUNDLED_SKILLS_DIR_NAME: &str = "bundled-skills";
+const BUNDLED_SKILLS_VERSION: &str = "1.0.0";
+const BUNDLED_SKILLS_AUTHOR: &str = "gloamy";
+
+#[derive(Clone, Copy)]
+struct BundledSkillAsset {
+    name: &'static str,
+    description: &'static str,
+    contents: &'static str,
+}
+
+const BUNDLED_SKILL_ASSETS: &[BundledSkillAsset] = &[
+    BundledSkillAsset {
+        name: "docx",
+        description:
+            "Create, review, and update Word-compatible .docx files without breaking templates.",
+        contents: include_str!("assets/docx/SKILL.md"),
+    },
+    BundledSkillAsset {
+        name: "xlsx",
+        description: "Create, clean, and update spreadsheet files while preserving formulas and formatting.",
+        contents: include_str!("assets/xlsx/SKILL.md"),
+    },
+    BundledSkillAsset {
+        name: "pptx",
+        description: "Create and revise presentation decks with careful layout, structure, and export checks.",
+        contents: include_str!("assets/pptx/SKILL.md"),
+    },
+];
 
 /// A skill is a user-defined or community-built capability.
 /// Skills live in `~/.gloamy/workspace/skills/<name>/SKILL.md`
@@ -78,11 +107,17 @@ pub fn load_skills(workspace_dir: &Path) -> Vec<Skill> {
 
 /// Load skills using runtime config values (preferred at runtime).
 pub fn load_skills_with_config(workspace_dir: &Path, config: &crate::config::Config) -> Vec<Skill> {
-    load_skills_with_open_skills_config(
-        workspace_dir,
+    let mut skills = load_bundled_skills(config);
+
+    if let Some(open_skills_dir) = ensure_open_skills_repo(
         Some(config.skills.open_skills_enabled),
         config.skills.open_skills_dir.as_deref(),
-    )
+    ) {
+        extend_skills_preferring_later(&mut skills, load_open_skills(&open_skills_dir));
+    }
+
+    extend_skills_preferring_later(&mut skills, load_workspace_skills(workspace_dir));
+    skills
 }
 
 fn load_skills_with_open_skills_config(
@@ -220,6 +255,130 @@ fn load_open_skills(repo_dir: &Path) -> Vec<Skill> {
         if let Ok(skill) = load_open_skill_md(&path) {
             skills.push(skill);
         }
+    }
+
+    skills
+}
+
+fn extend_skills_preferring_later(existing: &mut Vec<Skill>, next: Vec<Skill>) {
+    for skill in next {
+        if let Some(position) = existing
+            .iter()
+            .position(|current| current.name == skill.name)
+        {
+            existing[position] = skill;
+        } else {
+            existing.push(skill);
+        }
+    }
+}
+
+fn bundled_skills_dir_from_config_path(config_path: &Path) -> PathBuf {
+    config_path
+        .parent()
+        .map(|dir| dir.join(BUNDLED_SKILLS_DIR_NAME))
+        .unwrap_or_else(|| PathBuf::from(BUNDLED_SKILLS_DIR_NAME))
+}
+
+fn bundled_skills_dir(config: &crate::config::Config) -> PathBuf {
+    bundled_skills_dir_from_config_path(&config.config_path)
+}
+
+fn write_if_changed(path: &Path, contents: &str) -> Result<()> {
+    if path.exists() {
+        let existing = std::fs::read_to_string(path)
+            .with_context(|| format!("failed to read {}", path.display()))?;
+        if existing == contents {
+            return Ok(());
+        }
+    }
+
+    std::fs::write(path, contents)
+        .with_context(|| format!("failed to write {}", path.display()))?;
+    Ok(())
+}
+
+fn ensure_bundled_skills_materialized(config: &crate::config::Config) -> Option<PathBuf> {
+    let root = bundled_skills_dir(config);
+
+    if let Err(err) = std::fs::create_dir_all(&root) {
+        tracing::warn!(
+            "failed to create bundled skills directory {}: {err}",
+            root.display()
+        );
+        return None;
+    }
+
+    for asset in BUNDLED_SKILL_ASSETS {
+        let skill_dir = root.join(asset.name);
+        if let Err(err) = std::fs::create_dir_all(&skill_dir) {
+            tracing::warn!(
+                "failed to create bundled skill directory {}: {err}",
+                skill_dir.display()
+            );
+            return None;
+        }
+
+        let skill_file = skill_dir.join("SKILL.md");
+        if let Err(err) = write_if_changed(&skill_file, asset.contents) {
+            tracing::warn!(
+                "failed to materialize bundled skill {} at {}: {err}",
+                asset.name,
+                skill_file.display()
+            );
+            return None;
+        }
+    }
+
+    Some(root)
+}
+
+fn load_bundled_skills(config: &crate::config::Config) -> Vec<Skill> {
+    let Some(root) = ensure_bundled_skills_materialized(config) else {
+        return Vec::new();
+    };
+
+    let mut skills = Vec::new();
+
+    for asset in BUNDLED_SKILL_ASSETS {
+        let skill_dir = root.join(asset.name);
+        let skill_file = skill_dir.join("SKILL.md");
+
+        match audit::audit_skill_directory(&skill_dir) {
+            Ok(report) if report.is_clean() => {}
+            Ok(report) => {
+                tracing::warn!(
+                    "skipping bundled skill {} at {}: {}",
+                    asset.name,
+                    skill_dir.display(),
+                    report.summary()
+                );
+                continue;
+            }
+            Err(err) => {
+                tracing::warn!(
+                    "skipping bundled skill {} at {}: {err}",
+                    asset.name,
+                    skill_dir.display()
+                );
+                continue;
+            }
+        }
+
+        skills.push(Skill {
+            name: asset.name.to_string(),
+            description: asset.description.to_string(),
+            version: BUNDLED_SKILLS_VERSION.to_string(),
+            author: Some(BUNDLED_SKILLS_AUTHOR.to_string()),
+            tags: vec![
+                "bundled".to_string(),
+                "documents".to_string(),
+                asset.name.to_string(),
+            ],
+            tools: Vec::new(),
+            prompts: vec![asset.contents.to_string()],
+            location: Some(skill_file),
+        });
     }
 
     skills
@@ -872,10 +1031,15 @@ pub fn handle_command(command: crate::SkillCommands, config: &crate::config::Con
         }
         crate::SkillCommands::Audit { source } => {
             let source_path = PathBuf::from(&source);
+            let bundled_dir = ensure_bundled_skills_materialized(config);
             let target = if source_path.exists() {
                 source_path
-            } else {
+            } else if skills_dir(workspace_dir).join(&source).exists() {
                 skills_dir(workspace_dir).join(&source)
+            } else if let Some(bundled_dir) = bundled_dir {
+                bundled_dir.join(&source)
+            } else {
+                PathBuf::from(&source)
             };
 
             if !target.exists() {
@@ -937,6 +1101,15 @@ pub fn handle_command(command: crate::SkillCommands, config: &crate::config::Con
             // Reject path traversal attempts
             if name.contains("..") || name.contains('/') || name.contains('\\') {
                 anyhow::bail!("Invalid skill name: {name}");
+            }
+
+            if let Some(bundled_dir) = ensure_bundled_skills_materialized(config) {
+                let bundled_skill_path = bundled_dir.join(&name);
+                if bundled_skill_path.exists() {
+                    anyhow::bail!(
+                        "Built-in skill '{name}' ships with Gloamy and cannot be removed."
+                    );
+                }
             }
 
             let skill_path = skills_dir(workspace_dir).join(&name);
@@ -1376,6 +1549,13 @@ description = "Bare minimum"
     }
 
     #[test]
+    fn bundled_skills_dir_path_uses_config_parent() {
+        let config_path = Path::new("/home/user/.gloamy/config.toml");
+        let dir = bundled_skills_dir_from_config_path(config_path);
+        assert_eq!(dir, PathBuf::from("/home/user/.gloamy/bundled-skills"));
+    }
+
+    #[test]
     fn toml_prefers_over_md() {
         let dir = tempfile::tempdir().unwrap();
         let skills_dir = dir.path().join("skills");
@@ -1444,7 +1624,9 @@ description = "Bare minimum"
         let _dir_guard = EnvVarGuard::unset("GLOAMY_OPEN_SKILLS_DIR");
 
         let dir = tempfile::tempdir().unwrap();
+        let config_dir = dir.path().join(".gloamy");
         let workspace_dir = dir.path().join("workspace");
+        fs::create_dir_all(&config_dir).unwrap();
         fs::create_dir_all(workspace_dir.join("skills")).unwrap();
 
         let open_skills_dir = dir.path().join("open-skills-local");
@@ -1463,13 +1645,73 @@ description = "Bare minimum"
 
         let mut config = crate::config::Config::default();
         config.workspace_dir = workspace_dir.clone();
+        config.config_path = config_dir.join("config.toml");
         config.skills.open_skills_enabled = true;
         config.skills.open_skills_dir = Some(open_skills_dir.to_string_lossy().to_string());
 
         let skills = load_skills_with_config(&workspace_dir, &config);
-        assert_eq!(skills.len(), 1);
-        assert_eq!(skills[0].name, "http_request");
-        assert_ne!(skills[0].name, "CONTRIBUTING");
+        assert_eq!(skills.len(), 4);
+        assert!(skills.iter().any(|skill| skill.name == "docx"));
+        assert!(skills.iter().any(|skill| skill.name == "xlsx"));
+        assert!(skills.iter().any(|skill| skill.name == "pptx"));
+        assert!(skills.iter().any(|skill| skill.name == "http_request"));
+        assert!(config_dir.join("bundled-skills/docx/SKILL.md").exists());
+        assert!(config_dir.join("bundled-skills/xlsx/SKILL.md").exists());
+        assert!(config_dir.join("bundled-skills/pptx/SKILL.md").exists());
+    }
+
+    #[test]
+    fn load_skills_with_config_includes_bundled_document_skills() {
+        let dir = tempfile::tempdir().unwrap();
+        let config_dir = dir.path().join(".gloamy");
+        let workspace_dir = dir.path().join("workspace");
+        fs::create_dir_all(&config_dir).unwrap();
+        fs::create_dir_all(workspace_dir.join("skills")).unwrap();
+
+        let mut config = crate::config::Config::default();
+        config.workspace_dir = workspace_dir.clone();
+        config.config_path = config_dir.join("config.toml");
+
+        let skills = load_skills_with_config(&workspace_dir, &config);
+        let names: Vec<&str> = skills.iter().map(|skill| skill.name.as_str()).collect();
+
+        assert!(names.contains(&"docx"));
+        assert!(names.contains(&"xlsx"));
+        assert!(names.contains(&"pptx"));
+        assert_eq!(skills.len(), 3);
+    }
+
+    #[test]
+    fn workspace_skills_override_bundled_skills_by_name() {
+        let dir = tempfile::tempdir().unwrap();
+        let config_dir = dir.path().join(".gloamy");
+        let workspace_dir = dir.path().join("workspace");
+        let override_dir = workspace_dir.join("skills/docx");
+        fs::create_dir_all(&config_dir).unwrap();
+        fs::create_dir_all(&override_dir).unwrap();
+        fs::write(
+            override_dir.join("SKILL.toml"),
+            r#"
+[skill]
+name = "docx"
+description = "Workspace override"
+version = "9.9.9"
+"#,
+        )
+        .unwrap();
+
+        let mut config = crate::config::Config::default();
+        config.workspace_dir = workspace_dir.clone();
+        config.config_path = config_dir.join("config.toml");
+
+        let skills = load_skills_with_config(&workspace_dir, &config);
+        let docx = skills
+            .iter()
+            .find(|skill| skill.name == "docx")
+            .expect("docx skill should be present");
+
+        assert_eq!(docx.description, "Workspace override");
+        assert_eq!(docx.version, "9.9.9");
     }
 }
 
