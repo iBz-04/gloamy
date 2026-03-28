@@ -105,6 +105,7 @@ const handleLogout = async () => {
     <div class="grid h-full w-full grid-cols-2">
       <section class="min-w-0 flex items-center justify-center px-6 py-8 lg:px-12">
         <div class="w-full max-w-[400px] flex flex-col items-center">
+          <span class="text-[28px] leading-none font-semibold tracking-wide text-emerald-600 sidebar-brand mb-2">GLOAMY</span>
           <h1 class="text-3xl font-semibold text-foreground mb-2 font-display text-center">
             {{ isAuthenticated ? 'Connected' : 'Authentication' }}
           </h1>
@@ -191,7 +192,7 @@ const handleLogout = async () => {
 
       <section class="min-w-0 relative overflow-hidden">
         <img
-          src="/login.jpg"
+          src="/logimg.png"
           alt="Gloamy desktop preview"
           class="absolute inset-0 h-full w-full object-cover"
         >
@@ -236,4 +237,10 @@ const handleLogout = async () => {
   opacity: 0;
   transform: translateY(-5px);
 }
+@import url('https://fonts.cdnfonts.com/css/plumby');
+
+.sidebar-brand {
+  font-family: 'Plumby', 'Inter', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+}
+
 </style>

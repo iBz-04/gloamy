@@ -3,32 +3,21 @@ import { ref, onMounted } from 'vue'
 import { useAuthStore } from '@/stores/auth'
 import { useSettingsStore } from '@/stores/settings'
 import { useColorMode } from '@vueuse/core'
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
 
 const auth = useAuthStore()
 const settingsStore = useSettingsStore()
 const mode = useColorMode()
 
 const selectedTheme = ref<'light'|'dark'|'auto'>('auto')
-const selectedLanguage = ref('English')
 
 const updatesEnabled = ref(true)
 const emailEnabled = ref(true)
-
-const languageOptions = [
-  { value: 'English', label: 'English' },
-  { value: 'zh-CN', label: '简体中文' },
-  { value: 'ja', label: '日本語' },
-  { value: 'ru', label: 'Русский' },
-]
 
 onMounted(async () => {
   const t = await settingsStore.getSetting<string>('theme')
   if (t === 'light' || t === 'dark' || t === 'auto') {
     selectedTheme.value = t
   }
-  const l = await settingsStore.getSetting<string>('language')
-  if (l) selectedLanguage.value = l
 })
 
 function handleThemeChange(theme: 'light' | 'dark' | 'auto') {
@@ -37,10 +26,7 @@ function handleThemeChange(theme: 'light' | 'dark' | 'auto') {
   settingsStore.setSetting<string>('theme', theme)
 }
 
-function handleLanguageChange(langValue: string) {
-  selectedLanguage.value = langValue
-  settingsStore.setSetting<string>('language', langValue)
-}
+// language selector removed from settings page
 
 const logout = async () => {
   await auth.logout()
@@ -57,37 +43,7 @@ const logout = async () => {
     <!-- Content -->
     <div class="px-6 pb-12 max-w-2xl space-y-10">
       
-      <!-- General Section -->
-      <section class="space-y-4">
-        <h2 class="text-[13px] font-medium text-muted-foreground">General</h2>
-        
-        <div>
-          <label class="block text-[14px] font-medium text-foreground mb-2">Language</label>
-          <div class="relative w-48">
-            <DropdownMenu>
-              <DropdownMenuTrigger as-child>
-                <button
-                  class="w-full bg-card border border-border/60 hover:border-border/80 text-foreground text-[14px] rounded-lg px-3 py-2 flex items-center justify-between focus:outline-none focus:ring-1 focus:ring-primary/50 transition-colors"
-                >
-                  {{ languageOptions.find(opt => opt.value === selectedLanguage)?.label || selectedLanguage }}
-                  <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="text-muted-foreground"><path d="m6 9 6 6 6-6"/></svg>
-                </button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="start" class="w-48">
-                <DropdownMenuItem
-                  v-for="option in languageOptions"
-                  :key="option.value"
-                  @click="handleLanguageChange(option.value)"
-                  class="flex items-center justify-between"
-                >
-                  {{ option.label }}
-                  <svg v-if="selectedLanguage === option.value" xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="text-primary"><path d="M20 6 9 17l-5-5"/></svg>
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
-          </div>
-        </div>
-      </section>
+      <!-- General Section removed: language selector -->
 
       <!-- Appearance Section -->
       <section class="space-y-4">
