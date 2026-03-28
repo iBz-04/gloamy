@@ -3910,8 +3910,6 @@ pub(crate) fn resolve_config_dir_for_workspace(workspace_dir: &Path) -> (PathBuf
     )
 }
 
-
-
 /// This mirrors the same precedence used by `Config::load_or_init()`:
 /// `GLOAMY_CONFIG_DIR` > `GLOAMY_WORKSPACE` > active workspace marker > defaults.
 pub(crate) async fn resolve_runtime_dirs_for_onboarding() -> Result<(PathBuf, PathBuf)> {
@@ -4174,11 +4172,7 @@ impl Config {
                 "config.composio.api_key",
             )?;
 
-            decrypt_optional_secret(
-                &store,
-                &mut config.one.api_key,
-                "config.one.api_key",
-            )?;
+            decrypt_optional_secret(&store, &mut config.one.api_key, "config.one.api_key")?;
 
             decrypt_optional_secret(
                 &store,

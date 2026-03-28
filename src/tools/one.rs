@@ -63,15 +63,8 @@ impl OneTool {
         query: &str,
         action_type: &str,
     ) -> anyhow::Result<serde_json::Value> {
-        self.run_one_command(&[
-            "actions",
-            "search",
-            platform,
-            query,
-            "-t",
-            action_type,
-        ])
-        .await
+        self.run_one_command(&["actions", "search", platform, query, "-t", action_type])
+            .await
     }
 
     async fn get_action_knowledge(
@@ -93,13 +86,7 @@ impl OneTool {
         query_params: Option<&str>,
         dry_run: bool,
     ) -> anyhow::Result<serde_json::Value> {
-        let mut args = vec![
-            "actions",
-            "execute",
-            platform,
-            action_id,
-            connection_key,
-        ];
+        let mut args = vec!["actions", "execute", platform, action_id, connection_key];
 
         if dry_run {
             args.push("--dry-run");
@@ -238,7 +225,10 @@ impl Tool for OneTool {
                 let data = args.get("data").and_then(|v| v.as_str());
                 let path_vars = args.get("path_vars").and_then(|v| v.as_str());
                 let query_params = args.get("query_params").and_then(|v| v.as_str());
-                let dry_run = args.get("dry_run").and_then(|v| v.as_bool()).unwrap_or(false);
+                let dry_run = args
+                    .get("dry_run")
+                    .and_then(|v| v.as_bool())
+                    .unwrap_or(false);
 
                 self.execute_action(
                     platform,

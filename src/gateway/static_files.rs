@@ -3,10 +3,7 @@
 //! Gloamy now prefers the desktop application. These handlers intentionally
 //! return a clear error instead of serving embedded dashboard assets.
 
-use axum::{
-    http::StatusCode,
-    response::IntoResponse,
-};
+use axum::{http::StatusCode, response::IntoResponse};
 
 /// Serve static files from `/_app/*` path
 pub async fn handle_static() -> impl IntoResponse {

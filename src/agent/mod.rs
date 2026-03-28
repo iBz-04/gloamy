@@ -6,6 +6,7 @@ pub mod lesson;
 pub mod loop_;
 pub mod memory_loader;
 pub mod prompt;
+pub mod task_store;
 
 #[cfg(test)]
 mod tests;

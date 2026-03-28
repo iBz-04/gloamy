@@ -26,6 +26,9 @@ const STREAM_CHUNK_MIN_CHARS: usize = 80;
 /// Default maximum agentic tool-use iterations per user message to prevent runaway loops.
 /// Used as a safe fallback when `max_tool_iterations` is unset or configured as zero.
 const DEFAULT_MAX_TOOL_ITERATIONS: usize = 10;
+/// Safety bound for runtime-enforced continuation retries when the model tries
+/// to terminate while work is still unresolved.
+const MAX_RUNTIME_CONTINUATION_RETRIES: usize = 2;
 
 /// Minimum user-message length (in chars) for auto-save to memory.
 /// Matches the channel-side constant in `channels/mod.rs`.
@@ -120,6 +123,362 @@ fn truncate_tool_args_for_progress(name: &str, args: &serde_json::Value, max_len
         Some(s) => truncate_with_ellipsis(s, max_len),
         None => String::new(),
     }
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub(crate) struct ExecutionCheckpointItem {
+    pub tool_name: String,
+    pub arguments: serde_json::Value,
+    pub success: bool,
+    pub output: String,
+}
+
+pub(crate) struct TaskPersistenceContext<'a> {
+    pub store: &'a dyn crate::agent::task_store::TaskStore,
+    pub task_id: &'a str,
+    pub thread_id: &'a str,
+    pub channel: &'a str,
+    pub provider: &'a str,
+    pub model: &'a str,
+}
+
+pub(crate) fn inject_ephemeral_system_note(messages: &mut Vec<ChatMessage>, note: &str) {
+    let trimmed = note.trim();
+    if trimmed.is_empty() {
+        return;
+    }
+
+    let insert_at = messages
+        .iter()
+        .position(|msg| msg.role != "system")
+        .unwrap_or(messages.len());
+    messages.insert(insert_at, ChatMessage::system(trimmed.to_string()));
+}
+
+fn classify_tool_failure(output: &str) -> &'static str {
+    let lower = output.to_ascii_lowercase();
+
+    if lower.contains("unknown tool") {
+        return "unknown_tool";
+    }
+    if lower.contains("denied by user")
+        || lower.contains("permission denied")
+        || lower.contains("not allowed")
+        || lower.contains("approval")
+        || lower.contains("forbidden")
+        || lower.contains("access denied")
+    {
+        return "permission_or_policy";
+    }
+    if lower.contains("timeout")
+        || lower.contains("timed out")
+        || lower.contains("temporarily unavailable")
+        || lower.contains("connection reset")
+        || lower.contains("connection refused")
+        || lower.contains("connection aborted")
+        || lower.contains("rate limit")
+        || lower.contains("429")
+        || lower.contains("502")
+        || lower.contains("503")
+        || lower.contains("504")
+    {
+        return "transient_or_rate_limit";
+    }
+    if lower.contains("missing")
+        || lower.contains("required")
+        || lower.contains("invalid parameter")
+        || lower.contains("invalid argument")
+        || lower.contains("schema")
+        || lower.contains("parse")
+        || lower.contains("expected")
+        || lower.contains("must provide")
+    {
+        return "invalid_arguments";
+    }
+    if lower.contains("not found")
+        || lower.contains("no such file")
+        || lower.contains("404")
+        || lower.contains("does not exist")
+    {
+        return "missing_target";
+    }
+    if lower.contains("test failed")
+        || lower.contains("tests failed")
+        || lower.contains("build failed")
+        || lower.contains("compilation failed")
+        || lower.contains("assertion failed")
+        || lower.contains("lint")
+    {
+        return "validation_failed";
+    }
+
+    "execution_error"
+}
+
+fn recovery_hint_for_failure(classification: &str, tool_name: &str) -> String {
+    match classification {
+        "unknown_tool" => format!(
+            "{tool_name}: choose another available tool or inspect the tool list/schema before retrying"
+        ),
+        "permission_or_policy" => format!(
+            "{tool_name}: try a less-privileged path first; ask for approval only if no safe alternative exists"
+        ),
+        "transient_or_rate_limit" => format!(
+            "{tool_name}: retry with backoff, narrower scope, or an alternate provider/tool"
+        ),
+        "invalid_arguments" => format!(
+            "{tool_name}: inspect required parameters/schema and retry with corrected arguments"
+        ),
+        "missing_target" => format!(
+            "{tool_name}: discover or read the target first, then retry with the resolved path/id"
+        ),
+        "validation_failed" => format!(
+            "{tool_name}: inspect the failing output, apply a targeted fix, and rerun validation"
+        ),
+        _ => format!(
+            "{tool_name}: gather more context, narrow the step, or switch to another tool"
+        ),
+    }
+}
+
+fn response_indicates_tool_abandonment(response: &str) -> bool {
+    let lower = response.to_ascii_lowercase();
+    let abandonment_markers = [
+        "i can't",
+        "i cannot",
+        "can't do",
+        "cannot do",
+        "unable to",
+        "not able to",
+        "cannot access",
+        "can't access",
+        "don't have access",
+        "do not have access",
+        "permission denied",
+        "not permitted",
+        "i'm blocked",
+        "i am blocked",
+    ];
+
+    abandonment_markers
+        .iter()
+        .any(|marker| lower.contains(marker))
+}
+
+fn build_runtime_continuation_note(
+    reasons: &[String],
+    tools_registry: &[Box<dyn Tool>],
+) -> Option<String> {
+    if reasons.is_empty() {
+        return None;
+    }
+
+    let tool_names: HashSet<&str> = tools_registry.iter().map(|tool| tool.name()).collect();
+    let mut ladder = Vec::new();
+    if tool_names.contains("mac_automation") {
+        ladder.push("`mac_automation` (`launch_app` -> `activate_app` -> `run_applescript`)");
+    }
+    if tool_names.contains("browser") {
+        ladder.push("`browser` (use `computer_use` actions when configured)");
+    }
+    if tool_names.contains("browser_open") {
+        ladder.push("`browser_open` for URL launch when relevant");
+    }
+    if tool_names.contains("shell") {
+        ladder.push("`shell` as a fallback only when command policy permits it");
+    }
+
+    let mut note = String::from("## Runtime Continuation Guard\n\n");
+    note.push_str("- The task is not complete yet. Do not produce a final answer in this turn.\n");
+    note.push_str("- Resolve the blocker with another concrete tool action now.\n");
+    note.push_str("- Why continuation is required:\n");
+    for reason in reasons {
+        let _ = writeln!(note, "  - {reason}");
+    }
+    if !ladder.is_empty() {
+        note.push_str("- Preferred fallback ladder for this environment:\n");
+        for step in ladder {
+            let _ = writeln!(note, "  - {step}");
+        }
+    }
+    note.push_str("- Return at least one valid tool call.");
+
+    Some(note)
+}
+
+fn failure_requires_followup(output: &str) -> bool {
+    let lower = output.to_ascii_lowercase();
+
+    // Dedup skips are loop hygiene, not an unfinished user-facing step.
+    if lower.contains("skipped duplicate tool call") {
+        return false;
+    }
+
+    true
+}
+
+fn shell_command_validation_hints(command: &str) -> Vec<String> {
+    let lower = command.to_ascii_lowercase();
+    let mut hints = Vec::new();
+
+    if lower.contains("cargo add")
+        || lower.contains("cargo rm")
+        || lower.contains("npm install")
+        || lower.contains("pnpm install")
+        || lower.contains("pnpm add")
+        || lower.contains("yarn add")
+        || lower.contains("pip install")
+    {
+        hints.push("Rerun the relevant build/test command after dependency changes.".to_string());
+    }
+
+    if lower.contains("git apply")
+        || lower.contains("git commit")
+        || lower.contains("mv ")
+        || lower.contains("cp ")
+        || lower.contains("mkdir ")
+        || lower.contains("touch ")
+        || lower.contains("rm ")
+    {
+        hints.push("Inspect the filesystem or diff to confirm the shell side effects.".to_string());
+    }
+
+    if hints.is_empty()
+        && !lower.starts_with("ls")
+        && !lower.starts_with("pwd")
+        && !lower.starts_with("cat ")
+        && !lower.starts_with("rg ")
+        && !lower.starts_with("grep ")
+        && !lower.starts_with("find ")
+        && !lower.starts_with("cargo test")
+        && !lower.starts_with("cargo check")
+        && !lower.starts_with("cargo clippy")
+        && !lower.starts_with("cargo fmt --check")
+        && !lower.starts_with("git status")
+    {
+        hints.push("Run a follow-up inspection or validation step instead of assuming the shell action worked.".to_string());
+    }
+
+    hints
+}
+
+fn validation_hints_for_tool(tool_name: &str, arguments: &serde_json::Value) -> Vec<String> {
+    let mut hints = Vec::new();
+
+    match tool_name {
+        "file_write" | "file_edit" => {
+            let path = arguments.get("path").and_then(|v| v.as_str()).unwrap_or("");
+            if path.ends_with(".rs")
+                || path.ends_with(".py")
+                || path.ends_with(".js")
+                || path.ends_with(".ts")
+                || path.ends_with(".tsx")
+                || path.ends_with(".jsx")
+                || path.ends_with(".go")
+                || path.ends_with(".java")
+                || path.ends_with(".c")
+                || path.ends_with(".cpp")
+                || path.ends_with(".toml")
+            {
+                hints.push("Re-read the edited code/config and run a relevant build, lint, or test command.".to_string());
+            } else if !path.is_empty() {
+                hints.push(format!(
+                    "Re-read '{path}' to verify the final file contents."
+                ));
+            } else {
+                hints.push("Re-read the edited file to verify the final contents.".to_string());
+            }
+        }
+        "shell" => {
+            let command = arguments
+                .get("command")
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
+            hints.extend(shell_command_validation_hints(command));
+        }
+        "memory_store" | "memory_forget" => {
+            hints.push("Recall or list memory to verify the stored/removed entry.".to_string());
+        }
+        "http_request" => {
+            let method = arguments
+                .get("method")
+                .and_then(|v| v.as_str())
+                .unwrap_or("GET")
+                .to_ascii_uppercase();
+            if method != "GET" && method != "HEAD" {
+                hints.push(
+                    "Follow a mutating HTTP request with a GET/status check when possible."
+                        .to_string(),
+                );
+            }
+        }
+        "cron_add" | "cron_update" | "cron_remove" | "cron_run" | "schedule" => {
+            hints.push(
+                "Query the scheduler/cron state after changes instead of assuming they applied."
+                    .to_string(),
+            );
+        }
+        "model_routing_config" | "proxy_config" => {
+            hints.push("Run a small smoke check after config changes to confirm the new routing/config is active.".to_string());
+        }
+        _ => {}
+    }
+
+    hints
+}
+
+pub(crate) fn build_execution_checkpoint_note(items: &[ExecutionCheckpointItem]) -> Option<String> {
+    if items.is_empty() {
+        return None;
+    }
+
+    let mut successes = Vec::new();
+    let mut failures = Vec::new();
+    let mut validation_hints = Vec::new();
+    let mut recovery_hints = Vec::new();
+
+    for item in items {
+        if item.success {
+            successes.push(item.tool_name.clone());
+            validation_hints.extend(validation_hints_for_tool(&item.tool_name, &item.arguments));
+        } else {
+            let failure_class = classify_tool_failure(&item.output);
+            failures.push(format!("{} [{}]", item.tool_name, failure_class));
+            recovery_hints.push(recovery_hint_for_failure(failure_class, &item.tool_name));
+        }
+    }
+
+    validation_hints.sort();
+    validation_hints.dedup();
+    recovery_hints.sort();
+    recovery_hints.dedup();
+
+    let mut note = String::from("## Runtime Checkpoint\n\n");
+    note.push_str(
+        "- Continue from the latest confirmed state. Do not restart successful steps unless verification disproves them.\n",
+    );
+
+    if !successes.is_empty() {
+        let _ = writeln!(note, "- Confirmed steps: {}", successes.join(", "));
+    }
+    if !failures.is_empty() {
+        let _ = writeln!(note, "- Failed steps: {}", failures.join(", "));
+    }
+    if !validation_hints.is_empty() {
+        note.push_str("- Validation to run next:\n");
+        for hint in validation_hints {
+            let _ = writeln!(note, "  - {hint}");
+        }
+    }
+    if !recovery_hints.is_empty() {
+        note.push_str("- Recovery guidance:\n");
+        for hint in recovery_hints {
+            let _ = writeln!(note, "  - {hint}");
+        }
+    }
+    note.push_str("- Choose the smallest next action that resolves the current blocker or proves the change worked.");
+
+    Some(note)
 }
 
 /// Convert a tool registry to OpenAI function-calling format for native tool support.
@@ -1892,6 +2251,7 @@ pub(crate) async fn agent_turn(
         None,
         &[],
         None,
+        None,
     )
     .await
 }
@@ -2082,6 +2442,7 @@ pub(crate) async fn run_tool_call_loop(
     on_delta: Option<tokio::sync::mpsc::Sender<String>>,
     hooks: Option<&crate::hooks::HookRunner>,
     excluded_tools: &[String],
+    task_persistence: Option<&TaskPersistenceContext<'_>>,
     mut tool_outcomes_sink: Option<&mut Vec<crate::agent::lesson::ToolOutcome>>,
 ) -> Result<String> {
     let max_iterations = if max_tool_iterations == 0 {
@@ -2098,12 +2459,35 @@ pub(crate) async fn run_tool_call_loop(
     let use_native_tools = provider.supports_native_tools() && !tool_specs.is_empty();
     let turn_id = Uuid::new_v4().to_string();
     let mut seen_tool_signatures: HashSet<(String, String)> = HashSet::new();
+    let mut execution_checkpoint_note: Option<String> = None;
+    let mut continuation_guard_note: Option<String> = None;
+    let mut unresolved_failed_steps: Vec<String> = Vec::new();
+    let mut had_any_tool_execution = false;
+    let mut continuation_retries = 0usize;
 
     for iteration in 0..max_iterations {
         if cancellation_token
             .as_ref()
             .is_some_and(CancellationToken::is_cancelled)
         {
+            if let Some(task_state) = task_persistence {
+                let _ = task_state
+                    .store
+                    .save_snapshot(crate::agent::task_store::TaskSnapshot {
+                        task_id: task_state.task_id.to_string(),
+                        thread_id: task_state.thread_id.to_string(),
+                        channel: task_state.channel.to_string(),
+                        provider: task_state.provider.to_string(),
+                        model: task_state.model.to_string(),
+                        status: crate::agent::task_store::TaskStatus::Cancelled,
+                        execution_history: history.clone(),
+                        resumable_history: Vec::new(),
+                        latest_checkpoint_note: execution_checkpoint_note.clone(),
+                        final_response: None,
+                        last_error: Some("cancelled during tool-call loop".into()),
+                    })
+                    .await;
+            }
             return Err(ToolLoopCancelled.into());
         }
 
@@ -2119,8 +2503,14 @@ pub(crate) async fn run_tool_call_loop(
             .into());
         }
 
-        let prepared_messages =
+        let mut prepared_messages =
             multimodal::prepare_messages_for_provider(history, multimodal_config).await?;
+        if let Some(note) = execution_checkpoint_note.as_deref() {
+            inject_ephemeral_system_note(&mut prepared_messages.messages, note);
+        }
+        if let Some(note) = continuation_guard_note.take() {
+            inject_ephemeral_system_note(&mut prepared_messages.messages, &note);
+        }
 
         // ── Progress: LLM thinking ────────────────────────────
         if let Some(ref tx) = on_delta {
@@ -2337,6 +2727,47 @@ pub(crate) async fn run_tool_call_loop(
         }
 
         if tool_calls.is_empty() {
+            let mut continuation_reasons = Vec::new();
+            if had_any_tool_execution && !unresolved_failed_steps.is_empty() {
+                continuation_reasons.push(format!(
+                    "Unresolved failed steps remain: {}",
+                    unresolved_failed_steps.join(", ")
+                ));
+            }
+            if !had_any_tool_execution
+                && !tool_specs.is_empty()
+                && response_indicates_tool_abandonment(&display_text)
+            {
+                continuation_reasons.push(
+                    "Model emitted a capability/refusal response before attempting any available tools."
+                        .to_string(),
+                );
+            }
+
+            if continuation_retries < MAX_RUNTIME_CONTINUATION_RETRIES
+                && !continuation_reasons.is_empty()
+            {
+                continuation_retries += 1;
+                continuation_guard_note =
+                    build_runtime_continuation_note(&continuation_reasons, tools_registry);
+
+                runtime_trace::record_event(
+                    "runtime_continuation_guard",
+                    Some(channel_name),
+                    Some(provider_name),
+                    Some(model),
+                    Some(&turn_id),
+                    Some(false),
+                    Some("forced continuation: unresolved or abandoned task"),
+                    serde_json::json!({
+                        "iteration": iteration + 1,
+                        "reasons": continuation_reasons,
+                        "retry": continuation_retries,
+                    }),
+                );
+                continue;
+            }
+
             runtime_trace::record_event(
                 "turn_final_response",
                 Some(channel_name),
@@ -2378,6 +2809,24 @@ pub(crate) async fn run_tool_call_loop(
                 }
             }
             history.push(ChatMessage::assistant(response_text.clone()));
+            if let Some(task_state) = task_persistence {
+                let _ = task_state
+                    .store
+                    .save_snapshot(crate::agent::task_store::TaskSnapshot {
+                        task_id: task_state.task_id.to_string(),
+                        thread_id: task_state.thread_id.to_string(),
+                        channel: task_state.channel.to_string(),
+                        provider: task_state.provider.to_string(),
+                        model: task_state.model.to_string(),
+                        status: crate::agent::task_store::TaskStatus::Completed,
+                        execution_history: history.clone(),
+                        resumable_history: Vec::new(),
+                        latest_checkpoint_note: execution_checkpoint_note.clone(),
+                        final_response: Some(display_text.clone()),
+                        last_error: None,
+                    })
+                    .await;
+            }
             return Ok(display_text);
         }
 
@@ -2395,6 +2844,8 @@ pub(crate) async fn run_tool_call_loop(
         let mut tool_results = String::new();
         let mut individual_results: Vec<(Option<String>, String)> = Vec::new();
         let mut ordered_results: Vec<Option<(String, Option<String>, ToolExecutionOutcome)>> =
+            (0..tool_calls.len()).map(|_| None).collect();
+        let mut effective_calls: Vec<Option<ParsedToolCall>> =
             (0..tool_calls.len()).map(|_| None).collect();
         let allow_parallel_execution = should_execute_tools_in_parallel(&tool_calls, approval);
         let mut executable_indices: Vec<usize> = Vec::new();
@@ -2436,6 +2887,11 @@ pub(crate) async fn run_tool_call_loop(
                                 duration: Duration::ZERO,
                             },
                         ));
+                        effective_calls[idx] = Some(ParsedToolCall {
+                            name: call.name.clone(),
+                            arguments: tool_args,
+                            tool_call_id: call.tool_call_id.clone(),
+                        });
                         continue;
                     }
                     crate::hooks::HookResult::Continue((name, args)) => {
@@ -2488,6 +2944,11 @@ pub(crate) async fn run_tool_call_loop(
                                 duration: Duration::ZERO,
                             },
                         ));
+                        effective_calls[idx] = Some(ParsedToolCall {
+                            name: tool_name,
+                            arguments: tool_args,
+                            tool_call_id: call.tool_call_id.clone(),
+                        });
                         continue;
                     }
                 }
@@ -2523,6 +2984,11 @@ pub(crate) async fn run_tool_call_loop(
                         duration: Duration::ZERO,
                     },
                 ));
+                effective_calls[idx] = Some(ParsedToolCall {
+                    name: tool_name,
+                    arguments: tool_args,
+                    tool_call_id: call.tool_call_id.clone(),
+                });
                 continue;
             }
 
@@ -2554,11 +3020,13 @@ pub(crate) async fn run_tool_call_loop(
             }
 
             executable_indices.push(idx);
-            executable_calls.push(ParsedToolCall {
+            let effective_call = ParsedToolCall {
                 name: tool_name,
                 arguments: tool_args,
                 tool_call_id: call.tool_call_id.clone(),
-            });
+            };
+            effective_calls[idx] = Some(effective_call.clone());
+            executable_calls.push(effective_call);
         }
 
         let executed_outcomes = if allow_parallel_execution && executable_calls.len() > 1 {
@@ -2627,16 +3095,41 @@ pub(crate) async fn run_tool_call_loop(
             ordered_results[*idx] = Some((call.name.clone(), call.tool_call_id.clone(), outcome));
         }
 
-        for entry in ordered_results {
+        let checkpoint_items: Vec<ExecutionCheckpointItem> = ordered_results
+            .iter()
+            .enumerate()
+            .filter_map(|(idx, entry)| {
+                let (tool_name, _tool_call_id, outcome) = entry.as_ref()?;
+                let call = effective_calls
+                    .get(idx)
+                    .and_then(|item| item.as_ref())
+                    .cloned()
+                    .unwrap_or(ParsedToolCall {
+                        name: tool_name.clone(),
+                        arguments: serde_json::Value::Object(serde_json::Map::new()),
+                        tool_call_id: None,
+                    });
+
+                Some(ExecutionCheckpointItem {
+                    tool_name: call.name,
+                    arguments: call.arguments,
+                    success: outcome.success,
+                    output: outcome.output.clone(),
+                })
+            })
+            .collect();
+        execution_checkpoint_note = build_execution_checkpoint_note(&checkpoint_items);
+
+        for (idx, entry) in ordered_results.into_iter().enumerate() {
             if let Some((tool_name, tool_call_id, outcome)) = entry {
                 // Record tool outcome for self-learning lesson extraction
                 if let Some(sink) = tool_outcomes_sink.as_mut() {
                     sink.push(crate::agent::lesson::ToolOutcome {
                         tool_name: tool_name.clone(),
-                        arguments: executable_calls
-                            .iter()
-                            .find(|c| c.name == tool_name)
-                            .map(|c| c.arguments.clone())
+                        arguments: effective_calls
+                            .get(idx)
+                            .and_then(|call| call.as_ref())
+                            .map(|call| call.arguments.clone())
                             .unwrap_or_default(),
                         success: outcome.success,
                         output: outcome.output.clone(),
@@ -2649,6 +3142,17 @@ pub(crate) async fn run_tool_call_loop(
                     tool_name, outcome.output
                 );
             }
+        }
+        had_any_tool_execution = true;
+        unresolved_failed_steps = checkpoint_items
+            .iter()
+            .filter(|item| !item.success && failure_requires_followup(&item.output))
+            .map(|item| item.tool_name.clone())
+            .collect();
+        unresolved_failed_steps.sort_unstable();
+        unresolved_failed_steps.dedup();
+        if unresolved_failed_steps.is_empty() {
+            continuation_retries = 0;
         }
 
         // Add assistant message with tool calls + tool results to history.
@@ -2684,6 +3188,23 @@ pub(crate) async fn run_tool_call_loop(
                 history.push(ChatMessage::tool(tool_msg.to_string()));
             }
         }
+
+        if let Some(task_state) = task_persistence {
+            let _ = task_state
+                .store
+                .record_checkpoint(crate::agent::task_store::TaskCheckpointUpdate {
+                    task_id: task_state.task_id.to_string(),
+                    thread_id: task_state.thread_id.to_string(),
+                    channel: task_state.channel.to_string(),
+                    provider: task_state.provider.to_string(),
+                    model: task_state.model.to_string(),
+                    step_index: iteration + 1,
+                    execution_history: history.clone(),
+                    checkpoint_note: execution_checkpoint_note.clone(),
+                    items: checkpoint_items.clone(),
+                })
+                .await;
+        }
     }
 
     runtime_trace::record_event(
@@ -2698,6 +3219,26 @@ pub(crate) async fn run_tool_call_loop(
             "max_iterations": max_iterations,
         }),
     );
+    if let Some(task_state) = task_persistence {
+        let _ = task_state
+            .store
+            .save_snapshot(crate::agent::task_store::TaskSnapshot {
+                task_id: task_state.task_id.to_string(),
+                thread_id: task_state.thread_id.to_string(),
+                channel: task_state.channel.to_string(),
+                provider: task_state.provider.to_string(),
+                model: task_state.model.to_string(),
+                status: crate::agent::task_store::TaskStatus::Failed,
+                execution_history: history.clone(),
+                resumable_history: Vec::new(),
+                latest_checkpoint_note: execution_checkpoint_note.clone(),
+                final_response: None,
+                last_error: Some(format!(
+                    "agent exceeded maximum tool iterations ({max_iterations})"
+                )),
+            })
+            .await;
+    }
     anyhow::bail!("Agent exceeded maximum tool iterations ({max_iterations})")
 }
 
@@ -2716,6 +3257,13 @@ pub(crate) fn build_tool_instructions(tools_registry: &[Box<dyn Tool>]) -> Strin
     instructions.push_str("After tool execution, results appear in <tool_result> tags. ");
     instructions
         .push_str("Continue reasoning with the results until you can give a final answer.\n\n");
+    instructions.push_str("For general tasks, use this loop: plan the next small step, run tools, observe real results, repair failures, validate the outcome, then continue.\n");
+    instructions.push_str(
+        "If one tool or approach fails, try a safe alternative instead of stopping immediately.\n",
+    );
+    instructions.push_str("After each meaningful step, maintain a concise checkpoint of what succeeded, what failed, and what still needs validation.\n");
+    instructions.push_str("When the task cleanly splits into independent subproblems and the delegate tool is available, delegate bounded subtasks instead of serializing everything through one thread.\n");
+    instructions.push_str("Only stop and ask the user when you are genuinely blocked after trying reasonable alternatives.\n\n");
     instructions.push_str("### Available Tools\n\n");
 
     for tool in tools_registry {
@@ -3090,6 +3638,7 @@ pub async fn run(
             None,
             None,
             &[],
+            None,
             if config.agent.self_learning {
                 Some(&mut tool_outcomes)
             } else {
@@ -3100,11 +3649,9 @@ pub async fn run(
 
         // Persist lessons learned from tool-call errors
         if config.agent.self_learning && !tool_outcomes.is_empty() {
-            let lessons =
-                crate::agent::lesson::extract_lessons(&tool_outcomes, &msg);
+            let lessons = crate::agent::lesson::extract_lessons(&tool_outcomes, &msg);
             if !lessons.is_empty() {
-                let stored =
-                    crate::agent::lesson::persist_lessons(mem.as_ref(), &lessons).await;
+                let stored = crate::agent::lesson::persist_lessons(mem.as_ref(), &lessons).await;
                 if stored > 0 {
                     tracing::info!(count = stored, "Self-learning: persisted new lessons");
                 }
@@ -3242,6 +3789,7 @@ pub async fn run(
                 None,
                 None,
                 &[],
+                None,
                 if config.agent.self_learning {
                     Some(&mut tool_outcomes)
                 } else {
@@ -3259,8 +3807,7 @@ pub async fn run(
 
             // Persist lessons learned from tool-call errors
             if config.agent.self_learning && !tool_outcomes.is_empty() {
-                let lessons =
-                    crate::agent::lesson::extract_lessons(&tool_outcomes, &user_input);
+                let lessons = crate::agent::lesson::extract_lessons(&tool_outcomes, &user_input);
                 if !lessons.is_empty() {
                     let stored =
                         crate::agent::lesson::persist_lessons(mem.as_ref(), &lessons).await;
@@ -3520,6 +4067,7 @@ pub async fn process_message(config: Config, message: &str) -> Result<String> {
         None,
         None,
         &[],
+        None,
         if config.agent.self_learning {
             Some(&mut tool_outcomes)
         } else {
@@ -3530,11 +4078,9 @@ pub async fn process_message(config: Config, message: &str) -> Result<String> {
 
     // Persist lessons learned from tool-call errors
     if config.agent.self_learning && !tool_outcomes.is_empty() {
-        let lessons =
-            crate::agent::lesson::extract_lessons(&tool_outcomes, message);
+        let lessons = crate::agent::lesson::extract_lessons(&tool_outcomes, message);
         if !lessons.is_empty() {
-            let stored =
-                crate::agent::lesson::persist_lessons(mem.as_ref(), &lessons).await;
+            let stored = crate::agent::lesson::persist_lessons(mem.as_ref(), &lessons).await;
             if stored > 0 {
                 tracing::info!(count = stored, "Self-learning: persisted new lessons");
             }
@@ -3755,6 +4301,50 @@ mod tests {
         }
     }
 
+    struct FailingTool {
+        name: String,
+        invocations: Arc<AtomicUsize>,
+    }
+
+    impl FailingTool {
+        fn new(name: &str, invocations: Arc<AtomicUsize>) -> Self {
+            Self {
+                name: name.to_string(),
+                invocations,
+            }
+        }
+    }
+
+    #[async_trait]
+    impl Tool for FailingTool {
+        fn name(&self) -> &str {
+            &self.name
+        }
+
+        fn description(&self) -> &str {
+            "Always fails to simulate unresolved checkpoints"
+        }
+
+        fn parameters_schema(&self) -> serde_json::Value {
+            serde_json::json!({
+                "type": "object",
+                "properties": {}
+            })
+        }
+
+        async fn execute(
+            &self,
+            _args: serde_json::Value,
+        ) -> anyhow::Result<crate::tools::ToolResult> {
+            self.invocations.fetch_add(1, Ordering::SeqCst);
+            Ok(crate::tools::ToolResult {
+                success: false,
+                output: "permission denied".to_string(),
+                error: Some("permission denied".to_string()),
+            })
+        }
+    }
+
     struct DelayTool {
         name: String,
         delay_ms: u64,
@@ -3854,6 +4444,7 @@ mod tests {
             None,
             &[],
             None,
+            None,
         )
         .await
         .expect_err("provider without vision support should fail");
@@ -3901,6 +4492,7 @@ mod tests {
             None,
             &[],
             None,
+            None,
         )
         .await
         .expect_err("oversized payload must fail");
@@ -3941,6 +4533,7 @@ mod tests {
             None,
             None,
             &[],
+            None,
             None,
         )
         .await
@@ -4069,6 +4662,7 @@ mod tests {
             None,
             &[],
             None,
+            None,
         )
         .await
         .expect("parallel execution should complete");
@@ -4139,6 +4733,7 @@ mod tests {
             None,
             &[],
             None,
+            None,
         )
         .await
         .expect("loop should finish after deduplicating repeated calls");
@@ -4196,6 +4791,7 @@ mod tests {
             None,
             &[],
             None,
+            None,
         )
         .await
         .expect("native fallback id flow should complete");
@@ -4214,6 +4810,115 @@ mod tests {
                 .all(|msg| !(msg.role == "user" && msg.content.starts_with("[Tool results]"))),
             "native mode should use role=tool history instead of prompt fallback wrapper"
         );
+    }
+
+    #[tokio::test]
+    async fn run_tool_call_loop_forces_retry_when_model_abandons_before_tools() {
+        let provider = ScriptedProvider::from_text_responses(vec![
+            "I can't do that directly from here.",
+            r#"<tool_call>
+{"name":"count_tool","arguments":{"value":"A"}}
+</tool_call>"#,
+            "done",
+        ]);
+
+        let invocations = Arc::new(AtomicUsize::new(0));
+        let tools_registry: Vec<Box<dyn Tool>> = vec![Box::new(CountingTool::new(
+            "count_tool",
+            Arc::clone(&invocations),
+        ))];
+
+        let mut history = vec![
+            ChatMessage::system("test-system"),
+            ChatMessage::user("open the app and continue"),
+        ];
+        let observer = NoopObserver;
+
+        let result = run_tool_call_loop(
+            &provider,
+            &mut history,
+            &tools_registry,
+            &observer,
+            "mock-provider",
+            "mock-model",
+            0.0,
+            true,
+            None,
+            "cli",
+            &crate::config::MultimodalConfig::default(),
+            6,
+            None,
+            None,
+            None,
+            &[],
+            None,
+            None,
+        )
+        .await
+        .expect("runtime continuation guard should force at least one tool attempt");
+
+        assert_eq!(result, "done");
+        assert_eq!(invocations.load(Ordering::SeqCst), 1);
+    }
+
+    #[tokio::test]
+    async fn run_tool_call_loop_forces_retry_when_failed_steps_remain_unresolved() {
+        let provider = ScriptedProvider::from_text_responses(vec![
+            r#"<tool_call>
+{"name":"fail_tool","arguments":{}}
+</tool_call>"#,
+            "I can't proceed further.",
+            r#"<tool_call>
+{"name":"count_tool","arguments":{"value":"B"}}
+</tool_call>"#,
+            "recovered",
+        ]);
+
+        let failing_invocations = Arc::new(AtomicUsize::new(0));
+        let recovery_invocations = Arc::new(AtomicUsize::new(0));
+        let tools_registry: Vec<Box<dyn Tool>> = vec![
+            Box::new(FailingTool::new(
+                "fail_tool",
+                Arc::clone(&failing_invocations),
+            )),
+            Box::new(CountingTool::new(
+                "count_tool",
+                Arc::clone(&recovery_invocations),
+            )),
+        ];
+
+        let mut history = vec![
+            ChatMessage::system("test-system"),
+            ChatMessage::user("finish the task even if the first attempt fails"),
+        ];
+        let observer = NoopObserver;
+
+        let result = run_tool_call_loop(
+            &provider,
+            &mut history,
+            &tools_registry,
+            &observer,
+            "mock-provider",
+            "mock-model",
+            0.0,
+            true,
+            None,
+            "cli",
+            &crate::config::MultimodalConfig::default(),
+            8,
+            None,
+            None,
+            None,
+            &[],
+            None,
+            None,
+        )
+        .await
+        .expect("runtime continuation guard should force fallback after failed steps");
+
+        assert_eq!(result, "recovered");
+        assert_eq!(failing_invocations.load(Ordering::SeqCst), 1);
+        assert_eq!(recovery_invocations.load(Ordering::SeqCst), 1);
     }
 
     #[test]
@@ -4766,6 +5471,33 @@ Tail"#;
         assert!(instructions.contains("shell"));
         assert!(instructions.contains("file_read"));
         assert!(instructions.contains("file_write"));
+        assert!(instructions.contains("plan the next small step"));
+    }
+
+    #[test]
+    fn build_execution_checkpoint_note_includes_validation_and_recovery_hints() {
+        let note = build_execution_checkpoint_note(&[
+            ExecutionCheckpointItem {
+                tool_name: "file_edit".into(),
+                arguments: serde_json::json!({"path": "src/main.rs"}),
+                success: true,
+                output: "updated file".into(),
+            },
+            ExecutionCheckpointItem {
+                tool_name: "shell".into(),
+                arguments: serde_json::json!({"command": "curl https://example.com"}),
+                success: false,
+                output: "Error: connection timeout".into(),
+            },
+        ])
+        .expect("checkpoint note should be generated");
+
+        assert!(note.contains("Confirmed steps: file_edit"));
+        assert!(note.contains("Failed steps: shell [transient_or_rate_limit]"));
+        assert!(note.contains("Validation to run next:"));
+        assert!(note.contains("Re-read the edited code/config"));
+        assert!(note.contains("Recovery guidance:"));
+        assert!(note.contains("retry with backoff"));
     }
 
     #[test]

@@ -67,7 +67,10 @@ pub use whatsapp::WhatsAppChannel;
 #[cfg(feature = "whatsapp-web")]
 pub use whatsapp_web::WhatsAppWebChannel;
 
-use crate::agent::loop_::{build_tool_instructions, run_tool_call_loop, scrub_credentials};
+use crate::agent::loop_::{
+    build_tool_instructions, run_tool_call_loop, scrub_credentials, TaskPersistenceContext,
+};
+use crate::agent::task_store::{self, TaskSnapshot, TaskStatus, TaskStore};
 use crate::config::Config;
 use crate::identity;
 use crate::memory::{self, Memory};
@@ -224,6 +227,7 @@ struct ChannelRuntimeContext {
     multimodal: crate::config::MultimodalConfig,
     hooks: Option<Arc<crate::hooks::HookRunner>>,
     non_cli_excluded_tools: Arc<Vec<String>>,
+    task_store: Arc<dyn TaskStore>,
 }
 
 #[derive(Clone)]
@@ -739,11 +743,15 @@ fn set_route_selection(ctx: &ChannelRuntimeContext, sender_key: &str, next: Chan
     }
 }
 
-fn clear_sender_history(ctx: &ChannelRuntimeContext, sender_key: &str) {
+async fn clear_sender_history(ctx: &ChannelRuntimeContext, sender_key: &str) {
     ctx.conversation_histories
         .lock()
         .unwrap_or_else(|e| e.into_inner())
         .remove(sender_key);
+
+    if let Err(err) = task_store::clear_session(ctx.task_store.as_ref(), sender_key).await {
+        tracing::warn!(thread_id = %sender_key, "Failed to clear durable task state: {err}");
+    }
 }
 
 fn compact_sender_history(ctx: &ChannelRuntimeContext, sender_key: &str) -> bool {
@@ -1018,7 +1026,7 @@ async fn handle_runtime_command_if_needed(
                         if provider_name != current.provider {
                             current.provider = provider_name.clone();
                             set_route_selection(ctx, &sender_key, current.clone());
-                            clear_sender_history(ctx, &sender_key);
+                            clear_sender_history(ctx, &sender_key).await;
                         }
 
                         format!(
@@ -1048,7 +1056,7 @@ async fn handle_runtime_command_if_needed(
             } else {
                 current.model = model.clone();
                 set_route_selection(ctx, &sender_key, current.clone());
-                clear_sender_history(ctx, &sender_key);
+                clear_sender_history(ctx, &sender_key).await;
 
                 format!(
                     "Model switched to `{model}` for provider `{}` in this sender session.",
@@ -1057,7 +1065,7 @@ async fn handle_runtime_command_if_needed(
             }
         }
         ChannelRuntimeCommand::NewSession => {
-            clear_sender_history(ctx, &sender_key);
+            clear_sender_history(ctx, &sender_key).await;
             "Conversation history cleared. Starting fresh.".to_string()
         }
     };
@@ -1125,6 +1133,60 @@ async fn build_memory_context(
     }
 
     context
+}
+
+fn snapshot_sender_history(ctx: &ChannelRuntimeContext, sender_key: &str) -> Vec<ChatMessage> {
+    ctx.conversation_histories
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .get(sender_key)
+        .cloned()
+        .map(normalize_cached_channel_turns)
+        .unwrap_or_default()
+}
+
+async fn load_resumable_task_state(
+    ctx: &ChannelRuntimeContext,
+    sender_key: &str,
+) -> Option<(Vec<ChatMessage>, Option<String>)> {
+    match task_store::load_resumable_state(ctx.task_store.as_ref(), sender_key).await {
+        Ok(state) => state,
+        Err(err) => {
+            tracing::warn!(thread_id = %sender_key, "Failed to load durable task state: {err}");
+            None
+        }
+    }
+}
+
+async fn persist_task_snapshot(
+    ctx: &ChannelRuntimeContext,
+    sender_key: &str,
+    channel: &str,
+    provider: &str,
+    model: &str,
+    status: TaskStatus,
+    execution_history: Vec<ChatMessage>,
+    latest_checkpoint_note: Option<String>,
+    final_response: Option<String>,
+    last_error: Option<String>,
+) {
+    let snapshot = TaskSnapshot {
+        task_id: sender_key.to_string(),
+        thread_id: sender_key.to_string(),
+        channel: channel.to_string(),
+        provider: provider.to_string(),
+        model: model.to_string(),
+        status,
+        execution_history,
+        resumable_history: snapshot_sender_history(ctx, sender_key),
+        latest_checkpoint_note,
+        final_response,
+        last_error,
+    };
+
+    if let Err(err) = task_store::persist_snapshot(ctx.task_store.as_ref(), snapshot).await {
+        tracing::warn!(thread_id = %sender_key, "Failed to persist task snapshot: {err}");
+    }
 }
 
 /// Extract a compact summary of tool interactions from history messages added
@@ -1596,12 +1658,26 @@ async fn process_channel_message(
     println!("  ⏳ Processing message...");
     let started_at = Instant::now();
 
-    let had_prior_history = ctx
+    let mut had_prior_history = ctx
         .conversation_histories
         .lock()
         .unwrap_or_else(|e| e.into_inner())
         .get(&history_key)
         .is_some_and(|turns| !turns.is_empty());
+
+    let mut latest_checkpoint_note: Option<String> = None;
+    if !had_prior_history {
+        if let Some((persisted_turns, persisted_note)) =
+            load_resumable_task_state(ctx.as_ref(), &history_key).await
+        {
+            ctx.conversation_histories
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .insert(history_key.clone(), persisted_turns);
+            latest_checkpoint_note = persisted_note;
+            had_prior_history = true;
+        }
+    }
 
     // Preserve user turn before the LLM call so interrupted requests keep context.
     append_sender_turn(ctx.as_ref(), &history_key, ChatMessage::user(&msg.content));
@@ -1627,11 +1703,34 @@ async fn process_channel_message(
             }
         }
     }
+    if let Some(note) = latest_checkpoint_note.as_deref() {
+        if let Some(last_turn) = prior_turns.last_mut() {
+            if last_turn.role == "user" && !note.trim().is_empty() {
+                last_turn.content = format!(
+                    "[Task checkpoint]\n{note}\n\n[User message]\n{}",
+                    last_turn.content
+                );
+            }
+        }
+    }
 
     let system_prompt =
         build_channel_system_prompt(ctx.system_prompt.as_str(), &msg.channel, &msg.reply_target);
     let mut history = vec![ChatMessage::system(system_prompt)];
     history.extend(prior_turns);
+    persist_task_snapshot(
+        ctx.as_ref(),
+        &history_key,
+        msg.channel.as_str(),
+        route.provider.as_str(),
+        route.model.as_str(),
+        TaskStatus::Running,
+        history.clone(),
+        latest_checkpoint_note.clone(),
+        None,
+        None,
+    )
+    .await;
     let use_streaming = target_channel
         .as_ref()
         .is_some_and(|ch| ch.supports_draft_updates());
@@ -1730,6 +1829,14 @@ async fn process_channel_message(
 
     let timeout_budget_secs =
         channel_message_timeout_budget_secs(ctx.message_timeout_secs, ctx.max_tool_iterations);
+    let task_persistence = TaskPersistenceContext {
+        store: ctx.task_store.as_ref(),
+        task_id: &history_key,
+        thread_id: &history_key,
+        channel: msg.channel.as_str(),
+        provider: route.provider.as_str(),
+        model: route.model.as_str(),
+    };
     let llm_result = tokio::select! {
         () = cancellation_token.cancelled() => LlmExecutionResult::Cancelled,
         result = tokio::time::timeout(
@@ -1755,6 +1862,7 @@ async fn process_channel_message(
                 } else {
                     ctx.non_cli_excluded_tools.as_ref()
                 },
+                Some(&task_persistence),
                 None, // Channels don't track tool outcomes for self-learning (no access to config/memory)
             ),
         ) => LlmExecutionResult::Completed(result),
@@ -1803,6 +1911,19 @@ async fn process_channel_message(
                     tracing::debug!("Failed to cancel draft on {}: {err}", channel.name());
                 }
             }
+            persist_task_snapshot(
+                ctx.as_ref(),
+                &history_key,
+                msg.channel.as_str(),
+                route.provider.as_str(),
+                route.model.as_str(),
+                TaskStatus::Cancelled,
+                history.clone(),
+                latest_checkpoint_note.clone(),
+                None,
+                Some("cancelled due to newer inbound message".into()),
+            )
+            .await;
         }
         LlmExecutionResult::Completed(Ok(Ok(response))) => {
             // ── Hook: on_message_sending (modifying) ─────────
@@ -1902,6 +2023,19 @@ async fn process_channel_message(
                 &history_key,
                 ChatMessage::assistant(&history_response),
             );
+            persist_task_snapshot(
+                ctx.as_ref(),
+                &history_key,
+                msg.channel.as_str(),
+                route.provider.as_str(),
+                route.model.as_str(),
+                TaskStatus::Completed,
+                history.clone(),
+                latest_checkpoint_note.clone(),
+                Some(delivered_response.clone()),
+                None,
+            )
+            .await;
             println!(
                 "  🤖 Reply ({}ms): {}",
                 started_at.elapsed().as_millis(),
@@ -1986,6 +2120,19 @@ async fn process_channel_message(
                         "history_compacted": compacted,
                     }),
                 );
+                persist_task_snapshot(
+                    ctx.as_ref(),
+                    &history_key,
+                    msg.channel.as_str(),
+                    route.provider.as_str(),
+                    route.model.as_str(),
+                    TaskStatus::Failed,
+                    history.clone(),
+                    latest_checkpoint_note.clone(),
+                    None,
+                    Some("context window exceeded".into()),
+                )
+                .await;
                 if let Some(channel) = target_channel.as_ref() {
                     if let Some(ref draft_id) = draft_message_id {
                         let _ = channel
@@ -2034,6 +2181,19 @@ async fn process_channel_message(
                         ChatMessage::assistant("[Task failed — not continuing this request]"),
                     );
                 }
+                persist_task_snapshot(
+                    ctx.as_ref(),
+                    &history_key,
+                    msg.channel.as_str(),
+                    route.provider.as_str(),
+                    route.model.as_str(),
+                    TaskStatus::Failed,
+                    history.clone(),
+                    latest_checkpoint_note.clone(),
+                    None,
+                    Some(safe_error.clone()),
+                )
+                .await;
                 if let Some(channel) = target_channel.as_ref() {
                     if let Some(ref draft_id) = draft_message_id {
                         let _ = channel
@@ -2080,6 +2240,19 @@ async fn process_channel_message(
                 &history_key,
                 ChatMessage::assistant("[Task timed out — not continuing this request]"),
             );
+            persist_task_snapshot(
+                ctx.as_ref(),
+                &history_key,
+                msg.channel.as_str(),
+                route.provider.as_str(),
+                route.model.as_str(),
+                TaskStatus::TimedOut,
+                history.clone(),
+                latest_checkpoint_note.clone(),
+                None,
+                Some(timeout_msg.clone()),
+            )
+            .await;
             if let Some(channel) = target_channel.as_ref() {
                 let error_text =
                     "⚠️ Request timed out while waiting for the model. Please try again.";
@@ -3351,6 +3524,8 @@ async fn start_channels_internal(config: Config, run_scheduler: bool) -> Result<
         .telegram
         .as_ref()
         .is_some_and(|tg| tg.interrupt_on_new_message);
+    let task_store: Arc<dyn TaskStore> =
+        Arc::from(task_store::create_task_store(&config.workspace_dir)?);
 
     let runtime_ctx = Arc::new(ChannelRuntimeContext {
         channels_by_name,
@@ -3386,6 +3561,7 @@ async fn start_channels_internal(config: Config, run_scheduler: bool) -> Result<
             None
         },
         non_cli_excluded_tools: Arc::new(config.autonomy.non_cli_excluded_tools.clone()),
+        task_store,
     });
 
     run_message_dispatch_loop(rx, runtime_ctx, max_in_flight_messages).await;
@@ -3406,6 +3582,9 @@ async fn start_channels_internal(config: Config, run_scheduler: bool) -> Result<
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::agent::task_store::{
+        TaskCheckpointUpdate, TaskRecord, TaskSnapshot, TaskStatus, TaskStore,
+    };
     use crate::memory::{Memory, MemoryCategory, SqliteMemory};
     use crate::observability::NoopObserver;
     use crate::providers::{ChatMessage, Provider};
@@ -3414,6 +3593,101 @@ mod tests {
     use std::sync::atomic::{AtomicUsize, Ordering};
     use std::sync::Arc;
     use tempfile::TempDir;
+
+    #[derive(Default)]
+    struct MockTaskStore {
+        records: std::sync::Mutex<HashMap<String, TaskRecord>>,
+    }
+
+    #[async_trait::async_trait]
+    impl TaskStore for MockTaskStore {
+        async fn load_by_thread_id(&self, thread_id: &str) -> anyhow::Result<Option<TaskRecord>> {
+            Ok(self.records.lock().unwrap().get(thread_id).cloned())
+        }
+
+        async fn save_snapshot(&self, snapshot: TaskSnapshot) -> anyhow::Result<()> {
+            let existing = self
+                .records
+                .lock()
+                .unwrap()
+                .get(&snapshot.thread_id)
+                .cloned();
+            let checkpoints = existing
+                .map(|record| record.checkpoints)
+                .unwrap_or_default();
+            let checkpoint_count = checkpoints.len();
+            self.records.lock().unwrap().insert(
+                snapshot.thread_id.clone(),
+                TaskRecord {
+                    task_id: snapshot.task_id,
+                    thread_id: snapshot.thread_id,
+                    channel: snapshot.channel,
+                    provider: snapshot.provider,
+                    model: snapshot.model,
+                    status: snapshot.status,
+                    execution_history: snapshot.execution_history,
+                    resumable_history: snapshot.resumable_history,
+                    latest_checkpoint_note: snapshot.latest_checkpoint_note,
+                    checkpoint_count,
+                    final_response: snapshot.final_response,
+                    last_error: snapshot.last_error,
+                    created_at: "now".into(),
+                    updated_at: "now".into(),
+                    completed_at: matches!(
+                        snapshot.status,
+                        TaskStatus::Completed
+                            | TaskStatus::Failed
+                            | TaskStatus::Cancelled
+                            | TaskStatus::TimedOut
+                    )
+                    .then(|| "now".into()),
+                    checkpoints,
+                },
+            );
+            Ok(())
+        }
+
+        async fn record_checkpoint(&self, update: TaskCheckpointUpdate) -> anyhow::Result<()> {
+            let mut records = self.records.lock().unwrap();
+            let record = records
+                .entry(update.thread_id.clone())
+                .or_insert(TaskRecord {
+                    task_id: update.task_id.clone(),
+                    thread_id: update.thread_id.clone(),
+                    channel: update.channel.clone(),
+                    provider: update.provider.clone(),
+                    model: update.model.clone(),
+                    status: TaskStatus::Running,
+                    execution_history: Vec::new(),
+                    resumable_history: Vec::new(),
+                    latest_checkpoint_note: None,
+                    checkpoint_count: 0,
+                    final_response: None,
+                    last_error: None,
+                    created_at: "now".into(),
+                    updated_at: "now".into(),
+                    completed_at: None,
+                    checkpoints: Vec::new(),
+                });
+            record.execution_history = update.execution_history;
+            record.latest_checkpoint_note = update.checkpoint_note.clone();
+            record
+                .checkpoints
+                .push(crate::agent::task_store::TaskCheckpointRecord {
+                    step_index: update.step_index,
+                    checkpoint_note: update.checkpoint_note,
+                    items: update.items,
+                    created_at: "now".into(),
+                });
+            record.checkpoint_count = record.checkpoints.len();
+            Ok(())
+        }
+
+        async fn delete_by_thread_id(&self, thread_id: &str) -> anyhow::Result<()> {
+            self.records.lock().unwrap().remove(thread_id);
+            Ok(())
+        }
+    }
 
     fn make_workspace() -> TempDir {
         let tmp = TempDir::new().unwrap();
@@ -3470,6 +3744,40 @@ mod tests {
             channel_message_timeout_budget_secs(300, 10),
             300 * CHANNEL_MESSAGE_TIMEOUT_SCALE_CAP
         );
+    }
+
+    #[test]
+    fn resumable_turns_from_task_record_filters_internal_messages() {
+        let record = TaskRecord {
+            task_id: "task-1".into(),
+            thread_id: "thread-1".into(),
+            channel: "telegram".into(),
+            provider: "openai".into(),
+            model: "gpt-test".into(),
+            status: TaskStatus::Completed,
+            execution_history: vec![],
+            resumable_history: vec![
+                ChatMessage::system("system"),
+                ChatMessage::user("hello"),
+                ChatMessage::assistant("<tool_call>{}</tool_call>"),
+                ChatMessage::tool("{\"tool_call_id\":\"x\"}"),
+                ChatMessage::assistant("final answer"),
+            ],
+            latest_checkpoint_note: Some("resume here".into()),
+            checkpoint_count: 1,
+            final_response: Some("final answer".into()),
+            last_error: None,
+            created_at: "now".into(),
+            updated_at: "now".into(),
+            completed_at: Some("now".into()),
+            checkpoints: Vec::new(),
+        };
+
+        let turns = task_store::resumable_turns_from_task_record(&record);
+        assert_eq!(turns.len(), 2);
+        assert_eq!(turns[0].role, "user");
+        assert_eq!(turns[1].role, "assistant");
+        assert_eq!(turns[1].content, "final answer");
     }
 
     #[test]
@@ -3609,6 +3917,7 @@ mod tests {
             workspace_dir: Arc::new(std::env::temp_dir()),
             message_timeout_secs: CHANNEL_MESSAGE_TIMEOUT_SECS,
             non_cli_excluded_tools: Arc::new(Vec::new()),
+            task_store: Arc::new(MockTaskStore::default()),
         };
 
         assert!(compact_sender_history(&ctx, &sender));
@@ -3658,6 +3967,7 @@ mod tests {
             workspace_dir: Arc::new(std::env::temp_dir()),
             message_timeout_secs: CHANNEL_MESSAGE_TIMEOUT_SECS,
             non_cli_excluded_tools: Arc::new(Vec::new()),
+            task_store: Arc::new(MockTaskStore::default()),
         };
 
         append_sender_turn(&ctx, &sender, ChatMessage::user("hello"));
@@ -3710,6 +4020,7 @@ mod tests {
             workspace_dir: Arc::new(std::env::temp_dir()),
             message_timeout_secs: CHANNEL_MESSAGE_TIMEOUT_SECS,
             non_cli_excluded_tools: Arc::new(Vec::new()),
+            task_store: Arc::new(MockTaskStore::default()),
         };
 
         assert!(rollback_orphan_user_turn(&ctx, &sender, "pending"));
@@ -3724,6 +4035,70 @@ mod tests {
         assert_eq!(turns.len(), 2);
         assert_eq!(turns[0].content, "first");
         assert_eq!(turns[1].content, "ok");
+    }
+
+    #[tokio::test]
+    async fn clear_sender_history_removes_durable_state_before_return() {
+        let sender = "telegram_u4".to_string();
+        let store = Arc::new(MockTaskStore::default());
+        let ctx = ChannelRuntimeContext {
+            channels_by_name: Arc::new(HashMap::new()),
+            provider: Arc::new(DummyProvider),
+            default_provider: Arc::new("test-provider".to_string()),
+            memory: Arc::new(NoopMemory),
+            tools_registry: Arc::new(vec![]),
+            observer: Arc::new(NoopObserver),
+            system_prompt: Arc::new("system".to_string()),
+            model: Arc::new("test-model".to_string()),
+            temperature: 0.0,
+            auto_save_memory: false,
+            max_tool_iterations: 5,
+            min_relevance_score: 0.0,
+            conversation_histories: Arc::new(Mutex::new(HashMap::from([(
+                sender.clone(),
+                vec![ChatMessage::user("hello")],
+            )]))),
+            provider_cache: Arc::new(Mutex::new(HashMap::new())),
+            route_overrides: Arc::new(Mutex::new(HashMap::new())),
+            api_key: None,
+            api_url: None,
+            reliability: Arc::new(crate::config::ReliabilityConfig::default()),
+            interrupt_on_new_message: false,
+            multimodal: crate::config::MultimodalConfig::default(),
+            hooks: None,
+            provider_runtime_options: providers::ProviderRuntimeOptions::default(),
+            workspace_dir: Arc::new(std::env::temp_dir()),
+            message_timeout_secs: CHANNEL_MESSAGE_TIMEOUT_SECS,
+            non_cli_excluded_tools: Arc::new(Vec::new()),
+            task_store: store.clone(),
+        };
+
+        store
+            .save_snapshot(TaskSnapshot {
+                task_id: sender.clone(),
+                thread_id: sender.clone(),
+                channel: "telegram".into(),
+                provider: "openai".into(),
+                model: "test-model".into(),
+                status: TaskStatus::Running,
+                execution_history: vec![ChatMessage::user("hello")],
+                resumable_history: vec![ChatMessage::user("hello")],
+                latest_checkpoint_note: Some("resume".into()),
+                final_response: None,
+                last_error: None,
+            })
+            .await
+            .unwrap();
+
+        clear_sender_history(&ctx, &sender).await;
+
+        assert!(ctx
+            .conversation_histories
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .get(&sender)
+            .is_none());
+        assert!(store.load_by_thread_id(&sender).await.unwrap().is_none());
     }
 
     struct DummyProvider;
@@ -4183,6 +4558,7 @@ BTC is currently around $65,000 based on latest tool output."#
             message_timeout_secs: CHANNEL_MESSAGE_TIMEOUT_SECS,
             interrupt_on_new_message: false,
             non_cli_excluded_tools: Arc::new(Vec::new()),
+            task_store: Arc::new(MockTaskStore::default()),
             multimodal: crate::config::MultimodalConfig::default(),
             hooks: None,
         });
@@ -4242,6 +4618,7 @@ BTC is currently around $65,000 based on latest tool output."#
             message_timeout_secs: CHANNEL_MESSAGE_TIMEOUT_SECS,
             interrupt_on_new_message: false,
             non_cli_excluded_tools: Arc::new(Vec::new()),
+            task_store: Arc::new(MockTaskStore::default()),
             multimodal: crate::config::MultimodalConfig::default(),
             hooks: None,
         });
@@ -4317,6 +4694,7 @@ BTC is currently around $65,000 based on latest tool output."#
             multimodal: crate::config::MultimodalConfig::default(),
             hooks: None,
             non_cli_excluded_tools: Arc::new(Vec::new()),
+            task_store: Arc::new(MockTaskStore::default()),
         });
 
         process_channel_message(
@@ -4376,6 +4754,7 @@ BTC is currently around $65,000 based on latest tool output."#
             multimodal: crate::config::MultimodalConfig::default(),
             hooks: None,
             non_cli_excluded_tools: Arc::new(Vec::new()),
+            task_store: Arc::new(MockTaskStore::default()),
         });
 
         process_channel_message(
@@ -4444,6 +4823,7 @@ BTC is currently around $65,000 based on latest tool output."#
             multimodal: crate::config::MultimodalConfig::default(),
             hooks: None,
             non_cli_excluded_tools: Arc::new(Vec::new()),
+            task_store: Arc::new(MockTaskStore::default()),
         });
 
         process_channel_message(
@@ -4533,6 +4913,7 @@ BTC is currently around $65,000 based on latest tool output."#
             multimodal: crate::config::MultimodalConfig::default(),
             hooks: None,
             non_cli_excluded_tools: Arc::new(Vec::new()),
+            task_store: Arc::new(MockTaskStore::default()),
         });
 
         process_channel_message(
@@ -4604,6 +4985,7 @@ BTC is currently around $65,000 based on latest tool output."#
             multimodal: crate::config::MultimodalConfig::default(),
             hooks: None,
             non_cli_excluded_tools: Arc::new(Vec::new()),
+            task_store: Arc::new(MockTaskStore::default()),
         });
 
         process_channel_message(
@@ -4690,6 +5072,7 @@ BTC is currently around $65,000 based on latest tool output."#
             multimodal: crate::config::MultimodalConfig::default(),
             hooks: None,
             non_cli_excluded_tools: Arc::new(Vec::new()),
+            task_store: Arc::new(MockTaskStore::default()),
         });
 
         process_channel_message(
@@ -4761,6 +5144,7 @@ BTC is currently around $65,000 based on latest tool output."#
             multimodal: crate::config::MultimodalConfig::default(),
             hooks: None,
             non_cli_excluded_tools: Arc::new(Vec::new()),
+            task_store: Arc::new(MockTaskStore::default()),
         });
 
         process_channel_message(
@@ -4821,6 +5205,7 @@ BTC is currently around $65,000 based on latest tool output."#
             multimodal: crate::config::MultimodalConfig::default(),
             hooks: None,
             non_cli_excluded_tools: Arc::new(Vec::new()),
+            task_store: Arc::new(MockTaskStore::default()),
         });
 
         process_channel_message(
@@ -4992,6 +5377,7 @@ BTC is currently around $65,000 based on latest tool output."#
             multimodal: crate::config::MultimodalConfig::default(),
             hooks: None,
             non_cli_excluded_tools: Arc::new(Vec::new()),
+            task_store: Arc::new(MockTaskStore::default()),
         });
 
         let (tx, rx) = tokio::sync::mpsc::channel::<traits::ChannelMessage>(4);
@@ -5072,6 +5458,7 @@ BTC is currently around $65,000 based on latest tool output."#
             multimodal: crate::config::MultimodalConfig::default(),
             hooks: None,
             non_cli_excluded_tools: Arc::new(Vec::new()),
+            task_store: Arc::new(MockTaskStore::default()),
         });
 
         let (tx, rx) = tokio::sync::mpsc::channel::<traits::ChannelMessage>(8);
@@ -5164,6 +5551,7 @@ BTC is currently around $65,000 based on latest tool output."#
             multimodal: crate::config::MultimodalConfig::default(),
             hooks: None,
             non_cli_excluded_tools: Arc::new(Vec::new()),
+            task_store: Arc::new(MockTaskStore::default()),
         });
 
         let (tx, rx) = tokio::sync::mpsc::channel::<traits::ChannelMessage>(8);
@@ -5238,6 +5626,7 @@ BTC is currently around $65,000 based on latest tool output."#
             multimodal: crate::config::MultimodalConfig::default(),
             hooks: None,
             non_cli_excluded_tools: Arc::new(Vec::new()),
+            task_store: Arc::new(MockTaskStore::default()),
         });
 
         process_channel_message(
@@ -5297,6 +5686,7 @@ BTC is currently around $65,000 based on latest tool output."#
             multimodal: crate::config::MultimodalConfig::default(),
             hooks: None,
             non_cli_excluded_tools: Arc::new(Vec::new()),
+            task_store: Arc::new(MockTaskStore::default()),
         });
 
         process_channel_message(
@@ -5818,6 +6208,7 @@ BTC is currently around $65,000 based on latest tool output."#
             multimodal: crate::config::MultimodalConfig::default(),
             hooks: None,
             non_cli_excluded_tools: Arc::new(Vec::new()),
+            task_store: Arc::new(MockTaskStore::default()),
         });
 
         process_channel_message(
@@ -5903,6 +6294,7 @@ BTC is currently around $65,000 based on latest tool output."#
             multimodal: crate::config::MultimodalConfig::default(),
             hooks: None,
             non_cli_excluded_tools: Arc::new(Vec::new()),
+            task_store: Arc::new(MockTaskStore::default()),
         });
 
         process_channel_message(
@@ -5988,6 +6380,7 @@ BTC is currently around $65,000 based on latest tool output."#
             multimodal: crate::config::MultimodalConfig::default(),
             hooks: None,
             non_cli_excluded_tools: Arc::new(Vec::new()),
+            task_store: Arc::new(MockTaskStore::default()),
         });
 
         process_channel_message(
@@ -6537,6 +6930,7 @@ This is an example JSON object for profile settings."#;
             multimodal: crate::config::MultimodalConfig::default(),
             hooks: None,
             non_cli_excluded_tools: Arc::new(Vec::new()),
+            task_store: Arc::new(MockTaskStore::default()),
         });
 
         // Simulate a photo attachment message with [IMAGE:] marker.
@@ -6603,6 +6997,7 @@ This is an example JSON object for profile settings."#;
             multimodal: crate::config::MultimodalConfig::default(),
             hooks: None,
             non_cli_excluded_tools: Arc::new(Vec::new()),
+            task_store: Arc::new(MockTaskStore::default()),
         });
 
         process_channel_message(

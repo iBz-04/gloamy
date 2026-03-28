@@ -4,8 +4,8 @@ use crate::config::schema::{
 };
 use crate::config::{
     AutonomyConfig, BrowserConfig, ChannelsConfig, ComposioConfig, Config, DiscordConfig,
-    HeartbeatConfig, IMessageConfig, LarkConfig, MatrixConfig, MemoryConfig, OneConfig,
-    ObservabilityConfig, RuntimeConfig, SecretsConfig, SlackConfig, StorageConfig, TelegramConfig,
+    HeartbeatConfig, IMessageConfig, LarkConfig, MatrixConfig, MemoryConfig, ObservabilityConfig,
+    OneConfig, RuntimeConfig, SecretsConfig, SlackConfig, StorageConfig, TelegramConfig,
     WebhookConfig,
 };
 use crate::hardware::{self, HardwareConfig};
@@ -109,7 +109,10 @@ pub async fn run_wizard(force: bool) -> Result<Config> {
     let hardware_config = setup_hardware()?;
 
     print_step(7, 9, "Workplace (Identity)");
-    println!("  Gloamy workspace: {}", style(workspace_dir.display()).cyan());
+    println!(
+        "  Gloamy workspace: {}",
+        style(workspace_dir.display()).cyan()
+    );
     println!();
 
     // ── Build config ──

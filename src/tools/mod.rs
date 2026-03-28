@@ -40,6 +40,8 @@ pub mod hardware_memory_map;
 pub mod hardware_memory_read;
 pub mod http_request;
 pub mod image_info;
+#[cfg(target_os = "macos")]
+pub mod mac_automation;
 pub mod memory_forget;
 pub mod memory_recall;
 pub mod memory_store;
@@ -80,6 +82,8 @@ pub use hardware_memory_map::HardwareMemoryMapTool;
 pub use hardware_memory_read::HardwareMemoryReadTool;
 pub use http_request::HttpRequestTool;
 pub use image_info::ImageInfoTool;
+#[cfg(target_os = "macos")]
+pub use mac_automation::MacAutomationTool;
 pub use memory_forget::MemoryForgetTool;
 pub use memory_recall::MemoryRecallTool;
 pub use memory_store::MemoryStoreTool;
@@ -308,6 +312,8 @@ pub fn all_tools_with_runtime(
     // Vision tools are always available
     tool_arcs.push(Arc::new(ScreenshotTool::new(security.clone())));
     tool_arcs.push(Arc::new(ImageInfoTool::new(security.clone())));
+    #[cfg(target_os = "macos")]
+    tool_arcs.push(Arc::new(MacAutomationTool::new(security.clone())));
 
     if let Some(key) = composio_key {
         if !key.is_empty() {

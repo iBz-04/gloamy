@@ -1310,7 +1310,7 @@ async fn clear_history_resets_conversation() {
     let _ = agent.turn("hi").await.unwrap();
     assert!(!agent.history().is_empty());
 
-    agent.clear_history();
+    agent.clear_history().await;
     assert!(agent.history().is_empty());
 
     // Next turn should re-inject system prompt

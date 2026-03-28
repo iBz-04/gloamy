@@ -9,8 +9,8 @@ use axum::{
     response::{IntoResponse, Json},
 };
 use chrono::Utc;
-use serde::Serialize;
 use serde::Deserialize;
+use serde::Serialize;
 use std::path::{Path as FsPath, PathBuf};
 
 const MASKED_SECRET: &str = "***MASKED***";
@@ -113,7 +113,10 @@ fn read_log_file_entries(
         Err(_) => return Vec::new(),
     };
 
-    let lines: Vec<&str> = content.lines().filter(|line| !line.trim().is_empty()).collect();
+    let lines: Vec<&str> = content
+        .lines()
+        .filter(|line| !line.trim().is_empty())
+        .collect();
     let start = lines.len().saturating_sub(per_file_limit);
 
     lines[start..]

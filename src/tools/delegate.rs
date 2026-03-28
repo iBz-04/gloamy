@@ -411,6 +411,7 @@ impl DelegateTool {
                 None,
                 None,
                 &[],
+                None,
                 None, // Delegate tool doesn't track outcomes for self-learning
             ),
         )

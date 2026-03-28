@@ -76,23 +76,25 @@ pub fn extract_lessons(outcomes: &[ToolOutcome], user_message: &str) -> Vec<Less
 
     // Deduplicate lessons by (tool_name, error_summary prefix)
     lessons.dedup_by(|a, b| {
-        a.tool_name == b.tool_name && truncate_error(&a.error_summary, 60) == truncate_error(&b.error_summary, 60)
+        a.tool_name == b.tool_name
+            && truncate_error(&a.error_summary, 60) == truncate_error(&b.error_summary, 60)
     });
 
     lessons
 }
 
 /// Persist extracted lessons to memory, skipping duplicates.
-pub async fn persist_lessons(
-    memory: &dyn Memory,
-    lessons: &[Lesson],
-) -> usize {
+pub async fn persist_lessons(memory: &dyn Memory, lessons: &[Lesson]) -> usize {
     let mut stored = 0;
     let category = MemoryCategory::Custom(LESSON_CATEGORY.to_string());
 
     for lesson in lessons {
         // Check for existing similar lesson to avoid duplicates
-        let query = format!("{} {}", lesson.tool_name, truncate_error(&lesson.error_summary, 80));
+        let query = format!(
+            "{} {}",
+            lesson.tool_name,
+            truncate_error(&lesson.error_summary, 80)
+        );
         if let Ok(existing) = memory.recall(&query, 3, None).await {
             let dominated = existing.iter().any(|entry| {
                 entry.category == category
@@ -170,7 +172,10 @@ fn truncate_error(s: &str, max_chars: usize) -> String {
     if first_line.chars().count() <= max_chars {
         first_line.to_string()
     } else {
-        let truncated: String = first_line.chars().take(max_chars.saturating_sub(3)).collect();
+        let truncated: String = first_line
+            .chars()
+            .take(max_chars.saturating_sub(3))
+            .collect();
         format!("{truncated}...")
     }
 }
@@ -222,10 +227,9 @@ fn value_preview(val: &serde_json::Value, max_len: usize) -> String {
 fn extract_task_keywords(user_message: &str) -> String {
     // Extract meaningful words (>3 chars, lowercase, deduplicated)
     let stopwords = [
-        "the", "and", "for", "that", "this", "with", "from", "have", "will",
-        "what", "when", "where", "which", "your", "about", "been", "could",
-        "would", "should", "their", "there", "these", "those", "than",
-        "them", "then", "they", "were", "also", "into", "just", "some",
+        "the", "and", "for", "that", "this", "with", "from", "have", "will", "what", "when",
+        "where", "which", "your", "about", "been", "could", "would", "should", "their", "there",
+        "these", "those", "than", "them", "then", "they", "were", "also", "into", "just", "some",
         "very", "make", "like", "please", "want", "need", "can",
     ];
 
@@ -277,14 +281,12 @@ mod tests {
 
     #[test]
     fn extract_lessons_no_lesson_when_all_succeed() {
-        let outcomes = vec![
-            ToolOutcome {
-                tool_name: "shell".into(),
-                arguments: serde_json::json!({"command": "ls"}),
-                success: true,
-                output: "file1 file2".into(),
-            },
-        ];
+        let outcomes = vec![ToolOutcome {
+            tool_name: "shell".into(),
+            arguments: serde_json::json!({"command": "ls"}),
+            success: true,
+            output: "file1 file2".into(),
+        }];
 
         let lessons = extract_lessons(&outcomes, "list files");
         assert!(lessons.is_empty());

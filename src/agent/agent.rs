@@ -3,6 +3,7 @@ use crate::agent::dispatcher::{
 };
 use crate::agent::memory_loader::{DefaultMemoryLoader, MemoryLoader};
 use crate::agent::prompt::{PromptContext, SystemPromptBuilder};
+use crate::agent::task_store::{self, TaskCheckpointUpdate, TaskSnapshot, TaskStatus, TaskStore};
 use crate::config::Config;
 use crate::memory::{self, Memory, MemoryCategory};
 use crate::observability::{self, Observer, ObserverEvent};
@@ -38,6 +39,12 @@ pub struct Agent {
     available_hints: Vec<String>,
     route_model_by_hint: HashMap<String, String>,
     autonomy_level: AutonomyLevel,
+    provider_name: String,
+    task_store: Option<Box<dyn TaskStore>>,
+    task_session_id: Option<String>,
+    resume_persisted_session: bool,
+    persisted_state_hydrated: bool,
+    latest_checkpoint_note: Option<String>,
 }
 
 pub struct AgentBuilder {
@@ -60,6 +67,10 @@ pub struct AgentBuilder {
     available_hints: Option<Vec<String>>,
     route_model_by_hint: Option<HashMap<String, String>>,
     autonomy_level: Option<AutonomyLevel>,
+    provider_name: Option<String>,
+    task_store: Option<Box<dyn TaskStore>>,
+    task_session_id: Option<String>,
+    resume_persisted_session: Option<bool>,
 }
 
 impl AgentBuilder {
@@ -84,6 +95,10 @@ impl AgentBuilder {
             available_hints: None,
             route_model_by_hint: None,
             autonomy_level: None,
+            provider_name: None,
+            task_store: None,
+            task_session_id: None,
+            resume_persisted_session: None,
         }
     }
 
@@ -188,6 +203,26 @@ impl AgentBuilder {
         self
     }
 
+    pub fn provider_name(mut self, provider_name: String) -> Self {
+        self.provider_name = Some(provider_name);
+        self
+    }
+
+    pub(crate) fn task_store(mut self, task_store: Box<dyn TaskStore>) -> Self {
+        self.task_store = Some(task_store);
+        self
+    }
+
+    pub fn task_session_id(mut self, task_session_id: String) -> Self {
+        self.task_session_id = Some(task_session_id);
+        self
+    }
+
+    pub fn resume_persisted_session(mut self, resume_persisted_session: bool) -> Self {
+        self.resume_persisted_session = Some(resume_persisted_session);
+        self
+    }
+
     pub fn build(self) -> Result<Agent> {
         let tools = self
             .tools
@@ -232,6 +267,12 @@ impl AgentBuilder {
             available_hints: self.available_hints.unwrap_or_default(),
             route_model_by_hint: self.route_model_by_hint.unwrap_or_default(),
             autonomy_level: self.autonomy_level.unwrap_or_default(),
+            provider_name: self.provider_name.unwrap_or_else(|| "unknown".into()),
+            task_store: self.task_store,
+            task_session_id: self.task_session_id,
+            resume_persisted_session: self.resume_persisted_session.unwrap_or(false),
+            persisted_state_hydrated: false,
+            latest_checkpoint_note: None,
         })
     }
 }
@@ -245,8 +286,141 @@ impl Agent {
         &self.history
     }
 
-    pub fn clear_history(&mut self) {
+    pub async fn clear_history(&mut self) {
         self.history.clear();
+        self.latest_checkpoint_note = None;
+        self.persisted_state_hydrated = true;
+
+        let (Some(store), Some(session_id)) =
+            (self.task_store.as_deref(), self.task_session_id.as_deref())
+        else {
+            return;
+        };
+
+        if let Err(err) = task_store::clear_session(store, session_id).await {
+            tracing::warn!(thread_id = %session_id, "Failed to clear durable task state: {err}");
+        }
+    }
+
+    fn has_task_persistence(&self) -> bool {
+        self.task_store.is_some() && self.task_session_id.is_some()
+    }
+
+    fn cli_session_key(&self) -> String {
+        format!("cli_interactive:{}", self.workspace_dir.display())
+    }
+
+    fn ensure_cli_persistence_session(&mut self) {
+        if self.task_store.is_none() {
+            return;
+        }
+        if self.task_session_id.is_none() {
+            self.task_session_id = Some(self.cli_session_key());
+        }
+        self.resume_persisted_session = true;
+        self.persisted_state_hydrated = false;
+    }
+
+    fn execution_history_for_persistence(&self) -> Vec<ChatMessage> {
+        self.tool_dispatcher.to_provider_messages(&self.history)
+    }
+
+    fn resumable_history_for_persistence(&self) -> Vec<ChatMessage> {
+        task_store::conversation_messages_to_resumable_turns(&self.history)
+    }
+
+    async fn hydrate_persisted_history_if_needed(&mut self) {
+        if !self.resume_persisted_session
+            || self.persisted_state_hydrated
+            || !self.history.is_empty()
+            || !self.has_task_persistence()
+        {
+            return;
+        }
+
+        self.persisted_state_hydrated = true;
+        let (Some(store), Some(session_id)) =
+            (self.task_store.as_deref(), self.task_session_id.as_deref())
+        else {
+            return;
+        };
+
+        match task_store::load_resumable_state(store, session_id).await {
+            Ok(Some((turns, checkpoint_note))) => {
+                self.history = task_store::resumable_turns_to_conversation_messages(turns);
+                self.latest_checkpoint_note = checkpoint_note;
+            }
+            Ok(None) => {
+                self.latest_checkpoint_note = None;
+            }
+            Err(err) => {
+                tracing::warn!(thread_id = %session_id, "Failed to load durable task state: {err}");
+            }
+        }
+    }
+
+    async fn persist_task_snapshot(
+        &self,
+        model: &str,
+        status: TaskStatus,
+        latest_checkpoint_note: Option<String>,
+        final_response: Option<String>,
+        last_error: Option<String>,
+    ) {
+        let (Some(store), Some(session_id)) =
+            (self.task_store.as_deref(), self.task_session_id.as_deref())
+        else {
+            return;
+        };
+
+        let snapshot = TaskSnapshot {
+            task_id: session_id.to_string(),
+            thread_id: session_id.to_string(),
+            channel: "cli".to_string(),
+            provider: self.provider_name.clone(),
+            model: model.to_string(),
+            status,
+            execution_history: self.execution_history_for_persistence(),
+            resumable_history: self.resumable_history_for_persistence(),
+            latest_checkpoint_note,
+            final_response,
+            last_error,
+        };
+
+        if let Err(err) = task_store::persist_snapshot(store, snapshot).await {
+            tracing::warn!(thread_id = %session_id, "Failed to persist task snapshot: {err}");
+        }
+    }
+
+    async fn persist_task_checkpoint(
+        &self,
+        model: &str,
+        step_index: usize,
+        checkpoint_note: Option<String>,
+        items: Vec<crate::agent::loop_::ExecutionCheckpointItem>,
+    ) {
+        let (Some(store), Some(session_id)) =
+            (self.task_store.as_deref(), self.task_session_id.as_deref())
+        else {
+            return;
+        };
+
+        if let Err(err) = store
+            .record_checkpoint(TaskCheckpointUpdate {
+                task_id: session_id.to_string(),
+                thread_id: session_id.to_string(),
+                channel: "cli".to_string(),
+                provider: self.provider_name.clone(),
+                model: model.to_string(),
+                step_index,
+                execution_history: self.execution_history_for_persistence(),
+                checkpoint_note,
+                items,
+            })
+            .await
+        {
+            tracing::warn!(thread_id = %session_id, "Failed to record task checkpoint: {err}");
+        }
     }
 
     pub fn from_config(config: &Config) -> Result<Self> {
@@ -317,6 +491,17 @@ impl Agent {
             &model_name,
         )?;
 
+        let task_store = match task_store::create_task_store(&config.workspace_dir) {
+            Ok(store) => Some(store),
+            Err(err) => {
+                tracing::warn!(
+                    workspace = %config.workspace_dir.display(),
+                    "Failed to initialize task persistence store: {err}"
+                );
+                None
+            }
+        };
+
         let dispatcher_choice = config.agent.tool_dispatcher.as_str();
         let tool_dispatcher: Box<dyn ToolDispatcher> = match dispatcher_choice {
             "native" => Box::new(NativeToolDispatcher),
@@ -332,7 +517,7 @@ impl Agent {
             .collect();
         let available_hints: Vec<String> = route_model_by_hint.keys().cloned().collect();
 
-        Agent::builder()
+        let builder = Agent::builder()
             .provider(provider)
             .tools(tools)
             .memory(memory)
@@ -358,7 +543,15 @@ impl Agent {
             .skills_prompt_mode(config.skills.prompt_injection_mode)
             .auto_save(config.memory.auto_save)
             .autonomy_level(config.autonomy.level)
-            .build()
+            .provider_name(provider_name.to_string());
+
+        let builder = if let Some(store) = task_store {
+            builder.task_store(store)
+        } else {
+            builder
+        };
+
+        builder.build()
     }
 
     fn trim_history(&mut self) {
@@ -406,37 +599,38 @@ impl Agent {
     async fn execute_tool_call(&self, call: &ParsedToolCall) -> ToolExecutionResult {
         let start = Instant::now();
 
-        let result = if let Some(tool) = self.tools.iter().find(|t| t.name() == call.name) {
-            match tool.execute(call.arguments.clone()).await {
-                Ok(r) => {
-                    self.observer.record_event(&ObserverEvent::ToolCall {
-                        tool: call.name.clone(),
-                        duration: start.elapsed(),
-                        success: r.success,
-                    });
-                    if r.success {
-                        r.output
-                    } else {
-                        format!("Error: {}", r.error.unwrap_or(r.output))
+        let (result, success) =
+            if let Some(tool) = self.tools.iter().find(|t| t.name() == call.name) {
+                match tool.execute(call.arguments.clone()).await {
+                    Ok(r) => {
+                        self.observer.record_event(&ObserverEvent::ToolCall {
+                            tool: call.name.clone(),
+                            duration: start.elapsed(),
+                            success: r.success,
+                        });
+                        if r.success {
+                            (r.output, true)
+                        } else {
+                            (format!("Error: {}", r.error.unwrap_or(r.output)), false)
+                        }
+                    }
+                    Err(e) => {
+                        self.observer.record_event(&ObserverEvent::ToolCall {
+                            tool: call.name.clone(),
+                            duration: start.elapsed(),
+                            success: false,
+                        });
+                        (format!("Error executing {}: {e}", call.name), false)
                     }
                 }
-                Err(e) => {
-                    self.observer.record_event(&ObserverEvent::ToolCall {
-                        tool: call.name.clone(),
-                        duration: start.elapsed(),
-                        success: false,
-                    });
-                    format!("Error executing {}: {e}", call.name)
-                }
-            }
-        } else {
-            format!("Unknown tool: {}", call.name)
-        };
+            } else {
+                (format!("Unknown tool: {}", call.name), false)
+            };
 
         ToolExecutionResult {
             name: call.name.clone(),
             output: result,
-            success: true,
+            success,
             tool_call_id: call.tool_call_id.clone(),
         }
     }
@@ -482,12 +676,20 @@ impl Agent {
     }
 
     pub async fn turn(&mut self, user_message: &str) -> Result<String> {
-        if self.history.is_empty() {
+        self.hydrate_persisted_history_if_needed().await;
+
+        let has_system_prompt = self.history.iter().any(|msg| {
+            matches!(
+                msg,
+                ConversationMessage::Chat(chat) if chat.role == "system"
+            )
+        });
+        if !has_system_prompt {
             let system_prompt = self.build_system_prompt()?;
-            self.history
-                .push(ConversationMessage::Chat(ChatMessage::system(
-                    system_prompt,
-                )));
+            self.history.insert(
+                0,
+                ConversationMessage::Chat(ChatMessage::system(system_prompt)),
+            );
         }
 
         if self.auto_save {
@@ -515,20 +717,38 @@ impl Agent {
         };
 
         let now = chrono::Local::now().format("%Y-%m-%d %H:%M:%S %Z");
-        let enriched = if context.is_empty() && lesson_context.is_empty() {
+        let mut enriched = if context.is_empty() && lesson_context.is_empty() {
             format!("[{now}] {user_message}")
         } else {
             format!("{context}{lesson_context}[{now}] {user_message}")
         };
+        if let Some(note) = self.latest_checkpoint_note.as_deref() {
+            if !note.trim().is_empty() {
+                enriched = format!("[Task checkpoint]\n{note}\n\n[User message]\n{enriched}");
+            }
+        }
 
         self.history
             .push(ConversationMessage::Chat(ChatMessage::user(enriched)));
 
         let effective_model = self.classify_model(user_message);
-        let mut tool_outcomes: Vec<crate::agent::lesson::ToolOutcome> = Vec::new();
+        self.persist_task_snapshot(
+            &effective_model,
+            TaskStatus::Running,
+            self.latest_checkpoint_note.clone(),
+            None,
+            None,
+        )
+        .await;
 
-        for _ in 0..self.config.max_tool_iterations {
-            let messages = self.tool_dispatcher.to_provider_messages(&self.history);
+        let mut tool_outcomes: Vec<crate::agent::lesson::ToolOutcome> = Vec::new();
+        let mut execution_checkpoint_note = self.latest_checkpoint_note.clone();
+
+        for iteration in 0..self.config.max_tool_iterations {
+            let mut messages = self.tool_dispatcher.to_provider_messages(&self.history);
+            if let Some(note) = execution_checkpoint_note.as_deref() {
+                crate::agent::loop_::inject_ephemeral_system_note(&mut messages, note);
+            }
             let response = match self
                 .provider
                 .chat(
@@ -546,7 +766,19 @@ impl Agent {
                 .await
             {
                 Ok(resp) => resp,
-                Err(err) => return Err(err),
+                Err(err) => {
+                    let error_text = err.to_string();
+                    self.latest_checkpoint_note = execution_checkpoint_note.clone();
+                    self.persist_task_snapshot(
+                        &effective_model,
+                        TaskStatus::Failed,
+                        execution_checkpoint_note.clone(),
+                        None,
+                        Some(error_text),
+                    )
+                    .await;
+                    return Err(err);
+                }
             };
 
             let (text, calls) = self.tool_dispatcher.parse_response(&response);
@@ -569,12 +801,23 @@ impl Agent {
                         crate::agent::lesson::extract_lessons(&tool_outcomes, user_message);
                     if !lessons.is_empty() {
                         let stored =
-                            crate::agent::lesson::persist_lessons(self.memory.as_ref(), &lessons).await;
+                            crate::agent::lesson::persist_lessons(self.memory.as_ref(), &lessons)
+                                .await;
                         if stored > 0 {
                             tracing::info!(count = stored, "Self-learning: persisted new lessons");
                         }
                     }
                 }
+
+                self.latest_checkpoint_note = execution_checkpoint_note.clone();
+                self.persist_task_snapshot(
+                    &effective_model,
+                    TaskStatus::Completed,
+                    execution_checkpoint_note,
+                    Some(final_text.clone()),
+                    None,
+                )
+                .await;
 
                 return Ok(final_text);
             }
@@ -595,7 +838,7 @@ impl Agent {
             });
 
             let results = self.execute_tools(&calls).await;
-            
+
             // Track tool outcomes for self-learning
             if self.config.self_learning {
                 for (call, result) in calls.iter().zip(&results) {
@@ -607,11 +850,48 @@ impl Agent {
                     });
                 }
             }
-            
+
+            let checkpoint_items: Vec<crate::agent::loop_::ExecutionCheckpointItem> = calls
+                .iter()
+                .zip(&results)
+                .map(
+                    |(call, result)| crate::agent::loop_::ExecutionCheckpointItem {
+                        tool_name: call.name.clone(),
+                        arguments: call.arguments.clone(),
+                        success: result.success,
+                        output: result.output.clone(),
+                    },
+                )
+                .collect();
+            execution_checkpoint_note =
+                crate::agent::loop_::build_execution_checkpoint_note(&checkpoint_items);
+
             let formatted = self.tool_dispatcher.format_results(&results);
             self.history.push(formatted);
             self.trim_history();
+
+            self.persist_task_checkpoint(
+                &effective_model,
+                iteration + 1,
+                execution_checkpoint_note.clone(),
+                checkpoint_items,
+            )
+            .await;
         }
+
+        self.latest_checkpoint_note = execution_checkpoint_note.clone();
+        let loop_error = format!(
+            "Agent exceeded maximum tool iterations ({})",
+            self.config.max_tool_iterations
+        );
+        self.persist_task_snapshot(
+            &effective_model,
+            TaskStatus::Failed,
+            execution_checkpoint_note,
+            None,
+            Some(loop_error),
+        )
+        .await;
 
         anyhow::bail!(
             "Agent exceeded maximum tool iterations ({})",
@@ -624,8 +904,9 @@ impl Agent {
     }
 
     pub async fn run_interactive(&mut self) -> Result<()> {
+        self.ensure_cli_persistence_session();
         println!("🦀 Gloamy Interactive Mode");
-        println!("Type /quit to exit.\n");
+        println!("Type /help for commands.\n");
 
         let (tx, mut rx) = tokio::sync::mpsc::channel(32);
         let cli = crate::channels::CliChannel::new();
@@ -635,6 +916,22 @@ impl Agent {
         });
 
         while let Some(msg) = rx.recv().await {
+            match msg.content.trim() {
+                "/help" => {
+                    println!("Available commands:");
+                    println!("  /help        Show this help message");
+                    println!("  /clear /new  Clear conversation history");
+                    println!("  /quit /exit  Exit interactive mode\n");
+                    continue;
+                }
+                "/clear" | "/new" => {
+                    self.clear_history().await;
+                    println!("Conversation cleared.\n");
+                    continue;
+                }
+                _ => {}
+            }
+
             let response = match self.turn(&msg.content).await {
                 Ok(resp) => resp,
                 Err(e) => {
@@ -785,6 +1082,8 @@ mod tests {
 
     struct MockTool;
 
+    struct FailingMockTool;
+
     #[async_trait]
     impl Tool for MockTool {
         fn name(&self) -> &str {
@@ -804,6 +1103,29 @@ mod tests {
                 success: true,
                 output: "tool-out".into(),
                 error: None,
+            })
+        }
+    }
+
+    #[async_trait]
+    impl Tool for FailingMockTool {
+        fn name(&self) -> &str {
+            "always_fail"
+        }
+
+        fn description(&self) -> &str {
+            "always fails"
+        }
+
+        fn parameters_schema(&self) -> serde_json::Value {
+            serde_json::json!({"type": "object"})
+        }
+
+        async fn execute(&self, _args: serde_json::Value) -> Result<crate::tools::ToolResult> {
+            Ok(crate::tools::ToolResult {
+                success: false,
+                output: String::new(),
+                error: Some("simulated failure".into()),
             })
         }
     }
@@ -892,6 +1214,61 @@ mod tests {
             .history()
             .iter()
             .any(|msg| matches!(msg, ConversationMessage::ToolResults(_))));
+    }
+
+    #[tokio::test]
+    async fn turn_with_xml_dispatcher_marks_failed_tool_results_as_error() {
+        let provider = Box::new(MockProvider {
+            responses: Mutex::new(vec![
+                crate::providers::ChatResponse {
+                    text: Some(
+                        "<tool_call>{\"name\":\"always_fail\",\"arguments\":{}}</tool_call>".into(),
+                    ),
+                    tool_calls: vec![],
+                    usage: None,
+                    reasoning_content: None,
+                },
+                crate::providers::ChatResponse {
+                    text: Some("done".into()),
+                    tool_calls: vec![],
+                    usage: None,
+                    reasoning_content: None,
+                },
+            ]),
+        });
+
+        let memory_cfg = crate::config::MemoryConfig {
+            backend: "none".into(),
+            ..crate::config::MemoryConfig::default()
+        };
+        let mem: Arc<dyn Memory> = Arc::from(
+            crate::memory::create_memory(&memory_cfg, std::path::Path::new("/tmp"), None)
+                .expect("memory creation should succeed with valid config"),
+        );
+
+        let observer: Arc<dyn Observer> = Arc::from(crate::observability::NoopObserver {});
+        let mut agent = Agent::builder()
+            .provider(provider)
+            .tools(vec![Box::new(FailingMockTool)])
+            .memory(mem)
+            .observer(observer)
+            .tool_dispatcher(Box::new(XmlToolDispatcher))
+            .workspace_dir(std::path::PathBuf::from("/tmp"))
+            .build()
+            .expect("agent builder should succeed with valid config");
+
+        let response = agent.turn("fail once").await.unwrap();
+        assert_eq!(response, "done");
+        assert!(agent.history().iter().any(|msg| {
+            matches!(
+                msg,
+                ConversationMessage::Chat(chat)
+                    if chat.role == "user"
+                        && chat.content.contains(
+                            "<tool_result name=\"always_fail\" status=\"error\">"
+                        )
+            )
+        }));
     }
 
     #[tokio::test]
