@@ -71,7 +71,7 @@ pub async fn run(config: Config, host: String, port: u16) -> Result<()> {
         ));
     }
 
-    if config.cron.enabled {
+    if crate::cron::scheduler_loop_enabled(&config) {
         let scheduler_cfg = config.clone();
         handles.push(spawn_component_supervisor(
             "scheduler",
@@ -84,7 +84,11 @@ pub async fn run(config: Config, host: String, port: u16) -> Result<()> {
         ));
     } else {
         crate::health::mark_component_ok("scheduler");
-        tracing::info!("Cron disabled; scheduler supervisor not started");
+        tracing::info!(
+            "Scheduler supervisor not started (cron.enabled={}, scheduler.enabled={})",
+            config.cron.enabled,
+            config.scheduler.enabled
+        );
     }
 
     println!("🧠 Gloamy daemon started");

@@ -3467,7 +3467,7 @@ async fn start_channels_internal(config: Config, run_scheduler: bool) -> Result<
     println!("  Listening for messages... (Ctrl+C to stop)");
     println!();
 
-    let scheduler_handle = if run_scheduler && config.cron.enabled {
+    let scheduler_handle = if run_scheduler && crate::cron::scheduler_loop_enabled(&config) {
         println!("  ⏰ Scheduler: enabled (channel mode)");
         let scheduler_config = config.clone();
         Some(tokio::spawn(async move {

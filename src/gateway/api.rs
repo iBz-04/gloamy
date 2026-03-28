@@ -67,6 +67,7 @@ pub struct CronAddBody {
     pub name: Option<String>,
     pub schedule: String,
     pub command: String,
+    pub tz: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -134,6 +135,71 @@ fn read_log_file_entries(
             }
         })
         .collect()
+}
+
+fn bad_request(message: impl Into<String>) -> (StatusCode, Json<serde_json::Value>) {
+    (
+        StatusCode::BAD_REQUEST,
+        Json(serde_json::json!({ "error": message.into() })),
+    )
+}
+
+fn validate_cron_mutation_enabled(
+    config: &crate::config::Config,
+    action: &str,
+) -> Result<(), (StatusCode, Json<serde_json::Value>)> {
+    if config.cron.enabled {
+        Ok(())
+    } else {
+        Err(bad_request(format!(
+            "cron is disabled by config (cron.enabled=false); cannot perform '{action}'"
+        )))
+    }
+}
+
+fn build_cron_api_schedule(
+    config: &crate::config::Config,
+    body: CronAddBody,
+) -> Result<(Option<String>, crate::cron::Schedule, String), (StatusCode, Json<serde_json::Value>)>
+{
+    let schedule_expr = body.schedule.trim();
+    if schedule_expr.is_empty() {
+        return Err(bad_request("schedule must not be empty"));
+    }
+
+    let command = body.command.trim();
+    if command.is_empty() {
+        return Err(bad_request("command must not be empty"));
+    }
+
+    let security =
+        crate::security::SecurityPolicy::from_config(&config.autonomy, &config.workspace_dir);
+    if let Err(reason) = security.validate_command_execution(command, false) {
+        return Err(bad_request(reason));
+    }
+
+    let schedule = crate::cron::Schedule::Cron {
+        expr: schedule_expr.to_string(),
+        tz: body.tz.and_then(|tz| {
+            let trimmed = tz.trim().to_string();
+            if trimmed.is_empty() {
+                None
+            } else {
+                Some(trimmed)
+            }
+        }),
+    };
+
+    let name = body.name.and_then(|name| {
+        let trimmed = name.trim().to_string();
+        if trimmed.is_empty() {
+            None
+        } else {
+            Some(trimmed)
+        }
+    });
+
+    Ok((name, schedule, command.to_string()))
 }
 
 /// GET /api/logs — daemon logs (stdout/stderr tail)
@@ -333,10 +399,14 @@ pub async fn handle_api_cron_list(
                         "id": job.id,
                         "name": job.name,
                         "command": job.command,
+                        "schedule": job.schedule,
+                        "expression": job.expression,
                         "next_run": job.next_run.to_rfc3339(),
                         "last_run": job.last_run.map(|t| t.to_rfc3339()),
                         "last_status": job.last_status,
                         "enabled": job.enabled,
+                        "job_type": job.job_type,
+                        "delete_after_run": job.delete_after_run,
                     })
                 })
                 .collect();
@@ -361,18 +431,25 @@ pub async fn handle_api_cron_add(
     }
 
     let config = state.config.lock().clone();
-    let schedule = crate::cron::Schedule::Cron {
-        expr: body.schedule,
-        tz: None,
+    if let Err(err) = validate_cron_mutation_enabled(&config, "add") {
+        return err.into_response();
+    }
+
+    let (name, schedule, command) = match build_cron_api_schedule(&config, body) {
+        Ok(validated) => validated,
+        Err(err) => return err.into_response(),
     };
 
-    match crate::cron::add_shell_job(&config, body.name, schedule, &body.command) {
+    match crate::cron::add_shell_job(&config, name, schedule, &command) {
         Ok(job) => Json(serde_json::json!({
             "status": "ok",
             "job": {
                 "id": job.id,
                 "name": job.name,
                 "command": job.command,
+                "schedule": job.schedule,
+                "expression": job.expression,
+                "next_run": job.next_run.to_rfc3339(),
                 "enabled": job.enabled,
             }
         }))
@@ -396,6 +473,10 @@ pub async fn handle_api_cron_delete(
     }
 
     let config = state.config.lock().clone();
+    if let Err(err) = validate_cron_mutation_enabled(&config, "remove") {
+        return err.into_response();
+    }
+
     match crate::cron::remove_job(&config, &id) {
         Ok(()) => Json(serde_json::json!({"status": "ok"})).into_response(),
         Err(e) => (
@@ -1501,5 +1582,86 @@ mod tests {
             .embedding_routes
             .iter()
             .all(|route| route.api_key.as_deref() != Some(MASKED_SECRET)));
+    }
+
+    #[test]
+    fn validate_cron_mutation_enabled_rejects_disabled_cron() {
+        let mut config = crate::config::Config::default();
+        config.cron.enabled = false;
+
+        let err = validate_cron_mutation_enabled(&config, "add").unwrap_err();
+        assert_eq!(err.0, StatusCode::BAD_REQUEST);
+        assert!(err.1 .0["error"]
+            .as_str()
+            .unwrap_or("")
+            .contains("cron.enabled=false"));
+    }
+
+    #[test]
+    fn build_cron_api_schedule_rejects_empty_command() {
+        let config = crate::config::Config::default();
+        let err = build_cron_api_schedule(
+            &config,
+            CronAddBody {
+                name: Some("job".into()),
+                schedule: "0 9 * * *".into(),
+                command: "   ".into(),
+                tz: None,
+            },
+        )
+        .unwrap_err();
+
+        assert_eq!(err.0, StatusCode::BAD_REQUEST);
+        assert_eq!(err.1 .0["error"], "command must not be empty");
+    }
+
+    #[test]
+    fn build_cron_api_schedule_validates_command_policy_and_timezone() {
+        let mut config = crate::config::Config::default();
+        config.autonomy.allowed_commands = vec!["echo".into()];
+
+        let (name, schedule, command) = build_cron_api_schedule(
+            &config,
+            CronAddBody {
+                name: Some("  Morning Check  ".into()),
+                schedule: " 0 9 * * * ".into(),
+                command: " echo ok ".into(),
+                tz: Some(" America/New_York ".into()),
+            },
+        )
+        .unwrap();
+
+        assert_eq!(name.as_deref(), Some("Morning Check"));
+        assert_eq!(command, "echo ok");
+        assert_eq!(
+            schedule,
+            crate::cron::Schedule::Cron {
+                expr: "0 9 * * *".into(),
+                tz: Some("America/New_York".into()),
+            }
+        );
+    }
+
+    #[test]
+    fn build_cron_api_schedule_rejects_disallowed_command() {
+        let mut config = crate::config::Config::default();
+        config.autonomy.allowed_commands = vec!["echo".into()];
+
+        let err = build_cron_api_schedule(
+            &config,
+            CronAddBody {
+                name: None,
+                schedule: "*/5 * * * *".into(),
+                command: "curl https://example.com".into(),
+                tz: None,
+            },
+        )
+        .unwrap_err();
+
+        assert_eq!(err.0, StatusCode::BAD_REQUEST);
+        assert!(err.1 .0["error"]
+            .as_str()
+            .unwrap_or("")
+            .contains("Command not allowed by security policy"));
     }
 }

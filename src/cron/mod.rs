@@ -19,6 +19,10 @@ pub use store::{
 };
 pub use types::{CronJob, CronJobPatch, CronRun, DeliveryConfig, JobType, Schedule, SessionTarget};
 
+pub fn scheduler_loop_enabled(config: &Config) -> bool {
+    config.cron.enabled && config.scheduler.enabled
+}
+
 #[allow(clippy::needless_pass_by_value)]
 pub fn handle_command(command: crate::CronCommands, config: &Config) -> Result<()> {
     match command {
@@ -247,6 +251,19 @@ mod tests {
             cmd,
         )
         .unwrap()
+    }
+
+    #[test]
+    fn scheduler_loop_enabled_requires_both_cron_and_scheduler_flags() {
+        let mut config = Config::default();
+        assert!(scheduler_loop_enabled(&config));
+
+        config.cron.enabled = false;
+        assert!(!scheduler_loop_enabled(&config));
+
+        config.cron.enabled = true;
+        config.scheduler.enabled = false;
+        assert!(!scheduler_loop_enabled(&config));
     }
 
     fn run_update(
