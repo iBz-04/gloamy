@@ -1,4 +1,4 @@
-//! REST API handlers for the web dashboard.
+//! REST API handlers for desktop and programmatic clients.
 //!
 //! All `/api/*` routes require bearer token authentication (PairingGuard).
 

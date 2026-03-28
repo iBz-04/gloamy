@@ -2,7 +2,7 @@
 
 This guide focuses on common setup/runtime failures and fast resolution paths.
 
-Last verified: **February 20, 2026**.
+Last verified: **March 28, 2026**.
 
 ## Installation / Bootstrap
 
@@ -156,6 +156,18 @@ Verify `~/.gloamy/config.toml`:
 - `[gateway].host` (default `127.0.0.1`)
 - `[gateway].port` (default `42617`)
 - `allow_public_bind` only when intentionally exposing LAN/public interfaces
+
+### Gateway opens in browser but no dashboard appears
+
+Expected behavior:
+
+- the legacy browser dashboard has been removed
+- `gloamy gateway` now serves webhook, API, and WebSocket endpoints for desktop and external clients
+
+What to do:
+
+- use the desktop app for the primary UI
+- use gateway routes only for integrations, automation, health checks, and API traffic
 
 ### Pairing / auth failures on webhook
 

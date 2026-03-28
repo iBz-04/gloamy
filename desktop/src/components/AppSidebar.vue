@@ -57,9 +57,8 @@ const getNavItemKey = (item: LeafNavItem | GroupNavItem) => (isGroupNavItem(item
     class="h-full flex flex-col bg-card transition-all duration-300 ease-out select-none"
     :class="isCollapsed ? 'w-16' : 'w-[220px]'"
   >
-    <div class="px-4 h-14 flex items-center gap-2" data-tauri-drag-region>
-      <Icon icon="mdi:owl" class="size-5 text-foreground shrink-0" />
-      <span v-if="!isCollapsed" class="text-sm font-semibold tracking-tight text-foreground">GLOAMY</span>
+    <div class="px-4 h-14 flex items-center" data-tauri-drag-region>
+      <span v-if="!isCollapsed" class="text-[22px] leading-none font-semibold tracking-wide text-foreground sidebar-brand">GLOAMY</span>
     </div>
 
     <nav class="flex flex-col gap-0.5 px-2">
@@ -76,7 +75,7 @@ const getNavItemKey = (item: LeafNavItem | GroupNavItem) => (isGroupNavItem(item
             class="flex items-center gap-3 px-3 py-2 text-[13px] font-medium rounded-md transition-colors duration-150 w-full"
             :class="[
               isGroupActive(item.children)
-                ? 'text-foreground bg-muted/40'
+                ? 'text-foreground'
                 : 'text-muted-foreground hover:text-foreground hover:bg-muted/25',
               isCollapsed ? 'justify-center !px-2' : '',
             ]"
@@ -108,7 +107,7 @@ const getNavItemKey = (item: LeafNavItem | GroupNavItem) => (isGroupNavItem(item
               class="flex items-center gap-2 pl-10 pr-3 py-1.5 text-[12px] font-medium rounded-md transition-colors duration-150"
               :class="[
                 isRouteActive(child.to)
-                  ? 'text-foreground bg-muted/40'
+                  ? 'text-foreground'
                   : 'text-muted-foreground hover:text-foreground hover:bg-muted/25',
               ]"
             >
@@ -127,7 +126,7 @@ const getNavItemKey = (item: LeafNavItem | GroupNavItem) => (isGroupNavItem(item
           class="flex items-center gap-3 px-3 py-2 text-[13px] font-medium rounded-md transition-colors duration-150"
           :class="[
             isRouteActive(item.to)
-              ? 'text-foreground bg-muted/40'
+              ? 'text-foreground'
               : 'text-muted-foreground hover:text-foreground hover:bg-muted/25',
             isCollapsed ? 'justify-center !px-2' : '',
           ]"
@@ -148,7 +147,7 @@ const getNavItemKey = (item: LeafNavItem | GroupNavItem) => (isGroupNavItem(item
         class="flex items-center gap-3 px-3 py-2 text-[13px] font-medium rounded-md transition-colors duration-150"
         :class="[
           isRouteActive('/settings')
-            ? 'text-foreground bg-muted/40'
+            ? 'text-foreground'
             : 'text-muted-foreground hover:text-foreground hover:bg-muted/25',
           isCollapsed ? 'justify-center !px-2' : '',
         ]"
@@ -160,3 +159,11 @@ const getNavItemKey = (item: LeafNavItem | GroupNavItem) => (isGroupNavItem(item
     </div>
   </aside>
 </template>
+
+<style scoped>
+@import url('https://fonts.cdnfonts.com/css/plumby');
+
+.sidebar-brand {
+  font-family: 'Plumby', 'Inter', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+}
+</style>

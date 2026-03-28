@@ -31,7 +31,7 @@ Gloamy can:
 - chat with you in your terminal
 - stay running in the background to handle messages
 - control apps on your pc with permissions
-- let you connect with it from your browser or other apps
+- let desktop and external API clients connect through the gateway
 - use different AI models to answer questions
 - run tools and scripts on your computer or online, safely
 - remember things between sessions
@@ -174,6 +174,8 @@ This path is faster, but the interactive onboarding flow is the better default f
 
 This repository also includes a desktop application in [`desktop/`](desktop), built with Tauri (Rust backend) and Vue 3 (frontend).
 
+The legacy browser dashboard has been removed. Use the desktop app for the primary UI, and use the gateway for webhook/API access.
+
 If you want to run the desktop UI locally:
 
 ```bash
@@ -230,6 +232,8 @@ Run only the local gateway:
 ```bash
 cargo run -- gateway
 ```
+
+The gateway exposes HTTP, webhook, and websocket endpoints for external integrations. It no longer serves a browser dashboard.
 
 ### Channels Only
 

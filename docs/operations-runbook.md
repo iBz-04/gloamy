@@ -2,7 +2,7 @@
 
 This runbook is for operators who maintain availability, security posture, and incident response.
 
-Last verified: **February 18, 2026**.
+Last verified: **March 28, 2026**.
 
 ## Scope
 
@@ -20,7 +20,7 @@ For first-time installation, start from [one-click-bootstrap.md](one-click-boots
 | Mode | Command | When to use |
 |---|---|---|
 | Foreground runtime | `gloamy daemon` | local debugging, short-lived sessions |
-| Foreground gateway only | `gloamy gateway` | webhook endpoint testing |
+| Foreground gateway only | `gloamy gateway` | webhook/API endpoint testing and desktop client connectivity |
 | User service | `gloamy service install && gloamy service start` | persistent operator-managed runtime |
 
 ## Baseline Operator Checklist

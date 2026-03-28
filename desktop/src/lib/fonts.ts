@@ -31,7 +31,6 @@ export const TEXT_FONTS = [
   { name: 'Lobster', family: 'Lobster', weights: [400] },
   { name: 'Permanent Marker', family: 'Permanent Marker', weights: [400] },
   // Serif & Elegant
-  { name: 'Playfair Display', family: 'Playfair Display', weights: [400, 500, 600, 700, 800, 900] },
   { name: 'Lora', family: 'Lora', weights: [400, 500, 600, 700] },
   { name: 'Merriweather', family: 'Merriweather', weights: [300, 400, 700, 900] },
   // Monospace & Tech

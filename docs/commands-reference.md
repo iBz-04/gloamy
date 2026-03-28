@@ -2,7 +2,7 @@
 
 This reference is derived from the current CLI surface (`gloamy --help`).
 
-Last verified: **February 21, 2026**.
+Last verified: **March 28, 2026**.
 
 ## Top-Level Commands
 
@@ -10,7 +10,7 @@ Last verified: **February 21, 2026**.
 |---|---|
 | `onboard` | Initialize workspace/config quickly or interactively |
 | `agent` | Run interactive chat or single-message mode |
-| `gateway` | Start webhook and WhatsApp HTTP gateway |
+| `gateway` | Start webhook, API, and WebSocket gateway for external clients |
 | `daemon` | Start supervised runtime (gateway + channels + optional heartbeat/scheduler) |
 | `service` | Manage user-level OS service lifecycle |
 | `doctor` | Run diagnostics and freshness checks |
@@ -63,6 +63,11 @@ Tip:
 
 - `gloamy gateway [--host <HOST>] [--port <PORT>]`
 - `gloamy daemon [--host <HOST>] [--port <PORT>]`
+
+Notes:
+
+- `gateway` exposes webhook, API, and WebSocket endpoints for integrations and desktop clients.
+- The legacy browser dashboard has been removed; `gateway` no longer serves a browser UI.
 
 ### `estop`
 

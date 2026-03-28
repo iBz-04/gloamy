@@ -19,7 +19,7 @@ pub enum Severity {
     Error,
 }
 
-/// Structured diagnostic result for programmatic consumption (web dashboard, API).
+/// Structured diagnostic result for programmatic consumption (desktop app, API).
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct DiagResult {
     pub severity: Severity,
@@ -75,7 +75,7 @@ impl DiagItem {
 
 // ── Public entry points ──────────────────────────────────────────
 
-/// Run diagnostics and return structured results (for API/web dashboard).
+/// Run diagnostics and return structured results (for API and desktop app).
 pub fn diagnose(config: &Config) -> Vec<DiagResult> {
     let mut items: Vec<DiagItem> = Vec::new();
 

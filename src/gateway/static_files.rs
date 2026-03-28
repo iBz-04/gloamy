@@ -1,55 +1,26 @@
-//! Static file serving for the embedded web dashboard.
+//! Static file handlers for the deprecated web dashboard surface.
 //!
-//! Uses `rust-embed` to bundle the `web/dist/` directory into the binary at compile time.
+//! Gloamy now prefers the desktop application. These handlers intentionally
+//! return a clear error instead of serving embedded dashboard assets.
 
 use axum::{
-    http::{header, StatusCode, Uri},
+    http::StatusCode,
     response::IntoResponse,
 };
-use rust_embed::Embed;
-
-#[derive(Embed)]
-#[folder = "web/dist/"]
-struct WebAssets;
 
 /// Serve static files from `/_app/*` path
-pub async fn handle_static(uri: Uri) -> impl IntoResponse {
-    let path = uri.path().strip_prefix("/_app/").unwrap_or(uri.path());
-
-    serve_embedded_file(path)
+pub async fn handle_static() -> impl IntoResponse {
+    desktop_only_response()
 }
 
-/// SPA fallback: serve index.html for any non-API, non-static GET request
+/// SPA fallback for the removed browser dashboard.
 pub async fn handle_spa_fallback() -> impl IntoResponse {
-    serve_embedded_file("index.html")
+    desktop_only_response()
 }
 
-fn serve_embedded_file(path: &str) -> impl IntoResponse {
-    match WebAssets::get(path) {
-        Some(content) => {
-            let mime = mime_guess::from_path(path)
-                .first_or_octet_stream()
-                .to_string();
-
-            (
-                StatusCode::OK,
-                [
-                    (header::CONTENT_TYPE, mime),
-                    (
-                        header::CACHE_CONTROL,
-                        if path.contains("assets/") {
-                            // Hashed filenames — immutable cache
-                            "public, max-age=31536000, immutable".to_string()
-                        } else {
-                            // index.html etc — no cache
-                            "no-cache".to_string()
-                        },
-                    ),
-                ],
-                content.data.to_vec(),
-            )
-                .into_response()
-        }
-        None => (StatusCode::NOT_FOUND, "Not found").into_response(),
-    }
+fn desktop_only_response() -> impl IntoResponse {
+    (
+        StatusCode::NOT_FOUND,
+        "The browser dashboard has been removed. Use the Gloamy desktop app instead.",
+    )
 }

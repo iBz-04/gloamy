@@ -411,7 +411,7 @@ onUnmounted(() => {
           @click="activeSection = name"
           class="px-3 py-1.5 text-[12px] font-medium rounded-xl whitespace-nowrap transition-colors"
           :class="activeSection === name
-            ? 'bg-foreground text-background'
+            ? 'text-foreground'
             : 'text-muted-foreground hover:text-foreground hover:bg-card/50'"
         >
           {{ name }}

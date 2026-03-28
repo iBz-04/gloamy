@@ -304,9 +304,9 @@ pub struct AppState {
     pub wati: Option<Arc<WatiChannel>>,
     /// Observability backend for metrics scraping
     pub observer: Arc<dyn crate::observability::Observer>,
-    /// Registered tool specs (for web dashboard tools page)
+    /// Registered tool specs for desktop and API clients.
     pub tools_registry: Arc<Vec<ToolSpec>>,
-    /// Cost tracker (optional, for web dashboard cost page)
+    /// Cost tracker (optional, for desktop and API clients).
     pub cost_tracker: Option<Arc<CostTracker>>,
     /// SSE broadcast channel for real-time events
     pub event_tx: tokio::sync::broadcast::Sender<serde_json::Value>,
@@ -694,7 +694,7 @@ pub async fn run_gateway(host: &str, port: u16, config: Config) -> Result<()> {
         .route("/api/events", get(sse::handle_sse_events))
         // ── WebSocket agent chat ──
         .route("/ws/chat", get(ws::handle_ws_chat))
-        // ── Static assets (web dashboard) ──
+        // ── Deprecated browser dashboard routes ──
         .route("/_app/{*path}", get(static_files::handle_static))
         // ── Config PUT with larger body limit ──
         .merge(config_put_router)
@@ -710,7 +710,7 @@ pub async fn run_gateway(host: &str, port: u16, config: Config) -> Result<()> {
             StatusCode::REQUEST_TIMEOUT,
             Duration::from_secs(REQUEST_TIMEOUT_SECS),
         ))
-        // ── SPA fallback: non-API GET requests serve index.html ──
+        // ── Desktop-only fallback for removed browser dashboard ──
         .fallback(get(static_files::handle_spa_fallback));
 
     // Run the server

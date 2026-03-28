@@ -1,6 +1,6 @@
-# desktop-starter
+# Gloamy Desktop
 
-A desktop application starter using the libraries and technologies:
+Gloamy Desktop is the primary GUI for the project. It is built with:
 
 - Rust
   - [Tauri v2](https://beta.tauri.app/start/) as the desktop application framework.
@@ -24,20 +24,6 @@ A desktop application starter using the libraries and technologies:
 
 Follow [Tauri's prerequisites guide](https://v2.tauri.app/start/prerequisites/) to setup your development environment.
 
-Then rename all instances of `desktop-starter`  to your app name.
-
-If you want to replace the package manager update:
-
-- The build configuration in [tauri.conf.json](./src-tauri/tauri.conf.json)
-- Update the following steps in [.github/workflows/publish-to-auto-release.yml](.github/workflows/publish-to-auto-release.yml):
-  - Install pnpm
-  - Install Node.js
-  - Install frontend dependencies
-- Update the following steps in [.github/workflows/test-build-only.yml](.github/workflows/test-build-only.yml):
-  - Install pnpm
-  - Install Node.js
-  - Install frontend dependencies
-
 ## Installation
 
 Install dependencies with `pnpm install`
@@ -59,6 +45,8 @@ Note: the `*.r2.cloudflarestorage.com` hostname is an R2 S3 API endpoint and usu
 so it won’t work for browser `fetch()` unless you put a public/custom domain or a Worker in front of it.
 
 For **Desktop** development, run: `pnpm tauri dev`
+
+The legacy browser dashboard has been removed. Use this desktop app for the primary UI.
 
 ### Background Images (CDN)
 
@@ -84,7 +72,7 @@ Then update the `supportedLanguages` function in [lib/config.ts](./src/lib/confi
 
 Tauri Store Plugin stores `settings.json` at:
 
-**macOS**: `~/Library/Application Support/com.github.desktop-starter`
+**macOS**: `~/Library/Application Support/com.gloamy.desktop`
 
 #### App Icon
 
