@@ -297,15 +297,15 @@ function formatLevelLabel(level: string): string {
 
 function levelIcon(level: LogLevel): string {
   if (level === 'debug') {
-    return 'ph:bug'
+    return 'hugeicons:bug-01'
   }
   if (level === 'info') {
-    return 'ph:info'
+    return 'hugeicons:information-circle'
   }
   if (level === 'warn') {
-    return 'ph:warning'
+    return 'hugeicons:alert-01'
   }
-  return 'ph:x-circle'
+  return 'hugeicons:cancel-circle'
 }
 
 function levelColor(level: LogLevel): string {
@@ -347,7 +347,7 @@ onUnmounted(() => {
     <div class="flex-shrink-0 px-6 pt-6 pb-4 border-b border-border/30 space-y-4">
       <div class="flex items-center justify-between gap-4">
         <div class="relative flex-1 max-w-md">
-          <Icon icon="ph:magnifying-glass" class="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-muted-foreground" />
+          <Icon icon="hugeicons:search-01" class="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-muted-foreground" />
           <input
             v-model="searchQuery"
             type="text"
@@ -418,12 +418,12 @@ onUnmounted(() => {
       @scroll="handleScroll"
     >
       <div v-if="error" class="mb-4 px-3 py-2 text-[12px] text-amber-500 flex items-center gap-2">
-        <Icon icon="ph:warning" class="size-4" />
+        <Icon icon="hugeicons:alert-01" class="size-4" />
         <span>{{ error }}</span>
       </div>
 
       <div v-if="filteredLogs.length === 0" class="flex flex-col items-center justify-center py-16">
-        <Icon icon="ph:scroll" class="size-12 text-muted-foreground/30 mb-3" />
+        <Icon icon="hugeicons:scroll" class="size-12 text-muted-foreground/30 mb-3" />
         <p class="text-muted-foreground text-[13px]">
           {{ paused ? 'Stream is paused.' : 'No logs found' }}
         </p>

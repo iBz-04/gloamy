@@ -23,7 +23,7 @@ function selectModel(model: typeof models[0]) {
       @click="open = !open"
     >
       {{ selectedModel }}
-      <Icon icon="ph:caret-down" class="size-3 text-muted-foreground" />
+      <Icon icon="hugeicons:arrow-down-01" class="size-3 text-muted-foreground" />
     </button>
 
     <Transition
@@ -46,7 +46,7 @@ function selectModel(model: typeof models[0]) {
             <div class="font-medium text-foreground">{{ model.label }}</div>
             <div class="text-[11px] text-muted-foreground">{{ model.description }}</div>
           </div>
-          <Icon v-if="selectedModel === model.label" icon="ph:check" class="size-4 text-foreground" />
+          <Icon v-if="selectedModel === model.label" icon="hugeicons:tick-02" class="size-4 text-foreground" />
         </button>
       </div>
     </Transition>

@@ -74,7 +74,7 @@ onBeforeUnmount(() => {
                   </template>
                   <template #fallback>
                     <div class="h-full w-full flex items-center justify-center">
-                      <Icon icon="ph:circle-notch" class="size-6 animate-spin text-muted-foreground/40" />
+                      <Icon icon="hugeicons:loading-03" class="size-6 animate-spin text-muted-foreground/40" />
                     </div>
                   </template>
                 </Suspense>
@@ -91,14 +91,14 @@ onBeforeUnmount(() => {
             </Transition>
           </router-view>
           <div v-else class="h-full w-full flex items-center justify-center">
-            <Icon icon="ph:circle-notch" class="size-6 animate-spin text-muted-foreground/40" />
+            <Icon icon="hugeicons:loading-03" class="size-6 animate-spin text-muted-foreground/40" />
           </div>
         </div>
       </div>
 
       <!-- Loading State -->
       <div v-else class="h-screen w-full flex items-center justify-center bg-background">
-        <Icon icon="ph:circle-notch" class="size-6 animate-spin text-muted-foreground/40" />
+        <Icon icon="hugeicons:loading-03" class="size-6 animate-spin text-muted-foreground/40" />
       </div>
     </TooltipProvider>
   </ConfigProvider>

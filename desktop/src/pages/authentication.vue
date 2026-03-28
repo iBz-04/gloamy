@@ -112,7 +112,7 @@ const handleLogout = async () => {
 
           <div class="w-full space-y-6">
             <div v-if="!isReady || authState === 'checking'" class="flex justify-center py-6">
-              <Icon icon="ph:circle-notch" class="size-6 animate-spin text-muted-foreground/40" />
+              <Icon icon="hugeicons:loading-03" class="size-6 animate-spin text-muted-foreground/40" />
             </div>
 
             <div v-else-if="authState === 'unreachable'" class="text-sm text-red-500 font-bold text-center">
@@ -161,7 +161,7 @@ const handleLogout = async () => {
                   @click="handleAuthenticate"
                 >
                   <span v-if="!loading">Continue</span>
-                  <Icon v-else icon="ph:circle-notch" class="size-5 animate-spin mx-auto" />
+                  <Icon v-else icon="hugeicons:loading-03" class="size-5 animate-spin mx-auto" />
                 </button>
               </div>
             </template>

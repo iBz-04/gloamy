@@ -74,6 +74,15 @@ Tauri Store Plugin stores `settings.json` at:
 
 **macOS**: `~/Library/Application Support/com.gloamy.desktop`
 
+### Iconography Contract
+
+Use a single default icon family across product UI:
+
+- Default UI icons: Hugeicons `stroke-rounded` (Iconify `hugeicons:*`)
+- Brand surfaces (integrations, channels, providers): official brand marks only (`simple-icons:*`/official logos)
+- Do not mix multiple generic icon families in the same screen unless there is a migration exception
+- When editing an existing screen with legacy `ph:*` icons, migrate touched icons to Hugeicons as part of that change
+
 #### App Icon
 
 Tauri CLI provides an [icon command](https://v2.tauri.app/reference/cli/#icon) `pnpm tauri icon` which takes an image path and generates icon files for your application.

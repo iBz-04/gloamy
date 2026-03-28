@@ -22,7 +22,7 @@ function selectFolder(folder: typeof folders[0]) {
       class="flex items-center gap-1.5 px-2.5 py-1 text-[13px] text-muted-foreground hover:text-foreground bg-muted/30 hover:bg-muted/50 rounded-md transition-colors"
       @click="open = !open"
     >
-      <Icon icon="ph:folder-simple" class="size-3.5" />
+      <Icon icon="hugeicons:folder-01" class="size-3.5" />
       {{ selectedFolder.name }}
     </button>
 
@@ -47,22 +47,22 @@ function selectFolder(folder: typeof folders[0]) {
           @click="selectFolder(folder)"
         >
           <div class="flex items-center gap-2.5">
-            <Icon icon="ph:folder-simple" class="size-4 text-muted-foreground" />
+            <Icon icon="hugeicons:folder-01" class="size-4 text-muted-foreground" />
             <div class="text-left">
               <div class="text-[13px] font-medium text-foreground">{{ folder.name }}</div>
               <div class="text-[11px] text-muted-foreground">{{ folder.path }}</div>
             </div>
           </div>
-          <Icon v-if="selectedFolder.name === folder.name" icon="ph:check" class="size-4 text-foreground" />
+          <Icon v-if="selectedFolder.name === folder.name" icon="hugeicons:tick-02" class="size-4 text-foreground" />
         </button>
 
         <div class="border-t border-border mt-1 pt-1">
           <button class="w-full flex items-center gap-2.5 px-3 py-2 text-[13px] text-muted-foreground hover:text-foreground hover:bg-muted/30 transition-colors">
-            <Icon icon="ph:plus" class="size-4" />
+            <Icon icon="hugeicons:add-01" class="size-4" />
             Add local folder
           </button>
           <button class="w-full flex items-center gap-2.5 px-3 py-2 text-[13px] text-muted-foreground hover:text-foreground hover:bg-muted/30 transition-colors">
-            <Icon icon="ph:gear" class="size-4" />
+            <Icon icon="hugeicons:settings-01" class="size-4" />
             Manage folders
           </button>
         </div>

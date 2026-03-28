@@ -32,38 +32,38 @@ const editingValueCell = ref<string | null>(null)
 const editDraft = ref('')
 
 const sectionMeta: Record<string, { icon: string; description: string }> = {
-  '_root': { icon: 'ph:gear', description: 'Core settings' },
-  'observability': { icon: 'ph:chart-line', description: 'Logging and tracing' },
-  'autonomy': { icon: 'ph:robot', description: 'Agent autonomy levels' },
-  'security': { icon: 'ph:shield-check', description: 'Security policies' },
-  'runtime': { icon: 'ph:terminal', description: 'Execution environment' },
-  'reliability': { icon: 'ph:arrows-clockwise', description: 'Retries and fallbacks' },
-  'scheduler': { icon: 'ph:clock', description: 'Task scheduling' },
-  'agent': { icon: 'ph:brain', description: 'Agent orchestration' },
-  'skills': { icon: 'ph:lightning', description: 'Skills loading' },
-  'heartbeat': { icon: 'ph:heartbeat', description: 'Health pings' },
-  'cron': { icon: 'ph:calendar', description: 'Cron jobs' },
-  'channels_config': { icon: 'ph:chat-circle', description: 'Channel settings' },
-  'memory': { icon: 'ph:database', description: 'Memory backends' },
-  'storage': { icon: 'ph:hard-drives', description: 'Persistent storage' },
-  'tunnel': { icon: 'ph:globe', description: 'Public exposure' },
-  'gateway': { icon: 'ph:plug', description: 'Gateway server' },
-  'composio': { icon: 'ph:puzzle-piece', description: 'Composio integration' },
-  'one': { icon: 'ph:terminal-window', description: 'One CLI integration' },
-  'secrets': { icon: 'ph:key', description: 'Secrets encryption' },
-  'browser': { icon: 'ph:browser', description: 'Browser automation' },
-  'http_request': { icon: 'ph:globe-simple', description: 'HTTP requests' },
-  'multimodal': { icon: 'ph:image', description: 'Image handling' },
-  'web_fetch': { icon: 'ph:download', description: 'Web fetching' },
-  'web_search': { icon: 'ph:magnifying-glass', description: 'Web search' },
-  'proxy': { icon: 'ph:arrows-split', description: 'Proxy settings' },
-  'identity': { icon: 'ph:identification-card', description: 'Identity format' },
-  'cost': { icon: 'ph:wallet', description: 'Cost tracking' },
-  'peripherals': { icon: 'ph:cpu', description: 'Hardware boards' },
-  'hardware': { icon: 'ph:circuit-board', description: 'Hardware config' },
-  'transcription': { icon: 'ph:microphone', description: 'Voice transcription' },
-  'agents': { icon: 'ph:users-three', description: 'Sub-agent delegates' },
-  'hooks': { icon: 'ph:anchor', description: 'Lifecycle hooks' },
+  '_root': { icon: 'hugeicons:settings-01', description: 'Core settings' },
+  'observability': { icon: 'hugeicons:chart-bar-line', description: 'Logging and tracing' },
+  'autonomy': { icon: 'hugeicons:robot-01', description: 'Agent autonomy levels' },
+  'security': { icon: 'hugeicons:shield-01', description: 'Security policies' },
+  'runtime': { icon: 'hugeicons:computer-terminal-01', description: 'Execution environment' },
+  'reliability': { icon: 'hugeicons:refresh', description: 'Retries and fallbacks' },
+  'scheduler': { icon: 'hugeicons:clock-01', description: 'Task scheduling' },
+  'agent': { icon: 'hugeicons:brain', description: 'Agent orchestration' },
+  'skills': { icon: 'hugeicons:sparkles', description: 'Skills loading' },
+  'heartbeat': { icon: 'hugeicons:pulse-rectangle-01', description: 'Health pings' },
+  'cron': { icon: 'hugeicons:calendar-01', description: 'Cron jobs' },
+  'channels_config': { icon: 'hugeicons:chat-01', description: 'Channel settings' },
+  'memory': { icon: 'hugeicons:database', description: 'Memory backends' },
+  'storage': { icon: 'hugeicons:hard-drive', description: 'Persistent storage' },
+  'tunnel': { icon: 'hugeicons:globe', description: 'Public exposure' },
+  'gateway': { icon: 'hugeicons:plug-01', description: 'Gateway server' },
+  'composio': { icon: 'hugeicons:puzzle', description: 'Composio integration' },
+  'one': { icon: 'hugeicons:computer-terminal-02', description: 'One CLI integration' },
+  'secrets': { icon: 'hugeicons:key-01', description: 'Secrets encryption' },
+  'browser': { icon: 'hugeicons:browser', description: 'Browser automation' },
+  'http_request': { icon: 'hugeicons:globe-02', description: 'HTTP requests' },
+  'multimodal': { icon: 'hugeicons:image-01', description: 'Image handling' },
+  'web_fetch': { icon: 'hugeicons:download-01', description: 'Web fetching' },
+  'web_search': { icon: 'hugeicons:search-01', description: 'Web search' },
+  'proxy': { icon: 'hugeicons:split', description: 'Proxy settings' },
+  'identity': { icon: 'hugeicons:identification', description: 'Identity format' },
+  'cost': { icon: 'hugeicons:wallet-01', description: 'Cost tracking' },
+  'peripherals': { icon: 'hugeicons:cpu', description: 'Hardware boards' },
+  'hardware': { icon: 'hugeicons:chip', description: 'Hardware config' },
+  'transcription': { icon: 'hugeicons:mic-01', description: 'Voice transcription' },
+  'agents': { icon: 'hugeicons:user-group', description: 'Sub-agent delegates' },
+  'hooks': { icon: 'hugeicons:anchor', description: 'Lifecycle hooks' },
 }
 
 
@@ -214,7 +214,7 @@ const sections = computed<ConfigSection[]>(() => {
   
   for (const [name, entries] of Object.entries(sectionsMap)) {
     if (entries.length === 0) continue
-    const meta = sectionMeta[name] || { icon: 'ph:folder', description: 'Configuration section' }
+    const meta = sectionMeta[name] || { icon: 'hugeicons:folder-01', description: 'Configuration section' }
     result.push({
       name: name === '_root' ? 'General' : name,
       icon: meta.icon,
@@ -277,12 +277,12 @@ function toggleBoolean(entry: ConfigEntry) {
 
 function getTypeIcon(type: ConfigEntry['type']): string {
   switch (type) {
-    case 'string': return 'ph:text-aa'
-    case 'number': return 'ph:hash'
-    case 'boolean': return 'ph:toggle-left'
-    case 'array': return 'ph:brackets-square'
-    case 'object': return 'ph:brackets-curly'
-    default: return 'ph:question'
+    case 'string': return 'hugeicons:text'
+    case 'number': return 'hugeicons:hashtag'
+    case 'boolean': return 'hugeicons:toggle-off'
+    case 'array': return 'hugeicons:list-view'
+    case 'object': return 'hugeicons:code'
+    default: return 'hugeicons:question'
   }
 }
 
@@ -362,7 +362,7 @@ onUnmounted(() => {
     <div class="flex-shrink-0 px-6 pt-6 pb-4 border-b border-border/30">
       <div class="flex items-center justify-between mb-4">
         <div class="relative max-w-md">
-          <Icon icon="ph:magnifying-glass" class="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-muted-foreground" />
+          <Icon icon="hugeicons:search-01" class="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-muted-foreground" />
           <input
             v-model="searchQuery"
             type="text"
@@ -387,9 +387,9 @@ onUnmounted(() => {
               ? 'bg-foreground text-background hover:opacity-90'
               : 'bg-card/50 text-muted-foreground cursor-not-allowed'"
           >
-            <Icon v-if="saving" icon="ph:circle-notch" class="size-3.5 animate-spin" />
-            <Icon v-else-if="saveSuccess" icon="ph:check" class="size-3.5" />
-            <Icon v-else icon="ph:check-square-offset" class="size-3.5" />
+            <Icon v-if="saving" icon="hugeicons:loading-03" class="size-3.5 animate-spin" />
+            <Icon v-else-if="saveSuccess" icon="hugeicons:tick-02" class="size-3.5" />
+            <Icon v-else icon="hugeicons:floppy-disk" class="size-3.5" />
             {{ saving ? 'Saving...' : saveSuccess ? 'Saved' : 'Save' }}
           </button>
           
@@ -397,7 +397,7 @@ onUnmounted(() => {
             @click="openAddModal"
             class="px-4 py-1.5 text-[12px] font-medium rounded-lg bg-card/50 text-foreground border border-border/50 hover:bg-card transition-all flex items-center gap-1.5"
           >
-            <Icon icon="ph:plus" class="size-3.5" />
+            <Icon icon="hugeicons:add-01" class="size-3.5" />
             New Entry
           </button>
         </div>
@@ -422,12 +422,12 @@ onUnmounted(() => {
     <!-- Content -->
     <div class="flex-1 overflow-hidden">
       <div v-if="loading" class="flex-1 flex items-center justify-center h-full">
-        <Icon icon="ph:circle-notch" class="size-6 animate-spin text-muted-foreground" />
+        <Icon icon="hugeicons:loading-03" class="size-6 animate-spin text-muted-foreground" />
       </div>
 
       <div v-else-if="error && !rawConfig" class="flex-1 flex items-center justify-center h-full px-6">
         <div class="max-w-md w-full p-6 rounded-lg border border-border/50 bg-destructive/5 text-center">
-          <Icon icon="ph:warning" class="size-8 text-destructive mx-auto mb-3" />
+          <Icon icon="hugeicons:alert-01" class="size-8 text-destructive mx-auto mb-3" />
           <h3 class="text-lg font-medium text-foreground mb-2">Failed to load configuration</h3>
           <p class="text-sm text-muted-foreground mb-4">{{ error }}</p>
           <button
@@ -443,10 +443,10 @@ onUnmounted(() => {
         <!-- Error banner -->
         <div v-if="error" class="sticky top-0 z-10 px-6 py-2 bg-destructive/10 border-b border-destructive/20">
           <div class="flex items-center gap-2 text-[13px] text-destructive">
-            <Icon icon="ph:warning" class="size-4" />
+            <Icon icon="hugeicons:alert-01" class="size-4" />
             <span>{{ error }}</span>
             <button @click="error = null" class="ml-auto hover:opacity-70">
-              <Icon icon="ph:x" class="size-4" />
+              <Icon icon="hugeicons:cancel-01" class="size-4" />
             </button>
           </div>
         </div>
@@ -508,7 +508,7 @@ onUnmounted(() => {
                         :class="entry.value === 'true' ? 'text-emerald-600' : 'text-muted-foreground'"
                       >
                         <Icon
-                          :icon="entry.value === 'true' ? 'ph:toggle-right-fill' : 'ph:toggle-left'"
+                          :icon="entry.value === 'true' ? 'hugeicons:toggle-on' : 'hugeicons:toggle-off'"
                           class="size-5"
                         />
                         <span class="text-[13px] font-medium">{{ entry.value }}</span>
@@ -548,7 +548,7 @@ onUnmounted(() => {
                         title="Edit value"
                       >
                         <Icon
-                          icon="ph:pencil-simple"
+                          icon="hugeicons:pencil-edit-01"
                           class="size-3.5"
                         />
                       </button>
@@ -564,11 +564,11 @@ onUnmounted(() => {
         <div class="sticky bottom-0 px-6 py-2 border-t border-border/30 bg-background/95 backdrop-blur flex items-center justify-between text-[11px] text-muted-foreground">
           <div class="flex items-center gap-4">
             <span class="flex items-center gap-1">
-              <Icon icon="ph:keyboard" class="size-3.5" />
+              <Icon icon="hugeicons:keyboard" class="size-3.5" />
               <kbd class="px-1.5 py-0.5 bg-card/60 rounded text-[10px]">⌘S</kbd> to save
             </span>
             <span v-if="hasChanges" class="flex items-center gap-1 text-amber-600">
-              <Icon icon="ph:pencil-simple" class="size-3" />
+              <Icon icon="hugeicons:pencil-edit-01" class="size-3" />
               Unsaved changes
             </span>
           </div>
@@ -595,7 +595,7 @@ onUnmounted(() => {
               @click="showAddModal = false"
               class="size-7 flex items-center justify-center rounded-lg hover:bg-muted/50 transition-colors"
             >
-              <Icon icon="ph:x" class="size-4 text-muted-foreground" />
+              <Icon icon="hugeicons:cancel-01" class="size-4 text-muted-foreground" />
             </button>
           </div>
 

@@ -58,7 +58,7 @@ const providerIcon = computed(() => {
   if (provider.includes('xai') || provider.includes('grok')) return 'simple-icons:xai'
   if (provider.includes('openrouter')) return 'simple-icons:openrouter'
   if (provider.includes('ollama')) return 'simple-icons:ollama'
-  return 'ph:cpu'
+  return 'hugeicons:cpu'
 })
 
 const componentCount = computed(() => {
@@ -121,10 +121,10 @@ function channelIcon(name: string): string {
   if (n.includes('matrix')) return 'logos:matrix'
   if (n.includes('teams')) return 'logos:microsoft-teams'
   if (n.includes('irc')) return 'logos:irc'
-  if (n.includes('cli')) return 'ph:terminal'
-  if (n.includes('web')) return 'ph:globe'
-  if (n.includes('clawdtalk')) return 'ph:chat-circle'
-  return 'ph:plug'
+  if (n.includes('cli')) return 'hugeicons:computer-terminal-01'
+  if (n.includes('web')) return 'hugeicons:globe'
+  if (n.includes('clawdtalk')) return 'hugeicons:chat-01'
+  return 'hugeicons:plug-01'
 }
 
 function normalizeTrendPoint(point: CostTimelinePointResponse): TrendPoint | null {
@@ -231,7 +231,7 @@ onUnmounted(() => {
 <template>
   <div class="h-full flex flex-col overflow-y-auto px-6 py-6 bg-background text-[15px]">
     <div v-if="loading" class="flex-1 flex items-center justify-center">
-      <Icon icon="ph:circle-notch" class="size-6 animate-spin text-muted-foreground" />
+      <Icon icon="hugeicons:loading-03" class="size-6 animate-spin text-muted-foreground" />
     </div>
 
     <div v-else-if="error" class="flex-1 flex items-center justify-center px-6">
@@ -254,7 +254,7 @@ onUnmounted(() => {
           <!-- Left: Health score with bar chart -->
           <div class="flex-1 p-4">
             <div class="flex items-center gap-1.5 text-[12px] text-muted-foreground mb-1">
-              <Icon icon="ph:heart-fill" class="size-3.5" />
+              <Icon icon="hugeicons:activity-02" class="size-3.5" />
               <span>Health</span>
             </div>
             <div class="text-[28px] font-medium text-foreground tracking-tight leading-none">
@@ -301,7 +301,7 @@ onUnmounted(() => {
       <section>
         <div class="p-4 rounded-lg border border-border/50 bg-card/20">
           <div class="flex items-center gap-1.5 text-[12px] text-muted-foreground mb-0.5">
-            <Icon icon="ph:coins-fill" class="size-3.5" />
+            <Icon icon="hugeicons:coins-01" class="size-3.5" />
             <span>Token Usage</span>
           </div>
           <div class="text-[24px] font-medium text-foreground tracking-tight leading-none">{{ cost.total_tokens.toLocaleString() }}</div>
@@ -328,7 +328,7 @@ onUnmounted(() => {
         <section>
           <div class="p-4 rounded-lg border border-border/50 bg-card/20 h-full">
             <div class="flex items-center gap-1.5 text-[12px] text-muted-foreground mb-3">
-              <Icon icon="ph:wallet-fill" class="size-3.5" />
+              <Icon icon="hugeicons:wallet-01" class="size-3.5" />
               <span>Cost Overview</span>
             </div>
 
@@ -369,7 +369,7 @@ onUnmounted(() => {
         <section>
           <div class="p-4 rounded-lg border border-border/50 bg-card/20 h-full flex flex-col">
             <div class="flex items-center gap-1.5 text-[12px] text-muted-foreground mb-2">
-              <Icon icon="ph:chat-circle-fill" class="size-3.5" />
+              <Icon icon="hugeicons:chat-01" class="size-3.5" />
               <span>Channels</span>
             </div>
             <div class="space-y-0 flex-1 min-h-0 overflow-y-auto pr-1">
@@ -393,7 +393,7 @@ onUnmounted(() => {
         <section>
           <div class="p-4 rounded-lg border border-border/50 bg-card/20 h-full flex flex-col">
             <div class="flex items-center gap-1.5 text-[12px] text-muted-foreground mb-2">
-              <Icon icon="ph:squares-four-fill" class="size-3.5" />
+              <Icon icon="hugeicons:grid" class="size-3.5" />
               <span>Components</span>
             </div>
             <div class="space-y-0 flex-1 min-h-0 overflow-y-auto pr-1">

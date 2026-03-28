@@ -27,17 +27,17 @@ function submit() {
       <div class="flex items-center justify-between px-3 pb-3">
         <div class="flex items-center gap-1.5">
           <button class="p-1.5 text-muted-foreground hover:text-foreground hover:bg-muted/30 rounded-md transition-colors">
-            <Icon icon="ph:plus" class="size-4" />
+            <Icon icon="hugeicons:add-01" class="size-4" />
           </button>
           <button class="p-1.5 text-muted-foreground hover:text-foreground hover:bg-muted/30 rounded-md transition-colors">
-            <Icon icon="ph:wrench" class="size-4" />
+            <Icon icon="hugeicons:wrench-01" class="size-4" />
           </button>
           <FolderSelector />
         </div>
 
         <div class="flex items-center gap-2">
           <button class="p-1.5 text-muted-foreground hover:text-foreground transition-colors">
-            <Icon icon="ph:microphone" class="size-4" />
+            <Icon icon="hugeicons:mic-01" class="size-4" />
           </button>
 
           <button
@@ -45,7 +45,7 @@ function submit() {
             :class="message.trim() ? 'bg-primary text-primary-foreground' : 'bg-muted/50 text-muted-foreground'"
             @click="submit"
           >
-            <Icon icon="ph:arrow-up-bold" class="size-4" />
+            <Icon icon="hugeicons:arrow-up-01" class="size-4" />
           </button>
         </div>
       </div>

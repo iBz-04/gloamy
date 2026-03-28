@@ -472,7 +472,7 @@ onMounted(() => {
             class="p-1.5 rounded-xl hover:bg-card/50 text-muted-foreground hover:text-foreground transition-colors"
             @click="prevMonth"
           >
-            <Icon icon="ph:caret-left" class="size-4" />
+            <Icon icon="hugeicons:arrow-left-01" class="size-4" />
           </button>
           <h1 class="font-sans text-[18px] font-medium text-foreground min-w-[180px] text-center">
             {{ currentMonth }}
@@ -481,7 +481,7 @@ onMounted(() => {
             class="p-1.5 rounded-xl hover:bg-card/50 text-muted-foreground hover:text-foreground transition-colors"
             @click="nextMonth"
           >
-            <Icon icon="ph:caret-right" class="size-4" />
+            <Icon icon="hugeicons:arrow-right-01" class="size-4" />
           </button>
           <button
             class="ml-2 px-3 py-1.5 text-[12px] font-medium rounded-xl border border-border/50 hover:bg-card/50 text-muted-foreground hover:text-foreground transition-colors"
@@ -497,7 +497,7 @@ onMounted(() => {
             class="flex items-center gap-1.5 px-3 py-1.5 bg-primary text-primary-foreground rounded-xl text-[12px] font-medium hover:opacity-90 transition-opacity"
             @click="showAddModal = true"
           >
-            <Icon icon="ph:plus" class="size-3.5" />
+            <Icon icon="hugeicons:add-01" class="size-3.5" />
             Add Job
           </button>
         </div>
@@ -506,7 +506,7 @@ onMounted(() => {
 
     <!-- Loading state -->
     <div v-if="loading" class="flex-1 flex items-center justify-center">
-      <Icon icon="ph:circle-notch" class="size-6 animate-spin text-muted-foreground" />
+      <Icon icon="hugeicons:loading-03" class="size-6 animate-spin text-muted-foreground" />
     </div>
 
     <!-- Calendar view -->
@@ -588,7 +588,7 @@ onMounted(() => {
             class="p-1 rounded-lg text-muted-foreground transition-colors duration-150 hover:text-foreground hover:bg-muted/45"
             @click="showAddModal = false; resetAddForm()"
           >
-            <Icon icon="ph:x" class="size-4" />
+            <Icon icon="hugeicons:cancel-01" class="size-4" />
           </button>
         </div>
 
@@ -843,7 +843,7 @@ onMounted(() => {
             class="p-1 rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted/50"
             @click="selectedJob = null"
           >
-            <Icon icon="ph:x" class="size-4" />
+            <Icon icon="hugeicons:cancel-01" class="size-4" />
           </button>
         </div>
 

@@ -26,8 +26,8 @@ function handleThemeChange(theme: 'light' | 'dark' | 'auto') {
         :tapped="{ scale: 0.95 }"
         variant="outline"
       >
-        <Icon icon="ph:sun-duotone" class="h-[1.2rem] w-[1.2rem] rotate-0 scale-100 transition-all duration-300 dark:-rotate-90 dark:scale-0" />
-        <Icon icon="ph:moon-stars-duotone" class="absolute h-[1.2rem] w-[1.2rem] rotate-90 scale-0 transition-all duration-300 dark:rotate-0 dark:scale-100" />
+        <Icon icon="hugeicons:sun-01" class="h-[1.2rem] w-[1.2rem] rotate-0 scale-100 transition-all duration-300 dark:-rotate-90 dark:scale-0" />
+        <Icon icon="hugeicons:moon-02" class="absolute h-[1.2rem] w-[1.2rem] rotate-90 scale-0 transition-all duration-300 dark:rotate-0 dark:scale-100" />
         <span class="sr-only">{{ t('settings.theme.label') }}</span>
       </Button>
     </DropdownMenuTrigger>

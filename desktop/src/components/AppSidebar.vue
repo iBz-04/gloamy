@@ -14,18 +14,18 @@ type GroupNavItem = { icon: string; label: string; children: LeafNavItem[] }
 const isCollapsed = computed(() => state.value.leftSidebarCollapsed)
 
 const navItems: Array<LeafNavItem | GroupNavItem> = [
-  { icon: 'ph:circles-four-fill', label: 'Dashboard', to: '/' },
-  { icon: 'ph:toolbox-fill', label: 'Tools', to: '/tools' },
-  { icon: 'ph:calendar-check-fill', label: 'Cron Jobs', to: '/cron-jobs' },
-  { icon: 'ph:puzzle-piece-fill', label: 'Integrations', to: '/integrations' },
-  { icon: 'ph:archive-fill', label: 'Memory', to: '/memory' },
-  { icon: 'ph:sliders-horizontal-fill', label: 'Configuration', to: '/configuration' },
+  { icon: 'hugeicons:dashboard-square-01', label: 'Dashboard', to: '/' },
+  { icon: 'hugeicons:tools', label: 'Tools', to: '/tools' },
+  { icon: 'hugeicons:calendar-03', label: 'Cron Jobs', to: '/cron-jobs' },
+  { icon: 'hugeicons:puzzle', label: 'Integrations', to: '/integrations' },
+  { icon: 'hugeicons:archive', label: 'Memory', to: '/memory' },
+  { icon: 'hugeicons:sliders-horizontal', label: 'Configuration', to: '/configuration' },
   {
-    icon: 'ph:heartbeat-fill',
+    icon: 'hugeicons:activity-02',
     label: 'Diagnostics',
     children: [
-      { icon: 'ph:pulse-fill', label: 'Logs', to: '/logs' },
-      { icon: 'ph:first-aid-kit-fill', label: 'Doctor', to: '/doctor' },
+      { icon: 'hugeicons:pulse-01', label: 'Logs', to: '/logs' },
+      { icon: 'hugeicons:first-aid-kit', label: 'Doctor', to: '/doctor' },
     ],
   },
 ]
@@ -86,7 +86,7 @@ const getNavItemKey = (item: LeafNavItem | GroupNavItem) => (isGroupNavItem(item
             <span v-if="!isCollapsed">{{ item.label }}</span>
             <Icon
               v-if="!isCollapsed"
-              icon="ph:caret-down"
+              icon="hugeicons:arrow-down-01"
               class="size-3 ml-auto transition-transform duration-200"
               :class="isGroupOpen(item.label) ? 'rotate-0' : '-rotate-90'"
             />
@@ -153,7 +153,7 @@ const getNavItemKey = (item: LeafNavItem | GroupNavItem) => (isGroupNavItem(item
         ]"
         :title="isCollapsed ? 'Settings' : undefined"
       >
-        <Icon icon="ph:gear-six-fill" class="size-[18px] shrink-0" />
+        <Icon icon="hugeicons:settings-02" class="size-[18px] shrink-0" />
         <span v-if="!isCollapsed">Settings</span>
       </RouterLink>
     </div>

@@ -37,9 +37,9 @@ const filteredResults = computed(() => {
 
 function severityIcon(severity: Severity): string {
   switch (severity) {
-    case 'ok': return 'ph:check-circle'
-    case 'warn': return 'ph:warning'
-    case 'error': return 'ph:x-circle'
+    case 'ok': return 'hugeicons:checkmark-circle-02'
+    case 'warn': return 'hugeicons:alert-01'
+    case 'error': return 'hugeicons:cancel-circle'
   }
 }
 
@@ -104,7 +104,7 @@ onMounted(() => {
           :disabled="loading"
           class="flex items-center gap-1.5 px-3 py-1.5 text-[12px] font-medium rounded-md text-muted-foreground hover:text-foreground transition-colors disabled:opacity-50"
         >
-          <Icon icon="ph:arrow-clockwise" class="size-3.5" :class="{ 'animate-spin': loading }" />
+          <Icon icon="hugeicons:refresh" class="size-3.5" :class="{ 'animate-spin': loading }" />
           Run Again
         </button>
       </div>
@@ -146,13 +146,13 @@ onMounted(() => {
     <div v-else class="flex-1 overflow-y-auto px-6 py-4">
       <!-- Error -->
       <div v-if="error" class="mb-4 px-3 py-2 text-[12px] text-amber-500 flex items-center gap-2">
-        <Icon icon="ph:warning" class="size-4" />
+        <Icon icon="hugeicons:alert-01" class="size-4" />
         <span>{{ error }}</span>
       </div>
 
       <!-- Empty state -->
       <div v-if="filteredResults.length === 0 && !error" class="flex flex-col items-center justify-center py-16">
-        <Icon icon="ph:stethoscope" class="size-12 text-muted-foreground/30 mb-3" />
+        <Icon icon="hugeicons:stethoscope" class="size-12 text-muted-foreground/30 mb-3" />
         <p class="text-muted-foreground text-[13px]">No diagnostics to display</p>
       </div>
 
@@ -183,15 +183,15 @@ onMounted(() => {
       <!-- Summary -->
       <div v-if="results.length > 0" class="mt-6 pt-4 text-[11px] text-muted-foreground flex items-center gap-4">
         <span class="flex items-center gap-1">
-          <Icon icon="ph:check-circle" class="size-3 text-emerald-500" />
+          <Icon icon="hugeicons:checkmark-circle-02" class="size-3 text-emerald-500" />
           {{ summary.ok }} passed
         </span>
         <span v-if="summary.warnings > 0" class="flex items-center gap-1">
-          <Icon icon="ph:warning" class="size-3 text-amber-500" />
+          <Icon icon="hugeicons:alert-01" class="size-3 text-amber-500" />
           {{ summary.warnings }} warnings
         </span>
         <span v-if="summary.errors > 0" class="flex items-center gap-1">
-          <Icon icon="ph:x-circle" class="size-3 text-red-500" />
+          <Icon icon="hugeicons:cancel-circle" class="size-3 text-red-500" />
           {{ summary.errors }} errors
         </span>
       </div>

@@ -17,7 +17,7 @@
     "typecheck": "vue-tsc --noEmit"
   },
   "dependencies": {
-    "@iconify-json/ph": "^1.2.2",
+    "@iconify-json/hugeicons": "^1.2.24",
     "@iconify-json/simple-icons": "^1.2.63",
     "@iconify/utils": "^3.1.0",
     "@tailwindcss/vite": "^4.1.16",

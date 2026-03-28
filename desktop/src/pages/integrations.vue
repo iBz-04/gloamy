@@ -71,12 +71,12 @@ function normalizeResponse(response: Integration[] | { integrations?: Integratio
 
 function statusIcon(status: Integration['status']): string {
   if (status === 'Active') {
-    return 'ph:check-circle-fill'
+    return 'hugeicons:checkmark-circle-02'
   }
   if (status === 'Available') {
-    return 'ph:plus-circle-fill'
+    return 'hugeicons:add-circle'
   }
-  return 'ph:clock-countdown-fill'
+  return 'hugeicons:timer-01'
 }
 
 function statusClass(status: Integration['status']): string {
@@ -150,7 +150,7 @@ const integrationLogoMap: Record<string, IntegrationLogo> = {
 }
 
 function integrationIcon(name: string): string {
-  return integrationLogoMap[name]?.icon ?? 'ph:puzzle-piece-fill'
+  return integrationLogoMap[name]?.icon ?? 'hugeicons:puzzle'
 }
 
 function integrationIconClass(name: string): string {
@@ -197,7 +197,7 @@ onMounted(() => {
     <div class="flex-shrink-0 px-6 pt-6 pb-4 border-b border-border/30 space-y-4">
       <div class="flex items-center gap-3">
         <div class="relative flex-1 max-w-xl">
-          <Icon icon="ph:magnifying-glass" class="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-muted-foreground" />
+          <Icon icon="hugeicons:search-01" class="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-muted-foreground" />
           <input
             v-model="searchQuery"
             type="text"
@@ -240,7 +240,7 @@ onMounted(() => {
 
       <template v-else>
         <div v-if="error" class="mb-4 px-3 py-2 text-[12px] text-amber-500 flex items-center gap-2">
-          <Icon icon="ph:warning" class="size-4" />
+          <Icon icon="hugeicons:alert-01" class="size-4" />
           <span>{{ error }}</span>
         </div>
 

@@ -115,7 +115,7 @@ onMounted(() => {
     <div class="flex-shrink-0 px-6 pt-6 pb-4 border-b border-border/30">
       <div class="flex items-center gap-3">
         <div class="relative flex-1 max-w-xl">
-          <Icon icon="ph:magnifying-glass" class="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-muted-foreground" />
+          <Icon icon="hugeicons:search-01" class="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-muted-foreground" />
           <input
             v-model="searchQuery"
             type="text"
@@ -144,13 +144,13 @@ onMounted(() => {
 
       <template v-else>
         <div v-if="error" class="mb-4 px-3 py-2 text-[12px] text-amber-500 flex items-center gap-2">
-          <Icon icon="ph:warning" class="size-4" />
+          <Icon icon="hugeicons:alert-01" class="size-4" />
           <span>{{ error }}</span>
         </div>
 
         <section>
           <div class="flex items-center gap-2 mb-3">
-            <Icon icon="ph:toolbox-fill" class="size-4 text-primary" />
+            <Icon icon="hugeicons:tools" class="size-4 text-primary" />
             <h2 class="text-[14px] font-semibold text-foreground">Agent Tools ({{ filteredTools.length }})</h2>
           </div>
 
@@ -173,7 +173,7 @@ onMounted(() => {
                     <p class="text-[13px] font-medium text-foreground truncate">{{ tool.name }}</p>
                     <p class="text-[12px] text-muted-foreground mt-1 line-clamp-2">{{ tool.description }}</p>
                   </div>
-                  <Icon :icon="expandedTool === tool.name ? 'ph:caret-up' : 'ph:caret-down'" class="size-4 text-muted-foreground flex-shrink-0 mt-0.5" />
+                  <Icon :icon="expandedTool === tool.name ? 'hugeicons:arrow-up-01' : 'hugeicons:arrow-down-01'" class="size-4 text-muted-foreground flex-shrink-0 mt-0.5" />
                 </div>
               </button>
 
@@ -187,7 +187,7 @@ onMounted(() => {
 
         <section>
           <div class="flex items-center gap-2 mb-3">
-            <Icon icon="ph:terminal-window" class="size-4 text-primary" />
+            <Icon icon="hugeicons:computer-terminal-02" class="size-4 text-primary" />
             <h2 class="text-[14px] font-semibold text-foreground">CLI Tools ({{ filteredCliTools.length }})</h2>
           </div>
 

@@ -8,9 +8,9 @@ importers:
 
   .:
     dependencies:
-      '@iconify-json/ph':
-        specifier: ^1.2.2
-        version: 1.2.2
+      '@iconify-json/hugeicons':
+        specifier: ^1.2.24
+        version: 1.2.24
       '@iconify-json/simple-icons':
         specifier: ^1.2.63
         version: 1.2.63
@@ -480,8 +480,8 @@ packages:
     resolution: {integrity: sha512-bV0Tgo9K4hfPCek+aMAn81RppFKv2ySDQeMoSZuvTASywNTnVJCArCZE2FWqpvIatKu7VMRLWlR1EazvVhDyhQ==}
     engines: {node: '>=18.18'}
 
-  '@iconify-json/ph@1.2.2':
-    resolution: {integrity: sha512-PgkEZNtqa8hBGjHXQa4pMwZa93hmfu8FUSjs/nv4oUU6yLsgv+gh9nu28Kqi8Fz9CCVu4hj1MZs9/60J57IzFw==}
+  '@iconify-json/hugeicons@1.2.24':
+    resolution: {integrity: sha512-GE87tbpE1XfgTHCZcBsQlHAFfOrWjIRzV9TJbyLHO86Svow4lPdGYWByThqUwnYcTNx9xghLBZbKwW9fYkJXZg==}
 
   '@iconify-json/simple-icons@1.2.63':
     resolution: {integrity: sha512-xZl2UWCwE58VlqZ+pDPmaUhE2tq8MVSTJRr4/9nzzHlDdjJ0Ud1VxNXPrwTSgESKY29iCQw3S0r2nJTSNNngHw==}
@@ -2842,7 +2842,7 @@ snapshots:
 
   '@humanwhocodes/retry@0.4.3': {}
 
-  '@iconify-json/ph@1.2.2':
+  '@iconify-json/hugeicons@1.2.24':
     dependencies:
       '@iconify/types': 2.0.0
 

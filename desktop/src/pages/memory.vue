@@ -68,15 +68,15 @@ function formatTimestamp(value: string): string {
 function categoryIcon(category: string): string {
   const normalized = category.toLowerCase()
   if (normalized === 'core') {
-    return 'ph:user-circle-fill'
+    return 'hugeicons:user-circle'
   }
   if (normalized === 'daily') {
-    return 'ph:calendar-fill'
+    return 'hugeicons:calendar-01'
   }
   if (normalized === 'conversation') {
-    return 'ph:chat-circle-text-fill'
+    return 'hugeicons:chat-01'
   }
-  return 'ph:books-fill'
+  return 'hugeicons:books-01'
 }
 
 function categoryClass(category: string): string {
@@ -204,7 +204,7 @@ onMounted(() => {
     <div class="flex-shrink-0 px-6 pt-6 pb-4 border-b border-border/30 space-y-4">
       <div class="flex items-center gap-3">
         <div class="relative flex-1 max-w-xl">
-          <Icon icon="ph:magnifying-glass" class="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-muted-foreground" />
+          <Icon icon="hugeicons:search-01" class="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-muted-foreground" />
           <input
             v-model="searchQuery"
             type="text"
@@ -254,12 +254,12 @@ onMounted(() => {
 
       <template v-else>
         <div v-if="error" class="mb-4 px-3 py-2 text-[12px] text-amber-500 flex items-center gap-2">
-          <Icon icon="ph:warning" class="size-4" />
+          <Icon icon="hugeicons:alert-01" class="size-4" />
           <span>{{ error }}</span>
         </div>
 
         <div v-if="filteredEntries.length === 0" class="flex flex-col items-center justify-center py-20">
-          <Icon icon="ph:archive" class="size-12 text-muted-foreground/30 mb-3" />
+          <Icon icon="hugeicons:archive" class="size-12 text-muted-foreground/30 mb-3" />
           <p class="text-muted-foreground text-[13px]">No memories found</p>
         </div>
 
