@@ -1,7 +1,9 @@
-use super::types::{BudgetCheck, CostRecord, CostSummary, ModelStats, TokenUsage, UsagePeriod};
+use super::types::{
+    BudgetCheck, CostRecord, CostSummary, ModelStats, TokenTimelinePoint, TokenUsage, UsagePeriod,
+};
 use crate::config::schema::CostConfig;
 use anyhow::{anyhow, Context, Result};
-use chrono::{Datelike, NaiveDate, Utc};
+use chrono::{Datelike, Duration, NaiveDate, Utc};
 use parking_lot::{Mutex, MutexGuard};
 use std::collections::HashMap;
 use std::fs::{self, File, OpenOptions};
@@ -175,6 +177,12 @@ impl CostTracker {
     pub fn get_monthly_cost(&self, year: i32, month: u32) -> Result<f64> {
         let storage = self.lock_storage();
         storage.get_cost_for_month(year, month)
+    }
+
+    /// Get daily token usage timeline for the last `days` days.
+    pub fn get_daily_token_timeline(&self, days: usize) -> Result<Vec<TokenTimelinePoint>> {
+        let storage = self.lock_storage();
+        storage.get_daily_token_timeline(days)
     }
 }
 
@@ -417,6 +425,37 @@ impl CostStorage {
 
         Ok((total_tokens, request_count))
     }
+
+    fn get_daily_token_timeline(&self, days: usize) -> Result<Vec<TokenTimelinePoint>> {
+        let bounded_days = days.clamp(1, 3660);
+        let today = Utc::now().date_naive();
+        let start_day = today - Duration::days((bounded_days - 1) as i64);
+        let mut by_day: HashMap<NaiveDate, u64> = HashMap::new();
+
+        self.for_each_record(|record| {
+            let day = record.usage.timestamp.naive_utc().date();
+            if day >= start_day && day <= today {
+                let entry = by_day.entry(day).or_insert(0);
+                *entry = entry.saturating_add(record.usage.total_tokens);
+            }
+        })?;
+
+        let mut timeline = Vec::with_capacity(bounded_days);
+        for idx in 0..bounded_days {
+            let day = start_day + Duration::days(idx as i64);
+            let ts_ms = day
+                .and_hms_opt(0, 0, 0)
+                .expect("midnight should always be a valid local time")
+                .and_utc()
+                .timestamp_millis();
+            timeline.push(TokenTimelinePoint {
+                ts_ms,
+                tokens: by_day.get(&day).copied().unwrap_or(0),
+            });
+        }
+
+        Ok(timeline)
+    }
 }
 
 #[cfg(test)]
@@ -463,6 +502,29 @@ mod tests {
         assert_eq!(summary.request_count, 1);
         assert!(summary.session_cost_usd > 0.0);
         assert_eq!(summary.by_model.len(), 1);
+    }
+
+    #[test]
+    fn daily_token_timeline_aggregates_and_preserves_day_order() {
+        let tmp = TempDir::new().unwrap();
+        let tracker = CostTracker::new(enabled_config(), tmp.path()).unwrap();
+
+        let now = Utc::now();
+
+        let mut usage_yesterday = TokenUsage::new("test/model", 10, 5, 1.0, 1.0);
+        usage_yesterday.timestamp = now - Duration::days(1);
+        tracker.record_usage(usage_yesterday).unwrap();
+
+        let mut usage_today = TokenUsage::new("test/model", 100, 50, 1.0, 1.0);
+        usage_today.timestamp = now;
+        tracker.record_usage(usage_today).unwrap();
+
+        let timeline = tracker.get_daily_token_timeline(2).unwrap();
+
+        assert_eq!(timeline.len(), 2);
+        assert_eq!(timeline[0].tokens, 15);
+        assert_eq!(timeline[1].tokens, 150);
+        assert!(timeline[1].ts_ms > timeline[0].ts_ms);
     }
 
     #[test]

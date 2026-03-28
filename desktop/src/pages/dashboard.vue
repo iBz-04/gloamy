@@ -5,11 +5,25 @@ import { Icon } from '@iconify/vue'
 import { useAuthStore } from '@/stores/auth'
 import type { StatusResponse, CostSummary } from '@/lib/types'
 
+interface TrendPoint {
+  ts: number
+  value: number
+}
+
+interface CostTimelinePointResponse {
+  ts_ms: number
+  tokens: number
+}
+
+const TREND_HISTORY_KEY = 'dashboard-token-timeline-v3'
+const TIMELINE_REFRESH_INTERVAL_MS = 60_000
+
 const auth = useAuthStore()
 const status = ref<StatusResponse | null>(null)
 const cost = ref<CostSummary | null>(null)
-const trendHistory = useLocalStorage<number[]>('dashboard-trend-history', [])
+const trendHistory = useLocalStorage<TrendPoint[]>(TREND_HISTORY_KEY, [])
 const refreshTimer = ref<number | null>(null)
+const trendRefreshTimer = ref<number | null>(null)
 const loading = ref(true)
 const error = ref<string | null>(null)
 
@@ -89,8 +103,8 @@ const healthProgressColor = computed(() => {
 const trendChangePercent = computed(() => {
   const history = trendHistory.value
   if (history.length < 2) return 0
-  const first = history[0] ?? 0
-  const last = history[history.length - 1] ?? 0
+  const first = history[0]?.value ?? 0
+  const last = history[history.length - 1]?.value ?? 0
   if (first <= 0) return 0
   return ((last - first) / first) * 100
 })
@@ -113,9 +127,28 @@ function channelIcon(name: string): string {
   return 'ph:plug'
 }
 
-function pushTrendSample(summary: CostSummary) {
-  const sample = Math.max(summary.total_tokens, summary.request_count, 1)
-  trendHistory.value = [...trendHistory.value, sample].slice(-30)
+function normalizeTrendPoint(point: CostTimelinePointResponse): TrendPoint | null {
+  if (!point || !Number.isFinite(point.ts_ms) || !Number.isFinite(point.tokens))
+    return null
+
+  return {
+    ts: Math.floor(point.ts_ms),
+    value: Math.max(Math.floor(point.tokens), 0),
+  }
+}
+
+async function fetchTrendTimeline() {
+  try {
+    const response = await auth.fetchWithAuth<{ timeline: CostTimelinePointResponse[] }>('/api/cost/timeline')
+    const mapped = (response.timeline ?? [])
+      .map(normalizeTrendPoint)
+      .filter((point): point is TrendPoint => point !== null)
+      .sort((a, b) => a.ts - b.ts)
+
+    trendHistory.value = mapped
+  } catch (err) {
+    console.error('[dashboard] fetchTrendTimeline error:', err)
+  }
 }
 
 async function fetchData(showLoading = false) {
@@ -140,7 +173,6 @@ async function fetchData(showLoading = false) {
 
     console.log('[dashboard] resolved cost object:', JSON.stringify(latestCost))
     cost.value = latestCost
-    pushTrendSample(latestCost)
   } catch (err: any) {
     console.error('[dashboard] fetchData error:', err)
     if (!status.value || !cost.value) {
@@ -155,9 +187,10 @@ async function fetchData(showLoading = false) {
 
 const sparklinePoints = computed(() => {
   if (trendHistory.value.length === 0) return ''
-  const data: number[] = trendHistory.value.length === 1
-    ? [trendHistory.value[0] ?? 0, trendHistory.value[0] ?? 0]
-    : trendHistory.value
+  const values = trendHistory.value.map(point => Math.max(Math.floor(point.value), 0))
+  const data: number[] = values.length === 1
+    ? [values[0] ?? 0, values[0] ?? 0]
+    : values
   const w = 600
   const h = 160
   const min = data.reduce((acc, n) => n < acc ? n : acc, data[0] ?? 0)
@@ -173,15 +206,24 @@ const sparklinePoints = computed(() => {
 })
 
 onMounted(async () => {
-  await fetchData(true)
+  await Promise.all([
+    fetchData(true),
+    fetchTrendTimeline(),
+  ])
   refreshTimer.value = window.setInterval(() => {
     fetchData(false)
   }, 10000)
+  trendRefreshTimer.value = window.setInterval(() => {
+    fetchTrendTimeline()
+  }, TIMELINE_REFRESH_INTERVAL_MS)
 })
 
 onUnmounted(() => {
   if (refreshTimer.value !== null) {
     window.clearInterval(refreshTimer.value)
+  }
+  if (trendRefreshTimer.value !== null) {
+    window.clearInterval(trendRefreshTimer.value)
   }
 })
 </script>
@@ -264,8 +306,8 @@ onUnmounted(() => {
           </div>
           <div class="text-[24px] font-medium text-foreground tracking-tight leading-none">{{ cost.total_tokens.toLocaleString() }}</div>
           <div class="flex items-center gap-1.5 mt-1 mb-3">
-            <span class="text-[12px] text-emerald-500">↑ {{ cost.request_count }}</span>
-            <span class="text-[12px] text-muted-foreground">samples update every 10s while open</span>
+            <span class="text-[12px] text-emerald-500">↑ {{ trendHistory.length }}</span>
+            <span class="text-[12px] text-muted-foreground">daily samples</span>
           </div>
           <svg viewBox="0 0 600 160" class="w-full h-[200px]" preserveAspectRatio="none">
             <polyline

@@ -139,6 +139,15 @@ pub struct ModelStats {
     pub request_count: usize,
 }
 
+/// A single token-usage timeline datapoint.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TokenTimelinePoint {
+    /// UTC day start in unix milliseconds.
+    pub ts_ms: i64,
+    /// Total tokens observed for that day.
+    pub tokens: u64,
+}
+
 impl Default for CostSummary {
     fn default() -> Self {
         Self {

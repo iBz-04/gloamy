@@ -58,7 +58,7 @@ const getNavItemKey = (item: LeafNavItem | GroupNavItem) => (isGroupNavItem(item
     :class="isCollapsed ? 'w-16' : 'w-[220px]'"
   >
     <div class="px-4 h-14 flex items-center" data-tauri-drag-region>
-      <span v-if="!isCollapsed" class="text-[22px] leading-none font-semibold tracking-wide text-foreground sidebar-brand">GLOAMY</span>
+      <span v-if="!isCollapsed" class="text-[28px] leading-none font-semibold tracking-wide text-emerald-600 sidebar-brand">GLOAMY</span>
     </div>
 
     <nav class="flex flex-col gap-0.5 px-2">

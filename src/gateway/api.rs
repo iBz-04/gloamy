@@ -681,6 +681,29 @@ pub async fn handle_api_cost(
     }
 }
 
+/// GET /api/cost/timeline — daily token usage trend
+pub async fn handle_api_cost_timeline(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+) -> impl IntoResponse {
+    if let Err(e) = require_auth(&state, &headers) {
+        return e.into_response();
+    }
+
+    if let Some(ref tracker) = state.cost_tracker {
+        match tracker.get_daily_token_timeline(3660) {
+            Ok(timeline) => Json(serde_json::json!({ "timeline": timeline })).into_response(),
+            Err(e) => (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(serde_json::json!({"error": format!("Cost timeline failed: {e}")})),
+            )
+                .into_response(),
+        }
+    } else {
+        Json(serde_json::json!({ "timeline": [] })).into_response()
+    }
+}
+
 /// GET /api/cli-tools — discovered CLI tools
 pub async fn handle_api_cli_tools(
     State(state): State<AppState>,
