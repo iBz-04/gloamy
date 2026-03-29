@@ -108,9 +108,21 @@ rustc --version
 cargo --version
 ```
 
-### First Run
+### Install
 
-Clone the repository and run full onboarding:
+Install from [crates.io](https://crates.io/crates/gloamy):
+
+```bash
+cargo install gloamy --locked
+```
+
+Then run full onboarding:
+
+```bash
+gloamy onboard --interactive
+```
+
+If you prefer to run from source, clone the repository and start onboarding:
 
 ```bash
 git clone https://github.com/iBz-04/gloamy.git
@@ -118,7 +130,7 @@ cd gloamy
 cargo run -- onboard --interactive
 ```
 
-This is the recommended first run.
+The crates.io install is the recommended default for end users. The source path is better when you want to develop, patch, or test unreleased changes.
 
 The full onboarding flow lets you:
 

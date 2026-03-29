@@ -10,6 +10,20 @@ Last verified: **February 20, 2026**.
 brew install gloamy
 ```
 
+## Option 0.5: crates.io
+
+Install directly from [crates.io](https://crates.io/crates/gloamy):
+
+```bash
+cargo install gloamy --locked
+```
+
+Then run onboarding:
+
+```bash
+gloamy onboard --interactive
+```
+
 ## Option A (Recommended): Clone + local script
 
 ```bash
