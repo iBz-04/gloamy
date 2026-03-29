@@ -54,7 +54,7 @@ const logout = async () => {
           <div class="flex flex-col items-center gap-2">
             <button
               @click="handleThemeChange('light')"
-              class="relative w-[136px] h-[92px] rounded-[18px] bg-[#F8F9FA] border-[3px] transition-all p-1.5 focus:outline-none overflow-hidden"
+              class="relative w-[136px] h-[92px] rounded-xl bg-[#F8F9FA] border-[3px] transition-all p-1.5 focus:outline-none overflow-hidden"
               :class="selectedTheme === 'light' ? 'border-primary' : 'border-[#E2E8F0] hover:border-border'"
             >
               <div class="w-full h-full bg-white rounded-xl shadow-[0_1px_3px_rgba(0,0,0,0.05)] border border-[#E2E8F0] flex p-[5px] gap-1.5 pointer-events-none">
@@ -73,7 +73,7 @@ const logout = async () => {
           <div class="flex flex-col items-center gap-2">
             <button
               @click="handleThemeChange('dark')"
-              class="relative w-[136px] h-[92px] rounded-[18px] bg-[#27272A] border-[3px] transition-all p-1.5 focus:outline-none overflow-hidden"
+              class="relative w-[136px] h-[92px] rounded-xl bg-[#27272A] border-[3px] transition-all p-1.5 focus:outline-none overflow-hidden"
               :class="selectedTheme === 'dark' ? 'border-primary' : 'border-[#3F3F46] hover:border-[#52525B]'"
             >
               <div class="w-full h-full bg-[#09090B] rounded-xl shadow-[0_1px_4px_rgba(0,0,0,0.5)] border border-[#3F3F46] flex p-[5px] gap-1.5 pointer-events-none">
@@ -92,7 +92,7 @@ const logout = async () => {
           <div class="flex flex-col items-center gap-2">
             <button
               @click="handleThemeChange('auto')"
-              class="relative w-[136px] h-[92px] rounded-[18px] border-[3px] transition-all p-0 focus:outline-none overflow-hidden"
+              class="relative w-[136px] h-[92px] rounded-xl border-[3px] transition-all p-0 focus:outline-none overflow-hidden"
               :class="selectedTheme === 'auto' ? 'border-primary' : 'border-[#E2E8F0] dark:border-[#3F3F46] hover:border-border'"
             >
               <div class="absolute inset-0 flex rounded-xl overflow-hidden m-[3px]">
@@ -155,13 +155,13 @@ const logout = async () => {
           <p class="text-[14px] font-medium text-foreground">Account management</p>
           <div class="flex items-center gap-3">
              <button
-               class="px-5 py-1.5 bg-card border border-border/80 hover:bg-muted text-foreground transition-colors rounded-[8px] text-[13px] font-medium"
+               class="px-5 py-1.5 bg-card border border-border/80 hover:bg-muted text-foreground transition-colors rounded-xl text-[13px] font-medium"
              >
                Manage
              </button>
              <button
               @click="logout"
-              class="px-5 py-1.5 bg-destructive/10 border border-transparent hover:border-destructive/20 text-destructive transition-colors rounded-[8px] text-[13px] font-medium"
+              class="px-5 py-1.5 bg-destructive/10 border border-transparent hover:border-destructive/20 text-destructive transition-colors rounded-xl text-[13px] font-medium"
             >
               Sign out device
             </button>

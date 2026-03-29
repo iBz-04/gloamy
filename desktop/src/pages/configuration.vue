@@ -375,14 +375,14 @@ onUnmounted(() => {
           <button
             v-if="hasChanges"
             @click="resetChanges"
-            class="px-3 py-1.5 text-[12px] font-medium rounded-lg text-muted-foreground hover:text-foreground hover:bg-card/50 transition-colors"
+            class="px-3 py-1.5 text-[12px] font-medium rounded-xl text-muted-foreground hover:text-foreground hover:bg-card/50 transition-colors"
           >
             Discard
           </button>
           <button
             @click="saveConfig"
             :disabled="!hasChanges || saving"
-            class="px-4 py-1.5 text-[12px] font-medium rounded-lg transition-all flex items-center gap-1.5"
+            class="px-4 py-1.5 text-[12px] font-medium rounded-xl transition-all flex items-center gap-1.5"
             :class="hasChanges
               ? 'bg-foreground text-background hover:opacity-90'
               : 'bg-card/50 text-muted-foreground cursor-not-allowed'"
@@ -395,7 +395,7 @@ onUnmounted(() => {
           
           <button
             @click="openAddModal"
-            class="px-4 py-1.5 text-[12px] font-medium rounded-lg bg-card/50 text-foreground border border-border/50 hover:bg-card transition-all flex items-center gap-1.5"
+            class="px-4 py-1.5 text-[12px] font-medium rounded-xl bg-card/50 text-foreground border border-border/50 hover:bg-card transition-all flex items-center gap-1.5"
           >
             <Icon icon="hugeicons:add-01" class="size-3.5" />
             New Entry
@@ -587,13 +587,13 @@ onUnmounted(() => {
         class="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/50"
         @click.self="showAddModal = false"
       >
-        <div class="w-full max-w-sm mx-4 mb-4 sm:mb-0 bg-card border border-border/60 rounded-2xl shadow-2xl overflow-hidden">
+        <div class="w-full max-w-sm mx-4 mb-4 sm:mb-0 bg-card border border-border/60 rounded-xl shadow-2xl overflow-hidden">
           <!-- Header -->
           <div class="flex items-center justify-between px-5 py-4 border-b border-border/40">
             <span class="text-[14px] font-semibold text-foreground">New Config Entry</span>
             <button
               @click="showAddModal = false"
-              class="size-7 flex items-center justify-center rounded-lg hover:bg-muted/50 transition-colors"
+              class="size-7 flex items-center justify-center rounded-xl hover:bg-muted/50 transition-colors"
             >
               <Icon icon="hugeicons:cancel-01" class="size-4 text-muted-foreground" />
             </button>
@@ -609,7 +609,7 @@ onUnmounted(() => {
                 list="section-suggestions"
                 type="text"
                 placeholder="e.g. agents.coder"
-                class="w-full px-3 py-2 text-[13px] font-mono bg-background border border-border/60 rounded-lg focus:outline-none focus:ring-1 focus:ring-primary/50 focus:border-primary/50 text-foreground placeholder:text-muted-foreground/40"
+                class="w-full px-3 py-2 text-[13px] font-mono bg-background border border-border/60 rounded-xl focus:outline-none focus:ring-1 focus:ring-primary/50 focus:border-primary/50 text-foreground placeholder:text-muted-foreground/40"
               />
               <datalist id="section-suggestions">
                 <option v-for="name in sectionNames.filter(n => n !== 'All')" :key="name" :value="name" />
@@ -624,7 +624,7 @@ onUnmounted(() => {
                 type="text"
                 placeholder="e.g. system_prompt"
                 autofocus
-                class="w-full px-3 py-2 text-[13px] font-mono bg-background border border-border/60 rounded-lg focus:outline-none focus:ring-1 focus:ring-primary/50 focus:border-primary/50 text-foreground placeholder:text-muted-foreground/40"
+                class="w-full px-3 py-2 text-[13px] font-mono bg-background border border-border/60 rounded-xl focus:outline-none focus:ring-1 focus:ring-primary/50 focus:border-primary/50 text-foreground placeholder:text-muted-foreground/40"
               />
             </div>
 
@@ -636,7 +636,7 @@ onUnmounted(() => {
                 type="text"
                 placeholder="true, 42, or &quot;some text&quot;"
                 @keydown.enter="addNewEntry"
-                class="w-full px-3 py-2 text-[13px] font-mono bg-background border border-border/60 rounded-lg focus:outline-none focus:ring-1 focus:ring-primary/50 focus:border-primary/50 text-foreground placeholder:text-muted-foreground/40"
+                class="w-full px-3 py-2 text-[13px] font-mono bg-background border border-border/60 rounded-xl focus:outline-none focus:ring-1 focus:ring-primary/50 focus:border-primary/50 text-foreground placeholder:text-muted-foreground/40"
               />
             </div>
           </div>
@@ -645,14 +645,14 @@ onUnmounted(() => {
           <div class="flex items-center justify-end gap-2 px-5 py-4 border-t border-border/40">
             <button
               @click="showAddModal = false"
-              class="px-4 py-1.5 text-[13px] text-muted-foreground hover:text-foreground hover:bg-muted/40 rounded-lg transition-colors"
+              class="px-4 py-1.5 text-[13px] text-muted-foreground hover:text-foreground hover:bg-muted/40 rounded-xl transition-colors"
             >
               Cancel
             </button>
             <button
               @click="addNewEntry"
               :disabled="!newEntryKey.trim()"
-              class="px-4 py-1.5 text-[13px] font-semibold bg-foreground text-background rounded-lg hover:opacity-90 disabled:opacity-30 disabled:cursor-not-allowed transition-all"
+              class="px-4 py-1.5 text-[13px] font-semibold bg-foreground text-background rounded-xl hover:opacity-90 disabled:opacity-30 disabled:cursor-not-allowed transition-all"
             >
               Add
             </button>

@@ -363,7 +363,7 @@ onUnmounted(() => {
           </span>
 
           <button
-            class="px-3 py-1.5 text-[12px] font-medium rounded-md transition-colors"
+            class="px-3 py-1.5 text-[12px] font-medium rounded-xl transition-colors"
             :class="paused ? 'text-foreground border border-border/60' : 'text-primary border border-primary/30'"
             @click="togglePause"
           >
@@ -371,14 +371,14 @@ onUnmounted(() => {
           </button>
 
           <button
-            class="px-3 py-1.5 text-[12px] font-medium rounded-md border border-border/60 hover:bg-card/60 transition-colors"
+            class="px-3 py-1.5 text-[12px] font-medium rounded-xl border border-border/60 hover:bg-card/60 transition-colors"
             @click="fetchSnapshot()"
           >
             Refresh
           </button>
 
           <button
-            class="px-3 py-1.5 text-[12px] font-medium rounded-md border border-border/60 hover:bg-card/60 transition-colors"
+            class="px-3 py-1.5 text-[12px] font-medium rounded-xl border border-border/60 hover:bg-card/60 transition-colors"
             @click="clearLogs"
           >
             Clear
@@ -390,7 +390,7 @@ onUnmounted(() => {
         <button
           v-for="level in levels"
           :key="level"
-          class="px-3 py-1.5 text-[12px] font-medium rounded-md whitespace-nowrap transition-colors flex items-center gap-1.5"
+          class="px-3 py-1.5 text-[12px] font-medium rounded-xl whitespace-nowrap transition-colors flex items-center gap-1.5"
           :class="activeLevel === level
             ? 'text-foreground'
             : 'text-muted-foreground hover:text-foreground'"

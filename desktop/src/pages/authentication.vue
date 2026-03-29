@@ -131,7 +131,7 @@ const handleLogout = async () => {
                     v-model="code"
                     type="text"
                     maxlength="6"
-                    class="w-full h-10 bg-muted/30 border border-border rounded px-3 text-sm outline-none focus:border-primary/40 transition-all"
+                    class="w-full h-10 bg-muted/30 border border-border rounded-xl px-3 text-sm outline-none focus:border-primary/40 transition-all"
                     placeholder="Enter pairing code"
                     @keyup.enter="handleAuthenticate"
                     autofocus
@@ -149,14 +149,14 @@ const handleLogout = async () => {
                   <input
                     v-model="tokenInput"
                     type="password"
-                    class="w-full h-10 bg-muted/30 border border-border rounded px-3 text-sm outline-none focus:border-primary/40 transition-all"
+                    class="w-full h-10 bg-muted/30 border border-border rounded-xl px-3 text-sm outline-none focus:border-primary/40 transition-all"
                     placeholder="Paste token (optional)"
                     @keyup.enter="handleAuthenticate"
                   >
                 </div>
 
                 <button
-                  class="w-full h-10 bg-foreground text-background rounded text-sm font-semibold hover:opacity-90 active:scale-[0.98] transition-all disabled:opacity-40 disabled:active:scale-100"
+                  class="w-full h-10 bg-foreground text-background rounded-xl text-sm font-semibold hover:opacity-90 active:scale-[0.98] transition-all disabled:opacity-40 disabled:active:scale-100"
                   :disabled="loading"
                   @click="handleAuthenticate"
                 >
@@ -168,7 +168,7 @@ const handleLogout = async () => {
 
             <div v-else class="flex flex-col items-center">
               <button
-                class="px-8 h-11 border border-border hover:bg-muted/30 rounded-2xl text-sm font-medium transition-all active:scale-[0.98]"
+                class="px-8 h-11 border border-border hover:bg-muted/30 rounded-xl text-sm font-medium transition-all active:scale-[0.98]"
                 @click="handleLogout"
               >
                 Sign Out
