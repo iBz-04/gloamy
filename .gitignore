@@ -33,3 +33,8 @@ venv/
 *.pem
 credentials.json
 .worktrees/
+
+# Generated release artifacts
+dist/
+release-assets/
+desktop/release-assets/

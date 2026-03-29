@@ -14,6 +14,19 @@ readme = "README.md"
 keywords = ["agent-runtime", "llm", "automation", "cli", "gateway"]
 categories = ["command-line-utilities", "network-programming", "asynchronous"]
 rust-version = "1.87"
+include = [
+    "/Cargo.toml",
+    "/Cargo.lock",
+    "/LICENSE",
+    "/README.md",
+    "/src/**",
+    "/firmware/gloamy-arduino/gloamy-arduino.ino",
+    "/firmware/gloamy-uno-q-bridge/app.yaml",
+    "/firmware/gloamy-uno-q-bridge/python/main.py",
+    "/firmware/gloamy-uno-q-bridge/python/requirements.txt",
+    "/firmware/gloamy-uno-q-bridge/sketch/sketch.ino",
+    "/firmware/gloamy-uno-q-bridge/sketch/sketch.yaml",
+]
 
 [dependencies]
 # CLI - minimal and fast
