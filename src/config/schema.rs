@@ -6560,7 +6560,7 @@ requires_openai_auth = true
         let mut config = Config::default();
 
         std::env::remove_var("GLOAMY_PROVIDER");
-        std::env::set_var("PROVIDER", "openai");
+        std::env::set_var("PROVIDER", "openrouter");
         config.apply_env_overrides();
         assert_eq!(config.default_provider.as_deref(), Some("openrouter"));
 

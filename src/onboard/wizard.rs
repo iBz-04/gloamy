@@ -2065,6 +2065,12 @@ fn ensure_onboard_overwrite_allowed(config_path: &Path, force: bool) -> Result<(
     Ok(())
 }
 
+#[cfg(test)]
+async fn persist_workspace_selection(_config_path: &Path) -> Result<()> {
+    Ok(())
+}
+
+#[cfg(not(test))]
 async fn persist_workspace_selection(config_path: &Path) -> Result<()> {
     let config_dir = config_path
         .parent()

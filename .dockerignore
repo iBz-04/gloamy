@@ -1,0 +1,27 @@
+# VCS and CI metadata
+.git
+.githooks
+.github
+
+# Build artifacts
+target
+
+# Docs, examples, and tests are not needed in runtime images
+docs
+examples
+tests
+
+# Sensitive/local files
+.env
+.DS_Store
+.tmp_*
+
+# Large or unnecessary asset/document types
+*.md
+*.png
+*.db
+*.db-journal
+
+# Repo metadata not required in image
+deny.toml
+LICENSE
