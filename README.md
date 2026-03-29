@@ -12,6 +12,9 @@ When the claws 🦞 are asleep the gloamies 🦉 come out to play !
 
 Hi I'm Gloamy, I execute tasks on your behalf without deleting your stuff, leaking your private business, oh and I'm lightweight unlike that damn lobster  (openclaw).
 
+![Desktop](/desktop.png)
+
+
 Gloamy is built around explicit subsystem contracts:
 
 - `Provider` for model backends
