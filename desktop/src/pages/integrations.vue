@@ -59,24 +59,66 @@ const groupedIntegrations = computed(() => {
   ) as Record<string, Integration[]>
 })
 
+const categoryLabelMap: Record<string, string> = {
+  chat: 'Chat Providers',
+  chatproviders: 'Chat Providers',
+  aimodel: 'AI Models',
+  aimodels: 'AI Models',
+  productivity: 'Productivity',
+  musicaudio: 'Music & Audio',
+  smarthome: 'Smart Home',
+  toolsautomation: 'Tools & Automation',
+  mediacreative: 'Media & Creative',
+  social: 'Social',
+  platform: 'Platforms',
+  platforms: 'Platforms',
+}
+
+function normalizeCategoryKey(category: string): string {
+  return category.replace(/[^a-z0-9]/gi, '').toLowerCase()
+}
+
+function formatCategoryLabel(category: string): string {
+  const mappedLabel = categoryLabelMap[normalizeCategoryKey(category)]
+  if (mappedLabel) {
+    return mappedLabel
+  }
+
+  const spaced = category
+    .replace(/[_-]+/g, ' ')
+    .replace(/([a-z0-9])([A-Z])/g, '$1 $2')
+    .replace(/([A-Z]+)([A-Z][a-z])/g, '$1 $2')
+    .trim()
+    .replace(/\s+/g, ' ')
+
+  return spaced || category
+}
+
+function normalizeEntries(entries: Integration[]): Integration[] {
+  return entries.map(item => ({
+    ...item,
+    category: formatCategoryLabel(item.category),
+  }))
+}
+
 function normalizeResponse(response: Integration[] | { integrations?: Integration[] }): Integration[] {
   if (Array.isArray(response)) {
-    return response
+    return normalizeEntries(response)
   }
   if (response && Array.isArray(response.integrations)) {
-    return response.integrations
+    return normalizeEntries(response.integrations)
   }
   return []
 }
 
 function statusIcon(status: Integration['status']): string {
   if (status === 'Active') {
-    return 'hugeicons:checkmark-circle-02'
+    return 'hugeicons:tick-02'
   }
   if (status === 'Available') {
-    return 'hugeicons:add-circle'
+    return 'hugeicons:add-01'
   }
-  return 'hugeicons:timer-01'
+  return 'hugeicons:clock-01'
 }
 
 function statusClass(status: Integration['status']): string {
@@ -276,7 +318,7 @@ onMounted(() => {
                     class="inline-flex items-center gap-1.5 text-[11px] font-medium"
                     :class="statusClass(integration.status)"
                   >
-                    <Icon :icon="statusIcon(integration.status)" class="size-3.5" />
+                    <Icon :icon="statusIcon(integration.status)" class="size-3.5 shrink-0" />
                     {{ statusLabel(integration.status) }}
                   </span>
                   <span class="text-[11px] text-muted-foreground truncate" :title="integration.category">
