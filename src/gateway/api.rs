@@ -515,6 +515,33 @@ pub async fn handle_api_integrations(
     Json(serde_json::json!({"integrations": integrations})).into_response()
 }
 
+/// GET /api/skills — list installed skills for desktop catalog views
+pub async fn handle_api_skills(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+) -> impl IntoResponse {
+    if let Err(e) = require_auth(&state, &headers) {
+        return e.into_response();
+    }
+
+    let config = state.config.lock().clone();
+    let skills = crate::skills::load_skills_with_config(&config.workspace_dir, &config);
+
+    let entries: Vec<serde_json::Value> = skills
+        .iter()
+        .map(|skill| {
+            serde_json::json!({
+                "name": skill.name,
+                "description": skill.description,
+                "category": "Skills",
+                "status": "Active",
+            })
+        })
+        .collect();
+
+    Json(serde_json::json!({"skills": entries})).into_response()
+}
+
 /// POST /api/doctor — run diagnostics
 pub async fn handle_api_doctor(
     State(state): State<AppState>,

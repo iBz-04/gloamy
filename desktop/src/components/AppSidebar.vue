@@ -1,5 +1,7 @@
 <script setup lang="ts">
 import { Icon } from '@iconify/vue'
+import { ToolCaseIcon } from '@hugeicons/core-free-icons'
+import { HugeiconsIcon } from '@hugeicons/vue'
 import { storeToRefs } from 'pinia'
 import { computed, ref } from 'vue'
 import { useRoute } from 'vue-router'
@@ -8,14 +10,14 @@ const route = useRoute()
 const uiStore = useUIStateStore()
 const { state } = storeToRefs(uiStore)
 
-type LeafNavItem = { icon: string; label: string; to: string }
+type LeafNavItem = { icon?: string; hugeIcon?: object; label: string; to: string }
 type GroupNavItem = { icon: string; label: string; children: LeafNavItem[] }
 
 const isCollapsed = computed(() => state.value.leftSidebarCollapsed)
 
 const navItems: Array<LeafNavItem | GroupNavItem> = [
   { icon: 'hugeicons:dashboard-square-01', label: 'Dashboard', to: '/' },
-  { icon: 'hugeicons:tools', label: 'Tools', to: '/tools' },
+  { hugeIcon: ToolCaseIcon, label: 'Tools', to: '/tools' },
   { icon: 'hugeicons:calendar-03', label: 'Cron Jobs', to: '/cron-jobs' },
   { icon: 'hugeicons:puzzle', label: 'Integrations', to: '/integrations' },
   { icon: 'hugeicons:archive', label: 'Memory', to: '/memory' },
@@ -111,7 +113,7 @@ const getNavItemKey = (item: LeafNavItem | GroupNavItem) => (isGroupNavItem(item
                   : 'text-muted-foreground hover:text-foreground hover:bg-muted/25',
               ]"
             >
-              <Icon :icon="child.icon" class="size-4 shrink-0" />
+              <Icon :icon="child.icon ?? 'hugeicons:circle'" class="size-4 shrink-0" />
               <span>{{ child.label }}</span>
             </RouterLink>
           </div>
@@ -132,7 +134,15 @@ const getNavItemKey = (item: LeafNavItem | GroupNavItem) => (isGroupNavItem(item
           ]"
           :title="isCollapsed ? item.label : undefined"
         >
-          <Icon :icon="item.icon" class="size-[18px] shrink-0" />
+          <HugeiconsIcon
+            v-if="item.hugeIcon"
+            :icon="item.hugeIcon"
+            :size="18"
+            color="currentColor"
+            :stroke-width="1.5"
+            class="shrink-0"
+          />
+          <Icon v-else :icon="item.icon ?? 'hugeicons:circle'" class="size-[18px] shrink-0" />
           <span v-if="!isCollapsed">{{ item.label }}</span>
         </RouterLink>
       </template>

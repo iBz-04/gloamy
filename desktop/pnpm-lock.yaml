@@ -8,6 +8,12 @@ importers:
 
   .:
     dependencies:
+      '@hugeicons/core-free-icons':
+        specifier: ^4.0.0
+        version: 4.0.0
+      '@hugeicons/vue':
+        specifier: ^1.0.5
+        version: 1.0.5(vue@3.5.22(typescript@5.9.3))
       '@iconify-json/hugeicons':
         specifier: ^1.2.24
         version: 1.2.24
@@ -463,6 +469,14 @@ packages:
 
   '@floating-ui/vue@1.1.9':
     resolution: {integrity: sha512-BfNqNW6KA83Nexspgb9DZuz578R7HT8MZw1CfK9I6Ah4QReNWEJsXWHN+SdmOVLNGmTPDi+fDT535Df5PzMLbQ==}
+
+  '@hugeicons/core-free-icons@4.0.0':
+    resolution: {integrity: sha512-bzfbKumv3ke3ajbe2MyXi9i0I/cdsZ6n/mO9EfIPNSL++pHLqs7nSGRIVUtjF4xrrEyVkfhxssv4Jek8DPA6gA==}
+
+  '@hugeicons/vue@1.0.5':
+    resolution: {integrity: sha512-kaouUZceXtdDfupfiqqfn40tIyRBF/fcEvCfY96hZIXZ3JMsqpwhCDqiqoj+B5bMEUXOuvz3npNyKI5+7iPfYA==}
+    peerDependencies:
+      vue: ^2.6.0 || ^3.0.0
 
   '@humanfs/core@0.19.1':
     resolution: {integrity: sha512-5DyQ4+1JEUzejeK1JGICcideyfUbGixgS9jNgex5nqkW+cY7WZhxBigmieN5Qnw9ZosSNVC9KQKyb+GUaGyKUA==}
@@ -2830,6 +2844,12 @@ snapshots:
     transitivePeerDependencies:
       - '@vue/composition-api'
       - vue
+
+  '@hugeicons/core-free-icons@4.0.0': {}
+
+  '@hugeicons/vue@1.0.5(vue@3.5.22(typescript@5.9.3))':
+    dependencies:
+      vue: 3.5.22(typescript@5.9.3)
 
   '@humanfs/core@0.19.1': {}
 

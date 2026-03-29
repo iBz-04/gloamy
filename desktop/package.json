@@ -17,6 +17,8 @@
     "typecheck": "vue-tsc --noEmit"
   },
   "dependencies": {
+    "@hugeicons/core-free-icons": "^4.0.0",
+    "@hugeicons/vue": "^1.0.5",
     "@iconify-json/hugeicons": "^1.2.24",
     "@iconify-json/simple-icons": "^1.2.63",
     "@iconify/utils": "^3.1.0",

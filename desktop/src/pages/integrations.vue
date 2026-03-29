@@ -10,6 +10,13 @@ interface Integration {
   status: 'Available' | 'Active' | 'ComingSoon'
 }
 
+interface SkillCatalogEntry {
+  name: string
+  description: string
+  category?: string
+  status?: 'Available' | 'Active' | 'ComingSoon'
+}
+
 const auth = useAuthStore()
 const integrations = ref<Integration[]>([])
 const loading = ref(true)
@@ -101,7 +108,7 @@ function normalizeEntries(entries: Integration[]): Integration[] {
   }))
 }
 
-function normalizeResponse(response: Integration[] | { integrations?: Integration[] }): Integration[] {
+function normalizeIntegrationResponse(response: Integration[] | { integrations?: Integration[] }): Integration[] {
   if (Array.isArray(response)) {
     return normalizeEntries(response)
   }
@@ -109,6 +116,19 @@ function normalizeResponse(response: Integration[] | { integrations?: Integratio
     return normalizeEntries(response.integrations)
   }
   return []
+}
+
+function normalizeSkillsResponse(response: SkillCatalogEntry[] | { skills?: SkillCatalogEntry[] }): Integration[] {
+  const entries = Array.isArray(response)
+    ? response
+    : (response && Array.isArray(response.skills) ? response.skills : [])
+
+  return normalizeEntries(entries.map(skill => ({
+    name: skill.name,
+    description: skill.description,
+    category: skill.category ?? 'Skills',
+    status: skill.status ?? 'Active',
+  })))
 }
 
 function statusIcon(status: Integration['status']): string {
@@ -191,19 +211,50 @@ const integrationLogoMap: Record<string, IntegrationLogo> = {
   Android: { icon: 'simple-icons:android', color: '#3DDC84' },
 }
 
-function integrationIcon(name: string): string {
-  return integrationLogoMap[name]?.icon ?? 'hugeicons:puzzle'
+const skillIconMatchers: Array<{ pattern: RegExp, logo: IntegrationLogo }> = [
+  { pattern: /docx|word|document/, logo: { icon: 'simple-icons:microsoftword', color: '#2B579A' } },
+  { pattern: /xlsx|excel|sheet|spreadsheet/, logo: { icon: 'simple-icons:microsoftexcel', color: '#217346' } },
+  { pattern: /pptx|powerpoint|slides?|presentation/, logo: { icon: 'simple-icons:microsoftpowerpoint', color: '#B7472A' } },
+  { pattern: /pdf/, logo: { icon: 'simple-icons:adobeacrobatreader', color: '#EC1C24' } },
+  { pattern: /github/, logo: { icon: 'simple-icons:github' } },
+  { pattern: /slack/, logo: { icon: 'simple-icons:slack', color: '#4A154B' } },
+  { pattern: /notion/, logo: { icon: 'simple-icons:notion' } },
+  { pattern: /vercel/, logo: { icon: 'simple-icons:vercel' } },
+]
+
+function resolveIcon(name: string, category: string): IntegrationLogo | undefined {
+  if (category === 'Skills') {
+    for (const matcher of skillIconMatchers) {
+      if (matcher.pattern.test(name.toLowerCase())) {
+        return matcher.logo
+      }
+    }
+  }
+
+  return integrationLogoMap[name]
 }
 
-function integrationIconClass(name: string): string {
-  if (!integrationLogoMap[name]) {
+function integrationIcon(name: string, category: string): string {
+  const logo = resolveIcon(name, category)
+  if (logo) {
+    return logo.icon
+  }
+  if (category === 'Skills') {
+    return 'hugeicons:airplay-line'
+  }
+  return 'hugeicons:puzzle'
+}
+
+function integrationIconClass(name: string, category: string): string {
+  const logo = resolveIcon(name, category)
+  if (!logo) {
     return 'text-primary'
   }
-  return integrationLogoMap[name]?.color ? '' : 'text-foreground'
+  return logo.color ? '' : 'text-foreground'
 }
 
-function integrationIconStyle(name: string): { color: string } | undefined {
-  const color = integrationLogoMap[name]?.color
+function integrationIconStyle(name: string, category: string): { color: string } | undefined {
+  const color = resolveIcon(name, category)?.color
   return color ? { color } : undefined
 }
 
@@ -214,18 +265,33 @@ async function fetchIntegrations(showLoading = true) {
 
   error.value = null
 
-  try {
-    const response = await auth.fetchWithAuth<Integration[] | { integrations?: Integration[] }>('/api/integrations')
-    integrations.value = normalizeResponse(response)
+  const [integrationsResult, skillsResult] = await Promise.allSettled([
+    auth.fetchWithAuth<Integration[] | { integrations?: Integration[] }>('/api/integrations'),
+    auth.fetchWithAuth<SkillCatalogEntry[] | { skills?: SkillCatalogEntry[] }>('/api/skills'),
+  ])
+
+  const nextEntries: Integration[] = []
+  const nextErrors: string[] = []
+
+  if (integrationsResult.status === 'fulfilled') {
+    nextEntries.push(...normalizeIntegrationResponse(integrationsResult.value))
+  } else {
+    nextErrors.push('Failed to load integrations')
   }
-  catch (err: unknown) {
-    error.value = err instanceof Error ? err.message : 'Failed to load integrations'
-    integrations.value = []
+
+  if (skillsResult.status === 'fulfilled') {
+    nextEntries.push(...normalizeSkillsResponse(skillsResult.value))
+  } else {
+    // Backward compatibility: older daemons do not expose /api/skills yet.
+    // Keep integrations usable and avoid surfacing a hard error for this optional section.
+    console.warn('Skills catalog unavailable:', skillsResult.reason)
   }
-  finally {
-    if (showLoading) {
-      loading.value = false
-    }
+
+  integrations.value = nextEntries
+  error.value = nextErrors.length > 0 ? nextErrors.join(' · ') : null
+
+  if (showLoading) {
+    loading.value = false
   }
 }
 
@@ -243,7 +309,7 @@ onMounted(() => {
           <input
             v-model="searchQuery"
             type="text"
-            placeholder="Search integrations..."
+            placeholder="Search integrations and skills..."
             class="w-full pl-10 pr-4 py-2 text-[13px] bg-card/50 border border-border/50 rounded-xl focus:outline-none focus:ring-1 focus:ring-primary/50 focus:border-primary/50 text-foreground placeholder:text-muted-foreground"
           >
         </div>
@@ -287,7 +353,7 @@ onMounted(() => {
         </div>
 
         <div v-if="Object.keys(groupedIntegrations).length === 0" class="flex items-center justify-center h-full">
-          <p class="text-muted-foreground text-[12px]">No integrations found.</p>
+          <p class="text-muted-foreground text-[12px]">No integrations or skills found.</p>
         </div>
 
         <div v-else class="space-y-6">
@@ -301,10 +367,10 @@ onMounted(() => {
               >
                 <div class="flex items-center gap-2 pr-2 mb-1">
                   <Icon
-                    :icon="integrationIcon(integration.name)"
+                    :icon="integrationIcon(integration.name, integration.category)"
                     class="size-[16px] shrink-0"
-                    :class="integrationIconClass(integration.name)"
-                    :style="integrationIconStyle(integration.name)"
+                    :class="integrationIconClass(integration.name, integration.category)"
+                    :style="integrationIconStyle(integration.name, integration.category)"
                   />
                   <h3 class="font-sans text-[15px] font-medium text-foreground truncate">{{ integration.name }}</h3>
                 </div>
