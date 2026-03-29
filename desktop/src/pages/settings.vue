@@ -10,9 +10,6 @@ const mode = useColorMode()
 
 const selectedTheme = ref<'light'|'dark'|'auto'>('auto')
 
-const updatesEnabled = ref(true)
-const emailEnabled = ref(true)
-
 onMounted(async () => {
   const t = await settingsStore.getSetting<string>('theme')
   if (t === 'light' || t === 'dark' || t === 'auto') {
@@ -118,47 +115,13 @@ const logout = async () => {
         </div>
       </section>
 
-      <!-- Communication preferences Section -->
-      <section class="space-y-6 pt-4">
-        <h2 class="text-[13px] font-medium text-muted-foreground">Communication preferences</h2>
-        
-        <div class="space-y-6">
-          <div class="flex items-start justify-between">
-            <div class="pr-6">
-              <p class="text-[14px] font-medium text-foreground">Receive product updates</p>
-              <p class="text-[13px] text-muted-foreground mt-1">Receive early access to feature releases and success stories to optimize your workflow.</p>
-            </div>
-            <label class="relative inline-flex items-center cursor-pointer flex-shrink-0 mt-1">
-              <input type="checkbox" v-model="updatesEnabled" class="sr-only peer">
-              <div class="w-9 h-5 bg-border rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-primary"></div>
-            </label>
-          </div>
-          
-          <div class="flex items-start justify-between">
-            <div class="pr-6">
-              <p class="text-[14px] font-medium text-foreground">Email me when my queued task starts</p>
-              <p class="text-[13px] text-muted-foreground mt-1">When enabled, we'll send you a timely email once your task finishes queuing and begins processing.</p>
-            </div>
-            <label class="relative inline-flex items-center cursor-pointer flex-shrink-0 mt-1">
-              <input type="checkbox" v-model="emailEnabled" class="sr-only peer">
-              <div class="w-9 h-5 bg-border rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-primary"></div>
-            </label>
-          </div>
-        </div>
-      </section>
-      
       <hr class="border-border/30" />
       
       <!-- Session Management / Account Management -->
       <section>
         <div class="flex items-center justify-between py-1">
           <p class="text-[14px] font-medium text-foreground">Account management</p>
-          <div class="flex items-center gap-3">
-             <button
-               class="px-5 py-1.5 bg-card border border-border/80 hover:bg-muted text-foreground transition-colors rounded-xl text-[13px] font-medium"
-             >
-               Manage
-             </button>
+          <div class="flex items-center">
              <button
               @click="logout"
               class="px-5 py-1.5 bg-destructive/10 border border-transparent hover:border-destructive/20 text-destructive transition-colors rounded-xl text-[13px] font-medium"

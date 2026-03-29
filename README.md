@@ -170,6 +170,42 @@ cargo run -- onboard --api-key YOUR_OPENAI_KEY --provider openai --model gpt-5-m
 
 This path is faster, but the interactive onboarding flow is the better default for first setup.
 
+## Migrating from OpenClaw
+
+Gloamy can import memory from an existing OpenClaw workspace into your current Gloamy workspace.
+
+Preview the migration first:
+
+```bash
+cargo run -- migrate openclaw --dry-run
+```
+
+Run the import:
+
+```bash
+cargo run -- migrate openclaw
+```
+
+Use a custom OpenClaw workspace path if needed:
+
+```bash
+cargo run -- migrate openclaw --source /path/to/openclaw/workspace
+```
+
+What the migration does:
+
+- reads importable memory from `~/.openclaw/workspace` by default
+- imports entries from `memory/brain.db`, `MEMORY.md`, and `memory/*.md`
+- skips unchanged entries on re-run and renames conflicting keys deterministically
+- creates a backup of the target Gloamy memory before writing
+
+What it does not do:
+
+- it does not migrate arbitrary workspace files
+- it does not convert OpenClaw config into Gloamy `config.toml`
+
+If you want a safe preview of the candidate entries without writing data, use `--dry-run`.
+
 ## Desktop App
 
 This repository also includes a desktop application in [`desktop/`](desktop), built with Tauri (Rust backend) and Vue 3 (frontend).

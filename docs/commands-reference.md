@@ -185,6 +185,16 @@ Gloamy also ships built-in `docx`, `xlsx`, and `pptx` document skills. They are 
 
 - `gloamy migrate openclaw [--source <path>] [--dry-run]`
 
+`migrate openclaw` imports memory from an OpenClaw workspace into the current Gloamy workspace.
+
+- Default source path: `~/.openclaw/workspace`
+- Imported sources: `memory/brain.db`, `MEMORY.md`, `memory/*.md`
+- `--dry-run` previews candidate entries without writing data
+- Re-runs skip unchanged entries and rename conflicting keys deterministically
+- A backup of the target memory is created before writes
+
+This command does not migrate arbitrary workspace files and does not convert OpenClaw config into `config.toml`.
+
 ### `config`
 
 - `gloamy config schema`
