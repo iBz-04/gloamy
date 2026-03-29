@@ -22,7 +22,11 @@ pub use traits::{Observer, ObserverEvent};
 #[allow(unused_imports)]
 pub use verbose::VerboseObserver;
 
+use crate::config::schema::CostConfig;
 use crate::config::ObservabilityConfig;
+use crate::cost::CostTracker;
+use std::path::Path;
+use std::sync::Arc;
 
 /// Factory: create the right observer from config
 pub fn create_observer(config: &ObservabilityConfig) -> Box<dyn Observer> {
@@ -69,9 +73,50 @@ pub fn create_observer(config: &ObservabilityConfig) -> Box<dyn Observer> {
     }
 }
 
+/// Create an observer and wrap it with cost tracking when enabled.
+pub fn create_observer_with_cost(
+    observability_config: &ObservabilityConfig,
+    cost_config: &CostConfig,
+    workspace_dir: &Path,
+) -> (Arc<dyn Observer>, Option<Arc<CostTracker>>) {
+    let observer: Arc<dyn Observer> = Arc::from(create_observer(observability_config));
+    wrap_with_cost_tracking(observer, cost_config, workspace_dir)
+}
+
+/// Wrap an existing observer with cost tracking when enabled.
+pub fn wrap_with_cost_tracking(
+    observer: Arc<dyn Observer>,
+    cost_config: &CostConfig,
+    workspace_dir: &Path,
+) -> (Arc<dyn Observer>, Option<Arc<CostTracker>>) {
+    if !cost_config.enabled {
+        return (observer, None);
+    }
+
+    match CostTracker::new(cost_config.clone(), workspace_dir) {
+        Ok(tracker) => {
+            let tracker = Arc::new(tracker);
+            let wrapped: Arc<dyn Observer> = Arc::new(CostTrackingObserver::new(
+                observer,
+                Arc::clone(&tracker),
+                cost_config.prices.clone(),
+            ));
+            (wrapped, Some(tracker))
+        }
+        Err(e) => {
+            tracing::warn!("Failed to initialize cost tracker: {e}");
+            (observer, None)
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::config::schema::{CostConfig, ModelPricing};
+    use std::collections::HashMap;
+    use std::time::Duration;
+    use tempfile::TempDir;
 
     #[test]
     fn factory_none_returns_noop() {
@@ -182,5 +227,41 @@ mod tests {
             ..ObservabilityConfig::default()
         };
         assert_eq!(create_observer(&cfg).name(), "noop");
+    }
+
+    #[test]
+    fn wrap_with_cost_tracking_records_usage_when_enabled() {
+        let tmp = TempDir::new().unwrap();
+        let mut prices = HashMap::new();
+        prices.insert(
+            "openai/gpt-4".to_string(),
+            ModelPricing {
+                input: 1.0,
+                output: 2.0,
+            },
+        );
+        let cost = CostConfig {
+            enabled: true,
+            prices,
+            ..CostConfig::default()
+        };
+        let base: Arc<dyn Observer> = Arc::new(NoopObserver);
+
+        let (observer, tracker) = wrap_with_cost_tracking(base, &cost, tmp.path());
+        let tracker = tracker.expect("cost tracker should be created when enabled");
+
+        observer.record_event(&ObserverEvent::LlmResponse {
+            provider: "openai".into(),
+            model: "gpt-4".into(),
+            duration: Duration::from_millis(100),
+            success: true,
+            error_message: None,
+            input_tokens: Some(12),
+            output_tokens: Some(8),
+        });
+
+        let summary = tracker.get_summary().unwrap();
+        assert_eq!(summary.total_tokens, 20);
+        assert_eq!(summary.request_count, 1);
     }
 }

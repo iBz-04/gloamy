@@ -18,7 +18,7 @@ use crate::channels::{
 use crate::config::Config;
 use crate::cost::CostTracker;
 use crate::memory::{self, Memory, MemoryCategory};
-use crate::providers::{self, ChatMessage, Provider};
+use crate::providers::{self, ChatMessage, ChatRequest, Provider};
 use crate::runtime;
 use crate::security::pairing::{constant_time_eq, is_public_bind, PairingGuard};
 use crate::security::SecurityPolicy;
@@ -402,19 +402,6 @@ pub async fn run_gateway(host: &str, port: u16, config: Config) -> Result<()> {
     let tools_registry: Arc<Vec<ToolSpec>> =
         Arc::new(tools_registry_raw.iter().map(|t| t.spec()).collect());
 
-    // Cost tracker (optional)
-    let cost_tracker = if config.cost.enabled {
-        match CostTracker::new(config.cost.clone(), &config.workspace_dir) {
-            Ok(ct) => Some(Arc::new(ct)),
-            Err(e) => {
-                tracing::warn!("Failed to initialize cost tracker: {e}");
-                None
-            }
-        }
-    } else {
-        None
-    };
-
     // SSE broadcast channel for real-time events
     let (event_tx, _event_rx) = tokio::sync::broadcast::channel::<serde_json::Value>(256);
     // Extract webhook secret for authentication
@@ -627,6 +614,11 @@ pub async fn run_gateway(host: &str, port: u16, config: Config) -> Result<()> {
             crate::observability::create_observer(&config.observability),
             event_tx.clone(),
         ));
+    let (observer, cost_tracker) = crate::observability::wrap_with_cost_tracking(
+        broadcast_observer,
+        &config.cost,
+        &config.workspace_dir,
+    );
 
     let state = AppState {
         config: config_state,
@@ -647,7 +639,7 @@ pub async fn run_gateway(host: &str, port: u16, config: Config) -> Result<()> {
         nextcloud_talk: nextcloud_talk_channel,
         nextcloud_talk_webhook_secret,
         wati: wati_channel,
-        observer: broadcast_observer,
+        observer,
         tools_registry,
         cost_tracker,
         event_tx,
@@ -843,7 +835,10 @@ async fn persist_pairing_tokens(config: Arc<Mutex<Config>>, pairing: &PairingGua
 }
 
 /// Simple chat for webhook endpoint (no tools, for backward compatibility and testing).
-async fn run_gateway_chat_simple(state: &AppState, message: &str) -> anyhow::Result<String> {
+async fn run_gateway_chat_simple(
+    state: &AppState,
+    message: &str,
+) -> anyhow::Result<crate::providers::ChatResponse> {
     let user_messages = vec![ChatMessage::user(message)];
 
     // Keep webhook/gateway prompts aligned with channel behavior by injecting
@@ -870,7 +865,14 @@ async fn run_gateway_chat_simple(state: &AppState, message: &str) -> anyhow::Res
 
     state
         .provider
-        .chat_with_history(&prepared.messages, &state.model, state.temperature)
+        .chat(
+            ChatRequest {
+                messages: &prepared.messages,
+                tools: None,
+            },
+            &state.model,
+            state.temperature,
+        )
         .await
 }
 
@@ -1004,6 +1006,14 @@ async fn handle_webhook(
     match run_gateway_chat_simple(&state, message).await {
         Ok(response) => {
             let duration = started_at.elapsed();
+            let (input_tokens, output_tokens) = response
+                .usage
+                .as_ref()
+                .map(|usage| (usage.input_tokens, usage.output_tokens))
+                .unwrap_or((None, None));
+            let tokens_used = input_tokens
+                .zip(output_tokens)
+                .map(|(input, output)| input + output);
             state
                 .observer
                 .record_event(&crate::observability::ObserverEvent::LlmResponse {
@@ -1012,8 +1022,8 @@ async fn handle_webhook(
                     duration,
                     success: true,
                     error_message: None,
-                    input_tokens: None,
-                    output_tokens: None,
+                    input_tokens,
+                    output_tokens,
                 });
             state.observer.record_metric(
                 &crate::observability::traits::ObserverMetric::RequestLatency(duration),
@@ -1024,11 +1034,12 @@ async fn handle_webhook(
                     provider: provider_label,
                     model: model_label,
                     duration,
-                    tokens_used: None,
+                    tokens_used,
                     cost_usd: None,
                 });
 
-            let body = serde_json::json!({"response": response, "model": state.model});
+            let body =
+                serde_json::json!({"response": response.text_or_empty(), "model": state.model});
             (StatusCode::OK, Json(body))
         }
         Err(e) => {
@@ -1941,6 +1952,49 @@ mod tests {
     }
 
     #[derive(Default)]
+    struct UsageAwareProvider {
+        calls: AtomicUsize,
+    }
+
+    #[async_trait]
+    impl Provider for UsageAwareProvider {
+        async fn chat_with_system(
+            &self,
+            _system_prompt: Option<&str>,
+            _message: &str,
+            _model: &str,
+            _temperature: f64,
+        ) -> anyhow::Result<String> {
+            self.calls.fetch_add(1, Ordering::SeqCst);
+            Ok("ok".into())
+        }
+
+        async fn chat(
+            &self,
+            request: crate::providers::ChatRequest<'_>,
+            _model: &str,
+            _temperature: f64,
+        ) -> anyhow::Result<crate::providers::ChatResponse> {
+            self.calls.fetch_add(1, Ordering::SeqCst);
+            let message = request
+                .messages
+                .iter()
+                .rfind(|entry| entry.role == "user")
+                .map(|entry| entry.content.as_str())
+                .unwrap_or("");
+            Ok(crate::providers::ChatResponse {
+                text: Some(format!("echo: {message}")),
+                tool_calls: Vec::new(),
+                usage: Some(crate::providers::traits::TokenUsage {
+                    input_tokens: Some(21),
+                    output_tokens: Some(13),
+                }),
+                reasoning_content: None,
+            })
+        }
+    }
+
+    #[derive(Default)]
     struct TrackingMemory {
         keys: Mutex<Vec<String>>,
     }
@@ -2061,6 +2115,68 @@ mod tests {
         assert_eq!(parsed["status"], "duplicate");
         assert_eq!(parsed["idempotent"], true);
         assert_eq!(provider_impl.calls.load(Ordering::SeqCst), 1);
+    }
+
+    #[tokio::test]
+    async fn webhook_records_token_usage_when_cost_tracking_is_enabled() {
+        let temp = tempfile::tempdir().unwrap();
+        let provider_impl = Arc::new(UsageAwareProvider::default());
+        let provider: Arc<dyn Provider> = provider_impl.clone();
+        let memory: Arc<dyn Memory> = Arc::new(MockMemory);
+
+        let mut config = Config::default();
+        config.workspace_dir = temp.path().to_path_buf();
+        config.cost.enabled = true;
+
+        let (observer, cost_tracker) = crate::observability::create_observer_with_cost(
+            &config.observability,
+            &config.cost,
+            &config.workspace_dir,
+        );
+        let tracker = cost_tracker.expect("cost tracker should be enabled");
+
+        let state = AppState {
+            config: Arc::new(Mutex::new(config)),
+            provider,
+            model: "test-model".into(),
+            temperature: 0.0,
+            mem: memory,
+            auto_save: false,
+            webhook_secret_hash: None,
+            pairing: Arc::new(PairingGuard::new(false, &[])),
+            trust_forwarded_headers: false,
+            rate_limiter: Arc::new(GatewayRateLimiter::new(100, 100, 100)),
+            idempotency_store: Arc::new(IdempotencyStore::new(Duration::from_secs(300), 1000)),
+            whatsapp: None,
+            whatsapp_app_secret: None,
+            linq: None,
+            linq_signing_secret: None,
+            nextcloud_talk: None,
+            nextcloud_talk_webhook_secret: None,
+            wati: None,
+            observer,
+            tools_registry: Arc::new(Vec::new()),
+            cost_tracker: Some(Arc::clone(&tracker)),
+            event_tx: tokio::sync::broadcast::channel(16).0,
+        };
+
+        let response = handle_webhook(
+            State(state),
+            test_connect_info(),
+            HeaderMap::new(),
+            Ok(Json(WebhookBody {
+                message: "hello".into(),
+            })),
+        )
+        .await
+        .into_response();
+
+        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(provider_impl.calls.load(Ordering::SeqCst), 1);
+
+        let summary = tracker.get_summary().unwrap();
+        assert_eq!(summary.total_tokens, 34);
+        assert_eq!(summary.request_count, 1);
     }
 
     #[tokio::test]
