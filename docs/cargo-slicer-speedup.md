@@ -40,7 +40,7 @@ CARGO_SLICER_VIRTUAL=1 CARGO_SLICER_CODEGEN_FILTER=1 \
 
 # Build with MIR-precise analysis (more stubs, bigger savings)
 # Step 1: generate .mir-cache (first build with MIR_PRECISE)
-CARGO_SLICER_MIR_PRECISE=1 CARGO_SLICER_WORKSPACE_CRATES=gloamy,gloamy_robot_kit \
+CARGO_SLICER_MIR_PRECISE=1 CARGO_SLICER_WORKSPACE_CRATES=gloamy,gloamy_robot \
   CARGO_SLICER_VIRTUAL=1 CARGO_SLICER_CODEGEN_FILTER=1 \
   RUSTC_WRAPPER=$(which cargo_slicer_dispatch) \
   cargo +nightly build --release

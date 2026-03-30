@@ -1,9 +1,13 @@
-//! Robot configuration
+//! Robot-kit configuration types and file helpers.
+//!
+//! The sample [`RobotConfig`] in `robot.toml` is intentionally conservative:
+//! it defaults to mock motion and low-risk safety values so new deployments can
+//! validate the software path before enabling live hardware.
 
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 
-/// Robot hardware configuration
+/// Top-level configuration for the robot crate.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RobotConfig {
     /// Communication method with motor controller
@@ -22,9 +26,13 @@ pub struct RobotConfig {
     pub safety: SafetyConfig,
 }
 
+/// Drive subsystem settings.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DriveConfig {
-    /// "ros2", "gpio", "serial", or "mock"
+    /// Drive backend selector.
+    ///
+    /// Supported today: `"mock"`, `"serial"`, and `"ros2"`.
+    /// `"gpio"` is reserved for future direct board control.
     pub backend: String,
 
     /// ROS2 topic for cmd_vel (if using ROS2)
@@ -40,6 +48,7 @@ pub struct DriveConfig {
     pub max_rotation: f64,
 }
 
+/// Camera and vision settings.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CameraConfig {
     /// Camera device (e.g., "/dev/video0" or "picam")
@@ -56,6 +65,7 @@ pub struct CameraConfig {
     pub ollama_url: String,
 }
 
+/// Audio capture and playback settings.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AudioConfig {
     /// Microphone device (ALSA name or "default")
@@ -77,12 +87,13 @@ pub struct AudioConfig {
     pub piper_voice: String,
 }
 
+/// Sensor input settings.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SensorConfig {
     /// LIDAR device (e.g., "/dev/ttyUSB0")
     pub lidar_port: String,
 
-    /// LIDAR type ("rplidar", "ydlidar", "mock")
+    /// Scan source type (`"rplidar"`, `"ros2"`, or `"mock"`)
     pub lidar_type: String,
 
     /// GPIO pins for motion sensors (BCM numbering)
@@ -92,6 +103,7 @@ pub struct SensorConfig {
     pub ultrasonic_pins: Option<(u8, u8)>,
 }
 
+/// Movement safety and operator-guard settings.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SafetyConfig {
     /// Minimum obstacle distance before auto-stop (meters)
@@ -202,13 +214,13 @@ impl Default for RobotConfig {
 }
 
 impl RobotConfig {
-    /// Load from TOML file
+    /// Load a [`RobotConfig`] from a TOML file such as `~/.gloamy/robot.toml`.
     pub fn load(path: &std::path::Path) -> anyhow::Result<Self> {
         let content = std::fs::read_to_string(path)?;
         Ok(toml::from_str(&content)?)
     }
 
-    /// Save to TOML file
+    /// Persist this configuration as pretty TOML.
     pub fn save(&self, path: &std::path::Path) -> anyhow::Result<()> {
         let content = toml::to_string_pretty(self)?;
         std::fs::write(path, content)?;

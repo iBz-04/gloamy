@@ -1,6 +1,6 @@
-//! Integration tests for robot kit
+//! Integration tests for the robot crate.
 //!
-//! These tests verify the robot kit works correctly in various configurations:
+//! These tests verify the robot crate works correctly in various configurations:
 //! - Mock mode (no hardware) - for CI/development
 //! - Hardware simulation - for testing real scenarios
 //! - Live hardware - for on-device validation

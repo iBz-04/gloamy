@@ -1,10 +1,13 @@
-//! Drive Tool - Motor control for omni-directional movement
+//! Movement tool implementations.
 //!
-//! Supports multiple backends:
-//! - ROS2: Publishes geometry_msgs/Twist to cmd_vel topic
-//! - GPIO: Direct PWM control via rppal
-//! - Serial: Arduino/motor controller via serial commands
-//! - Mock: Logs commands for testing
+//! The current crate supports three concrete execution paths:
+//!
+//! - `mock`: log movement commands without touching hardware
+//! - `serial`: write text commands to a motor-controller serial port
+//! - `ros2`: shell out to the `ros2` CLI and publish `geometry_msgs/Twist`
+//!
+//! Direct GPIO drive control is intentionally left explicit and is not wired in
+//! yet, even though the configuration surface reserves room for it.
 
 use crate::config::RobotConfig;
 use crate::traits::{Tool, ToolResult};
@@ -177,7 +180,7 @@ impl DriveBackend for SerialDrive {
     }
 }
 
-/// Main Drive Tool
+/// Tool that exposes base movement commands.
 pub struct DriveTool {
     config: RobotConfig,
     backend: Arc<dyn DriveBackend>,
@@ -244,6 +247,10 @@ impl Tool for DriveTool {
                 "angular_z": {
                     "type": "number",
                     "description": "Custom: rotation velocity (-1.0 to 1.0)"
+                },
+                "duration_ms": {
+                    "type": "integer",
+                    "description": "Custom only: how long to apply the custom velocity command."
                 }
             },
             "required": ["action"]

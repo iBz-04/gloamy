@@ -1,7 +1,7 @@
-//! Look Tool - Camera capture + vision model description
+//! Camera capture and scene-description tools.
 //!
-//! Captures an image from the camera and optionally describes it
-//! using a local vision model (LLaVA, Moondream) via Ollama.
+//! `LookTool` first captures a frame locally and then optionally sends that
+//! image to an Ollama-served vision model for description or object finding.
 
 use crate::config::RobotConfig;
 use crate::traits::{Tool, ToolResult};
@@ -10,6 +10,7 @@ use async_trait::async_trait;
 use serde_json::{json, Value};
 use std::path::PathBuf;
 
+/// Tool that captures images and optionally describes them.
 pub struct LookTool {
     config: RobotConfig,
     capture_dir: PathBuf,

@@ -1,7 +1,8 @@
-//! Sense Tool - LIDAR, motion sensors, ultrasonic distance
+//! Sensor reading and obstacle-awareness tools.
 //!
-//! Provides environmental awareness through various sensors.
-//! Supports multiple backends: direct GPIO, ROS2 topics, or mock.
+//! `SenseTool` combines a few low-level input paths behind one tool surface:
+//! mock scans for dry runs, helper-binary-backed LIDAR reads, ROS2 scan reads,
+//! simple GPIO/sysfs motion checks, and optional ultrasonic distance probing.
 
 use crate::config::RobotConfig;
 use crate::traits::{Tool, ToolResult};
@@ -22,13 +23,14 @@ pub struct LidarScan {
     pub forward_clear: bool,
 }
 
-/// Motion detection result
+/// Motion detection result.
 #[derive(Debug, Clone)]
 pub struct MotionResult {
     pub detected: bool,
     pub sensors_triggered: Vec<u8>,
 }
 
+/// Tool that reports the robot's current sensor state.
 pub struct SenseTool {
     config: RobotConfig,
     last_scan: Arc<Mutex<Option<LidarScan>>>,

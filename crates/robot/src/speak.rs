@@ -1,7 +1,7 @@
-//! Speak Tool - Text-to-speech via Piper
+//! Speech synthesis and sound playback tools.
 //!
-//! Converts text to speech using Piper TTS (fast, offline, runs on Pi).
-//! Plays audio through the speaker.
+//! `SpeakTool` uses Piper for local text-to-speech and falls back across common
+//! Linux audio players for output. It can also play simple canned sound files.
 
 use crate::config::RobotConfig;
 use crate::traits::{Tool, ToolResult};
@@ -10,6 +10,7 @@ use async_trait::async_trait;
 use serde_json::{json, Value};
 use std::path::PathBuf;
 
+/// Tool that speaks text or plays short sound effects.
 pub struct SpeakTool {
     config: RobotConfig,
     audio_dir: PathBuf,

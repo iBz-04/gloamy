@@ -1,7 +1,8 @@
-//! Emote Tool - LED expressions and sound effects
+//! Expression and non-verbal feedback tools.
 //!
-//! Control LED matrix/strips for robot "expressions" and play sounds.
-//! Makes the robot more engaging for kids!
+//! `EmoteTool` provides a lightweight way to mirror the robot state through LED
+//! patterns, short animations, and optional sound effects. The implementation
+//! stays permissive: missing LED hardware logs the request instead of crashing.
 
 use crate::config::RobotConfig;
 use crate::traits::{Tool, ToolResult};
@@ -10,7 +11,7 @@ use async_trait::async_trait;
 use serde_json::{json, Value};
 use std::path::PathBuf;
 
-/// Predefined LED expressions
+/// Predefined LED expressions.
 #[derive(Debug, Clone, Copy)]
 pub enum Expression {
     Happy,     // :)
@@ -114,6 +115,7 @@ impl Expression {
     }
 }
 
+/// Tool that renders simple robot expressions.
 pub struct EmoteTool {
     #[allow(dead_code)]
     config: RobotConfig,

@@ -1,7 +1,8 @@
-//! Listen Tool - Speech-to-text via Whisper.cpp
+//! Speech capture and transcription tools.
 //!
-//! Records audio from microphone and transcribes using local Whisper model.
-//! Designed for offline operation on Raspberry Pi.
+//! `ListenTool` records a short clip with `arecord` and then transcribes it
+//! with a local `whisper.cpp` binary. The implementation is intentionally
+//! offline-friendly and aimed at Raspberry Pi-class deployments.
 
 use crate::config::RobotConfig;
 use crate::traits::{Tool, ToolResult};
@@ -10,6 +11,7 @@ use async_trait::async_trait;
 use serde_json::{json, Value};
 use std::path::{Path, PathBuf};
 
+/// Tool that records a short clip and returns the transcript.
 pub struct ListenTool {
     config: RobotConfig,
     recordings_dir: PathBuf,
@@ -134,10 +136,6 @@ impl Tool for ListenTool {
                     "description": "Recording duration in seconds. Default 5, max 30.",
                     "minimum": 1,
                     "maximum": 30
-                },
-                "prompt": {
-                    "type": "string",
-                    "description": "Optional context hint for transcription (e.g., 'The speaker is a child')"
                 }
             }
         })

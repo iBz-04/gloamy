@@ -1,13 +1,14 @@
-//! Tool trait definition
+//! Lightweight tool contracts used by `gloamy-robot`.
 //!
-//! This defines the interface that all robot tools implement.
-//! It is compatible with Gloamy's Tool trait but standalone.
+//! The trait shape intentionally mirrors the main Gloamy tool surface, but this
+//! crate keeps its own contract so it can remain usable without a direct
+//! dependency on the root runtime.
 
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-/// Result of a tool execution
+/// Standard result returned by robot tools.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ToolResult {
     /// Whether the tool executed successfully
@@ -47,7 +48,7 @@ impl ToolResult {
     }
 }
 
-/// Description of a tool for LLM function calling
+/// Serializable tool registration payload for LLM/tool-call adapters.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ToolSpec {
     /// Tool name (used in function calls)
@@ -58,7 +59,7 @@ pub struct ToolSpec {
     pub parameters: Value,
 }
 
-/// Core tool trait
+/// Core tool trait for robot capabilities.
 ///
 /// Implement this trait to create a new tool that can be used
 /// by an AI agent to interact with the robot hardware.
@@ -66,7 +67,7 @@ pub struct ToolSpec {
 /// # Example
 ///
 /// ```rust,ignore
-/// use gloamy_robot_kit::{Tool, ToolResult};
+/// use gloamy_robot::{Tool, ToolResult};
 /// use async_trait::async_trait;
 /// use serde_json::{json, Value};
 ///
@@ -96,23 +97,19 @@ pub struct ToolSpec {
 /// ```
 #[async_trait]
 pub trait Tool: Send + Sync {
-    /// Tool name (used in LLM function calling)
+    /// Stable tool name used by the caller.
     fn name(&self) -> &str;
 
-    /// Human-readable description of what this tool does
+    /// Human-readable summary of what the tool does.
     fn description(&self) -> &str;
 
-    /// JSON Schema describing the tool's parameters
-    ///
-    /// This is used by the LLM to understand how to call the tool.
+    /// JSON Schema describing the tool's accepted arguments.
     fn parameters_schema(&self) -> Value;
 
-    /// Execute the tool with the given arguments
-    ///
-    /// Arguments are passed as JSON matching the parameters_schema.
+    /// Execute the tool with JSON arguments that match [`Self::parameters_schema`].
     async fn execute(&self, args: Value) -> anyhow::Result<ToolResult>;
 
-    /// Get the full specification for LLM registration
+    /// Build the full tool registration payload.
     fn spec(&self) -> ToolSpec {
         ToolSpec {
             name: self.name().to_string(),

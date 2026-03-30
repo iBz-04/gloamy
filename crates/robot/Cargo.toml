@@ -1,29 +1,28 @@
 [package]
-name = "gloamy-robot-kit"
+name = "gloamy-robot"
 version = "0.1.0"
 edition = "2021"
-authors = ["theonlyhennygod"]
+authors = ["iBz-04"]
 license = "MIT OR Apache-2.0"
-description = "Robot control toolkit for Gloamy - drive, vision, speech, sensors, safety"
+description = "Standalone robot crate for Gloamy with drive, sensing, speech, vision, and safety helpers."
 repository = "https://github.com/iBz-04/gloamy"
+documentation = "https://docs.rs/gloamy-robot"
 readme = "README.md"
-keywords = ["robotics", "raspberry-pi", "ai", "agent", "ros2"]
+keywords = ["robotics", "raspberry-pi", "agent-runtime", "hardware", "ollama"]
 categories = ["science::robotics", "embedded", "hardware-support"]
+rust-version = "1.87"
 
 [features]
 default = ["safety"]
-# Core features
-safety = []           # Safety monitor (recommended!)
-ros2 = []             # ROS2 integration
-gpio = ["dep:rppal"]  # Direct GPIO control (Pi only)
-# Optional hardware
-lidar = []            # LIDAR support
-vision = []           # Camera + vision model
+# Core crate capabilities
+safety = []           # Enables SafetyMonitor and the SafeDrive wrapper.
+ros2 = []             # Marks ROS2-oriented integrations; current backends shell out to `ros2`.
+gpio = ["dep:rppal"]  # Enables Linux-only GPIO dependency for direct board integrations.
+# Capability markers for downstream gating
+lidar = []            # Reserved for LIDAR-specific downstream integrations.
+vision = []           # Reserved for vision-specific downstream integrations.
 
 [dependencies]
-# Re-use gloamy's tool trait (optional - can also be standalone)
-# gloamy = { path = "../..", optional = true }
-
 # Async runtime
 tokio = { version = "1.42", features = ["rt-multi-thread", "macros", "time", "sync", "process", "fs", "io-util"] }
 

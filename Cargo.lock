@@ -3379,7 +3379,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "gloamy-robot-kit"
+name = "gloamy-robot"
 version = "0.1.0"
 dependencies = [
  "anyhow",

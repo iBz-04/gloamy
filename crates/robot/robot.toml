@@ -1,11 +1,17 @@
-# Gloamy Robot Kit Configuration
-# Copy to ~/.gloamy/robot.toml
+# Gloamy Robot Configuration
+# Copy this file to ~/.gloamy/robot.toml and then trim it to match your hardware.
+# The defaults below favor mock mode and conservative limits so you can test the
+# software path before enabling real motors or live sensors.
 
 # =============================================================================
 # DRIVE SYSTEM
 # =============================================================================
 [drive]
-# Backend: "ros2", "serial", "gpio", or "mock"
+# Backend used by DriveTool today:
+# - "mock"   for safe dry runs and tests
+# - "serial" for an Arduino or motor controller that accepts text commands
+# - "ros2"   for ROS2 cmd_vel publishing through the `ros2` CLI
+# - "gpio"   is reserved for direct board control and is not wired in yet
 backend = "mock"
 
 # ROS2 settings (if backend = "ros2")
@@ -28,11 +34,11 @@ max_rotation = 1.0
 # - "picam" for Raspberry Pi Camera Module
 device = "/dev/video0"
 
-# Resolution (lower = faster processing on Pi)
+# Capture resolution (lower is faster on a Pi)
 width = 640
 height = 480
 
-# Vision model for describing what the robot sees
+# Vision model name served by Ollama for describing what the robot sees
 # - "moondream" (small, fast, good for Pi)
 # - "llava" (larger, more accurate)
 # - "none" (disable vision description)
@@ -45,7 +51,7 @@ ollama_url = "http://localhost:11434"
 # AUDIO (SPEECH)
 # =============================================================================
 [audio]
-# ALSA device names (use "arecord -l" and "aplay -l" to find)
+# ALSA device names (use `arecord -l` and `aplay -l` to inspect your system)
 mic_device = "default"
 speaker_device = "default"
 
@@ -55,10 +61,10 @@ speaker_device = "default"
 # - "small" (better accuracy, slower)
 whisper_model = "base"
 
-# Path to whisper.cpp binary
+# Path to the whisper.cpp executable
 whisper_path = "/usr/local/bin/whisper-cpp"
 
-# Piper TTS settings
+# Piper TTS executable and voice name
 piper_path = "/usr/local/bin/piper"
 piper_voice = "en_US-lessac-medium"
 
@@ -66,17 +72,21 @@ piper_voice = "en_US-lessac-medium"
 # SENSORS
 # =============================================================================
 [sensors]
-# LIDAR configuration
-# - "/dev/ttyUSB0" for RPLidar
-# - "mock" for testing without hardware
+# LIDAR connection
+# - "/dev/ttyUSB0" is typical for RPLidar on Linux
 lidar_port = "/dev/ttyUSB0"
-lidar_type = "mock"  # "rplidar", "ydlidar", "ros2", or "mock"
+
+# Scan source used by SenseTool today:
+# - "mock"    for testing without hardware
+# - "rplidar" through an external `rplidar_scan` helper
+# - "ros2"    through `ros2 topic echo --once /scan`
+lidar_type = "mock"
 
 # PIR motion sensor GPIO pins (BCM numbering)
 motion_pins = [17, 27]
 
-# HC-SR04 ultrasonic sensor pins (trigger, echo)
-# Set to null to disable
+# HC-SR04 ultrasonic sensor pins as [trigger, echo]
+# Set to null to disable the ultrasonic helper path
 ultrasonic_pins = [23, 24]
 
 # =============================================================================
@@ -113,8 +123,7 @@ bump_sensor_pins = [5, 6]
 # Robot backs up this far after hitting something
 bump_reverse_distance = 0.15
 
-# Enable trajectory prediction (requires LIDAR)
-# Calculates if current path will intersect obstacle
+# Enable trajectory prediction when your deployment provides the data for it
 predict_collisions = true
 
 # --- WATCHDOG / FAILSAFE ---
@@ -129,8 +138,8 @@ max_drive_duration = 30
 # Prevents blind movement if sensors fail
 sensor_timeout_secs = 5
 
-# Speed limit when sensors unavailable (0.0 - 1.0)
-# Extra caution when "flying blind"
+# Speed limit to use when your deployment chooses to allow degraded movement
+# without full sensor confidence
 blind_mode_speed_limit = 0.2
 
 # --- EMERGENCY STOP ---

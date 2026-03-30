@@ -1,20 +1,16 @@
-//! Safety System - Collision avoidance, watchdogs, and emergency stops
+//! Safety monitor and movement-gating utilities.
 //!
-//! This module runs INDEPENDENTLY of the AI brain to ensure safety
-//! even if the LLM makes bad decisions or hangs.
+//! This module is designed to stay independent from the LLM control loop.
+//! Movement requests may originate from an agent, but approval, rate limiting,
+//! obstacle tracking, and emergency-stop behavior live here.
 //!
-//! ## Safety Layers
+//! Safety order of operations:
 //!
-//! 1. **Pre-move checks** - Verify path clear before any movement
-//! 2. **Active monitoring** - Continuous sensor polling during movement
-//! 3. **Reactive stops** - Instant halt on obstacle detection
-//! 4. **Watchdog timer** - Auto-stop if no commands for N seconds
-//! 5. **Hardware E-stop** - Physical button overrides everything
-//!
-//! ## Design Philosophy
-//!
-//! The AI can REQUEST movement, but the safety system ALLOWS it.
-//! Safety always wins.
+//! 1. pre-move checks
+//! 2. live sensor updates
+//! 3. reactive blocking and recovery
+//! 4. watchdog notifications
+//! 5. hardware emergency-stop override
 
 use crate::config::{RobotConfig, SafetyConfig};
 use crate::traits::ToolResult;
@@ -43,7 +39,7 @@ pub enum SafetyEvent {
     Recovered,
 }
 
-/// Real-time safety state
+/// Shared real-time safety state.
 pub struct SafetyState {
     /// Is it safe to move?
     pub can_move: AtomicBool,
@@ -72,7 +68,7 @@ impl Default for SafetyState {
     }
 }
 
-/// Safety monitor - runs as background task
+/// Background safety monitor that tracks movement eligibility.
 pub struct SafetyMonitor {
     config: SafetyConfig,
     state: Arc<SafetyState>,
@@ -176,15 +172,17 @@ impl SafetyMonitor {
     /// Calculate safe speed based on obstacle proximity
     async fn calculate_speed_limit(&self, obstacle_distance: f64) -> f64 {
         let min_dist = self.config.min_obstacle_distance;
-        let slow_zone = min_dist * 3.0; // Start slowing at 3x minimum distance
+        let slow_zone = (min_dist * self.config.slow_zone_multiplier).max(min_dist);
+        let approach_cap = self.config.approach_speed_limit.clamp(0.0, 1.0);
 
         let limit = if obstacle_distance >= slow_zone {
             1.0 // Full speed
         } else if obstacle_distance <= min_dist {
             0.0 // Stop
         } else {
-            // Linear interpolation between stop and full speed
-            (obstacle_distance - min_dist) / (slow_zone - min_dist)
+            // Linear interpolation between stop and the configured approach cap.
+            let ratio = (obstacle_distance - min_dist) / (slow_zone - min_dist);
+            ratio * approach_cap
         };
 
         *self.state.speed_limit.write().await = limit;
@@ -301,7 +299,9 @@ impl SafetyMonitor {
                 // Watchdog check every second
                 _ = tokio::time::sleep(Duration::from_secs(1)) => {
                     // Check for sensor timeout
-                    if last_sensor_update.elapsed() > Duration::from_secs(5) {
+                    if last_sensor_update.elapsed()
+                        > Duration::from_secs(self.config.sensor_timeout_secs)
+                    {
                         tracing::warn!("Sensor data stale - blocking movement");
                         self.state.can_move.store(false, Ordering::SeqCst);
                         *self.state.block_reason.write().await =
@@ -329,7 +329,7 @@ impl SafetyMonitor {
     }
 }
 
-/// Sensor readings fed to safety monitor
+/// Sensor readings fed into the safety monitor loop.
 #[derive(Debug, Clone)]
 pub enum SensorReading {
     Lidar { distance: f64, angle: u16 },
@@ -337,8 +337,7 @@ pub enum SensorReading {
     Estop { pressed: bool },
 }
 
-/// Safety-aware drive wrapper
-/// Wraps the drive tool to enforce safety limits
+/// Drive wrapper that enforces movement approval through [`SafetyMonitor`].
 pub struct SafeDrive {
     inner_drive: Arc<dyn crate::traits::Tool>,
     safety: Arc<SafetyMonitor>,
@@ -482,6 +481,8 @@ mod tests {
     async fn speed_limit_calculation() {
         let config = SafetyConfig {
             min_obstacle_distance: 0.3,
+            slow_zone_multiplier: 3.0,
+            approach_speed_limit: 0.3,
             ..Default::default()
         };
         let (monitor, _rx) = SafetyMonitor::new(config);
@@ -494,6 +495,7 @@ mod tests {
         let speed = monitor.calculate_speed_limit(0.5).await;
         assert!(speed < 1.0);
         assert!(speed > 0.0);
+        assert!(speed <= 0.3);
 
         // At minimum = stop
         let speed = monitor.calculate_speed_limit(0.3).await;

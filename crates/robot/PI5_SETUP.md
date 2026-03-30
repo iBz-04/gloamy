@@ -167,17 +167,17 @@ sudo usermod -aG dialout $USER
 # Logout and login for group change to take effect
 ```
 
-### 7. Build Gloamy Robot Kit
+### 7. Build Gloamy Robot
 
 ```bash
 # Clone repo (or copy from USB)
-git clone https://github.com/theonlyhennygod/gloamy
+git clone https://github.com/iBz-04/gloamy
 cd gloamy
 
-# Build robot kit
-cargo build --release -p gloamy-robot-kit
+# Build the standalone robot crate
+cargo build --release -p gloamy-robot
 
-# Build main gloamy (optional, if using as agent)
+# Build the main gloamy binary too if you want to experiment with the root runtime
 cargo build --release
 ```
 
@@ -187,6 +187,7 @@ cargo build --release
 
 ```bash
 mkdir -p ~/.gloamy
+cp crates/robot/robot.toml ~/.gloamy/robot.toml
 nano ~/.gloamy/robot.toml
 ```
 
@@ -373,7 +374,7 @@ workspace_only = true
 EOF
 
 # Copy robot personality
-cp ~/gloamy/crates/robot-kit/SOUL.md ~/.gloamy/workspace/
+cp ~/gloamy/crates/robot/SOUL.md ~/.gloamy/workspace/
 
 # Start agent
 ./target/release/gloamy agent

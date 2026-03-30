@@ -75,6 +75,18 @@ High-level repository map:
 - Swappable providers, channels, memory backends, and tools
 - Deterministic, Rust-first deployment model
 
+## Optional Robot
+
+The repository also includes [`crates/robot`](crates/robot), a standalone robot-control crate for motion, sensing, speech, vision, simple robot expression, and safety-gated drive control.
+
+Use it when you want to experiment with Raspberry Pi or robot hardware integrations without wiring those surfaces directly into the main runtime. It is a workspace member, but it is not auto-registered into `gloamy`'s core tool factory.
+
+Start here:
+
+- [`crates/robot/README.md`](crates/robot/README.md) for the crate surface and integration model
+- [`crates/robot/robot.toml`](crates/robot/robot.toml) for the sample configuration
+- [`crates/robot/PI5_SETUP.md`](crates/robot/PI5_SETUP.md) for Raspberry Pi 5 setup notes
+
 ## Quick Start
 
 ### Prerequisites
