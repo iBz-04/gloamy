@@ -3,10 +3,10 @@ use crate::config::schema::{
     NextcloudTalkConfig, NostrConfig, QQConfig, SignalConfig, StreamMode, WhatsAppConfig,
 };
 use crate::config::{
-    AutonomyConfig, BrowserConfig, ChannelsConfig, ComposioConfig, Config, DiscordConfig,
-    HeartbeatConfig, IMessageConfig, LarkConfig, MatrixConfig, MemoryConfig, ObservabilityConfig,
-    OneConfig, RuntimeConfig, SecretsConfig, SlackConfig, StorageConfig, TelegramConfig,
-    WebhookConfig,
+    AutonomyConfig, BrowserConfig, ChannelsConfig, ComposioConfig, Config, DelegateAgentConfig,
+    DiscordConfig, HeartbeatConfig, IMessageConfig, LarkConfig, MatrixConfig, MemoryConfig,
+    ObservabilityConfig, OneConfig, RuntimeConfig, SecretsConfig, SlackConfig, StorageConfig,
+    TelegramConfig, WebhookConfig,
 };
 use crate::hardware::{self, HardwareConfig};
 use crate::memory::{
@@ -37,6 +37,61 @@ pub struct ProjectContext {
     pub timezone: String,
     pub agent_name: String,
     pub communication_style: String,
+}
+
+/// Default sub-agents for delegation - users just need to plug in API keys
+fn default_sub_agents() -> std::collections::HashMap<String, DelegateAgentConfig> {
+    let mut agents = std::collections::HashMap::new();
+
+    // Research agent - good for web searches and information gathering
+    agents.insert(
+        "researcher".into(),
+        DelegateAgentConfig {
+            provider: "openai".into(),
+            model: "gpt-4o-mini".into(),
+            system_prompt: Some("You are a research assistant. Search the web, gather information, and provide concise summaries. Focus on accuracy and cite sources when possible.".into()),
+            api_key: None,
+            temperature: Some(0.3),
+            max_depth: 2,
+            agentic: true,
+            allowed_tools: vec!["web_search".into(), "web_fetch".into(), "memory_store".into()],
+            max_iterations: 10,
+        },
+    );
+
+    // Coder agent - for code generation and analysis
+    agents.insert(
+        "coder".into(),
+        DelegateAgentConfig {
+            provider: "openai".into(),
+            model: "gpt-4o".into(),
+            system_prompt: Some("You are an expert programmer. Write clean, efficient code. Follow best practices and include error handling. Explain your code when asked.".into()),
+            api_key: None,
+            temperature: Some(0.2),
+            max_depth: 3,
+            agentic: true,
+            allowed_tools: vec!["file_read".into(), "file_write".into(), "shell".into()],
+            max_iterations: 15,
+        },
+    );
+
+    // Writer agent - for content creation
+    agents.insert(
+        "writer".into(),
+        DelegateAgentConfig {
+            provider: "anthropic".into(),
+            model: "claude-sonnet-4-20250514".into(),
+            system_prompt: Some("You are a skilled writer. Create clear, engaging content. Adapt your tone to the context. Be concise but thorough.".into()),
+            api_key: None,
+            temperature: Some(0.7),
+            max_depth: 2,
+            agentic: false,
+            allowed_tools: vec![],
+            max_iterations: 5,
+        },
+    );
+
+    agents
 }
 
 // ── Banner ───────────────────────────────────────────────────────
@@ -159,7 +214,7 @@ pub async fn run_wizard(force: bool) -> Result<Config> {
         identity: crate::config::IdentityConfig::default(),
         cost: crate::config::CostConfig::default(),
         peripherals: crate::config::PeripheralsConfig::default(),
-        agents: std::collections::HashMap::new(),
+        agents: default_sub_agents(),
         hooks: crate::config::HooksConfig::default(),
         hardware: hardware_config,
         query_classification: crate::config::QueryClassificationConfig::default(),
@@ -167,9 +222,9 @@ pub async fn run_wizard(force: bool) -> Result<Config> {
     };
 
     println!(
-        "  {} Security: {} | workspace-scoped",
+        "  {} Security: {} | full autonomy",
         style("✓").green().bold(),
-        style("Supervised").green()
+        style("Full").green()
     );
     println!(
         "  {} Memory: {} (auto-save: {})",
@@ -511,7 +566,7 @@ async fn run_quick_setup_with_home(
         identity: crate::config::IdentityConfig::default(),
         cost: crate::config::CostConfig::default(),
         peripherals: crate::config::PeripheralsConfig::default(),
-        agents: std::collections::HashMap::new(),
+        agents: default_sub_agents(),
         hooks: crate::config::HooksConfig::default(),
         hardware: crate::config::HardwareConfig::default(),
         query_classification: crate::config::QueryClassificationConfig::default(),

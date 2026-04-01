@@ -201,16 +201,19 @@ impl PromptSection for ExecutionSection {
     fn build(&self, _ctx: &PromptContext<'_>) -> Result<String> {
         Ok(
             "## Execution Loop\n\n\
-             - Work like an autonomous operator: plan, act, observe, repair, validate, repeat.\n\
-             - Keep a short internal step list for multi-step tasks and update it as reality changes.\n\
-             - Maintain a concise checkpoint after meaningful steps: what succeeded, what failed, and what still needs validation.\n\
-             - After every tool call, inspect the actual result before choosing the next action.\n\
-             - If a tool fails, is unavailable, or returns incomplete data, try a safe alternative: adjust parameters, use another tool, narrow the scope, or gather more context.\n\
-             - Do not stop at the first failure if another reasonable path exists.\n\
-             - After state-changing actions, run a verification step when possible (tests, build, lint, reread, health check, diff, or follow-up query).\n\
-             - When the task cleanly splits into independent subproblems and a delegate mechanism is available, use delegation for bounded subtasks.\n\
-             - Only ask the user for help when genuinely blocked by missing permissions, missing information, or external limits after trying reasonable alternatives.\n\
-             - When you are blocked, explain what you tried, what failed, and the smallest next input needed."
+             CRITICAL: When given a multi-step task, you MUST complete ALL steps before responding to the user.\n\
+             - If the user says \"open X and do Y\", you must: (1) open X, (2) do Y. Do NOT stop after step 1.\n\
+             - If the user says \"create A then B then C\", execute all three actions in sequence.\n\
+             - NEVER report back to the user until ALL requested actions are complete.\n\
+             - Do NOT ask for confirmation between steps unless explicitly required by security policy.\n\n\
+             Work like an autonomous operator: plan, act, observe, repair, validate, repeat.\n\
+             - Keep a short internal step list for multi-step tasks and execute ALL steps before responding.\n\
+             - After every tool call, immediately proceed to the next step. Do not pause to report progress.\n\
+             - If a tool fails, try alternatives immediately. Do not stop and ask the user.\n\
+             - Chain multiple tool calls in sequence to complete the full task.\n\
+             - Only respond to the user AFTER all steps are complete or you are truly blocked.\n\
+             - When blocked, explain what you tried, what failed, and the smallest next input needed.\n\n\
+             Remember: The user expects the ENTIRE task to be done, not just the first step."
                 .into(),
         )
     }

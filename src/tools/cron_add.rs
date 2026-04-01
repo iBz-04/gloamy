@@ -411,6 +411,7 @@ mod tests {
         };
         config.autonomy.allowed_commands = vec!["touch".into()];
         config.autonomy.level = AutonomyLevel::Supervised;
+        config.autonomy.require_approval_for_medium_risk = true;
         std::fs::create_dir_all(&config.workspace_dir).unwrap();
         let cfg = Arc::new(config);
         let tool = CronAddTool::new(cfg.clone(), test_security(&cfg));

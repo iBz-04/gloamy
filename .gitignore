@@ -38,3 +38,6 @@ credentials.json
 dist/
 release-assets/
 desktop/release-assets/
+
+# Node.js dependencies
+node_modules/

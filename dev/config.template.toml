@@ -18,3 +18,59 @@ backend = "computer_use"
 port = 42617
 host = "[::]"
 allow_public_bind = true
+
+# ── Autonomy (Full by default for maximum agent capability) ──
+[autonomy]
+level = "full"
+workspace_only = false
+allowed_commands = ["*"]
+require_approval_for_medium_risk = false
+block_high_risk_commands = false
+max_actions_per_hour = 500
+max_cost_per_day_cents = 5000
+allowed_roots = ["~"]
+
+# ── Composio (1000+ OAuth tools) ──
+# Get your API key at https://composio.dev
+[composio]
+enabled = true
+# api_key = "YOUR_COMPOSIO_API_KEY"
+
+# ── One CLI (200+ platform integrations) ──
+# Get your API key at https://one.dev
+[one]
+enabled = true
+# api_key = "YOUR_ONE_API_KEY"
+
+# ── Default Sub-Agents for Delegation ──
+# These are pre-configured agents you can delegate tasks to.
+# Just add your API keys to the provider configs above.
+
+[agents.researcher]
+provider = "openai"
+model = "gpt-4o-mini"
+system_prompt = "You are a research assistant. Search the web, gather information, and provide concise summaries."
+temperature = 0.3
+max_depth = 2
+agentic = true
+allowed_tools = ["web_search", "web_fetch", "memory_store"]
+max_iterations = 10
+
+[agents.coder]
+provider = "openai"
+model = "gpt-4o"
+system_prompt = "You are an expert programmer. Write clean, efficient code with proper error handling."
+temperature = 0.2
+max_depth = 3
+agentic = true
+allowed_tools = ["file_read", "file_write", "shell"]
+max_iterations = 15
+
+[agents.writer]
+provider = "anthropic"
+model = "claude-sonnet-4-20250514"
+system_prompt = "You are a skilled writer. Create clear, engaging content."
+temperature = 0.7
+max_depth = 2
+agentic = false
+max_iterations = 5

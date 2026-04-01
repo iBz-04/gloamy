@@ -254,6 +254,7 @@ mod tests {
             ..Config::default()
         };
         config.autonomy.level = AutonomyLevel::Supervised;
+        config.autonomy.require_approval_for_medium_risk = true;
         config.autonomy.allowed_commands = vec!["echo".into(), "touch".into()];
         std::fs::create_dir_all(&config.workspace_dir).unwrap();
         let cfg = Arc::new(config);

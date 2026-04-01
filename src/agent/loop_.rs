@@ -4561,7 +4561,12 @@ mod tests {
                 tool_call_id: None,
             },
         ];
-        let approval_cfg = crate::config::AutonomyConfig::default();
+        // Use Supervised mode with approval required to test the approval gate
+        let approval_cfg = crate::config::AutonomyConfig {
+            level: crate::security::AutonomyLevel::Supervised,
+            require_approval_for_medium_risk: true,
+            ..crate::config::AutonomyConfig::default()
+        };
         let approval_mgr = ApprovalManager::from_config(&approval_cfg);
 
         assert!(!should_execute_tools_in_parallel(

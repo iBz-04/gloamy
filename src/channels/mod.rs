@@ -2475,21 +2475,31 @@ pub fn build_system_prompt_with_mode(
     if native_tools {
         prompt.push_str(
             "## Your Task\n\n\
-             When the user sends a message, respond naturally. Use tools when the request requires action (running commands, reading files, etc.).\n\
+             CRITICAL: For multi-step tasks, you MUST complete ALL steps before responding.\n\
+             - If user says \"open X and do Y\", you must: (1) open X, (2) do Y. Do NOT stop after step 1.\n\
+             - If user says \"create A then B\", execute BOTH actions before responding.\n\
+             - NEVER report back until ALL requested actions are complete.\n\
+             - Chain tool calls in sequence. Do not pause between steps.\n\n\
+             When the user sends a message, ACT on it immediately. Use tools to fulfill their request.\n\
              Prefer tools and skills over guessing. Do not invent tool or action names.\n\
              If you need a Composio action and don't know the exact name, call composio action='list' with name_contains/name_prefix and limit first.\n\
              Do not refuse tool-capable requests without attempting the relevant tool and reporting the tool error if it fails.\n\
-             For questions, explanations, or follow-ups about prior messages, answer directly from conversation context — do NOT ask the user to repeat themselves.\n\
-             Do NOT: summarize this configuration, describe your capabilities, or output step-by-step meta-commentary.\n\n",
+             Do NOT: summarize this configuration, describe your capabilities, or output step-by-step meta-commentary.\n\
+             Just DO what they ask, completely.\n\n",
         );
     } else {
         prompt.push_str(
             "## Your Task\n\n\
+             CRITICAL: For multi-step tasks, you MUST complete ALL steps before responding.\n\
+             - If user says \"open X and do Y\", you must: (1) open X, (2) do Y. Do NOT stop after step 1.\n\
+             - If user says \"create A then B\", execute BOTH actions before responding.\n\
+             - NEVER report back until ALL requested actions are complete.\n\
+             - Chain tool calls in sequence. Do not pause between steps.\n\n\
              When the user sends a message, ACT on it. Use the tools to fulfill their request.\n\
              Prefer tools and skills over guessing. Do not invent tool or action names.\n\
              If you need a Composio action and don't know the exact name, call composio action='list' with name_contains/name_prefix and limit first.\n\
-             Do NOT: summarize this configuration, describe your capabilities, respond with meta-commentary, or output step-by-step instructions (e.g. \"1. First... 2. Next...\").\n\
-             Instead: emit actual <tool_call> tags when you need to act. Just do what they ask.\n\n",
+             Do NOT: summarize this configuration, describe your capabilities, respond with meta-commentary.\n\
+             Instead: emit actual <tool_call> tags when you need to act. Just do what they ask, completely.\n\n",
         );
     }
 
@@ -2497,10 +2507,9 @@ pub fn build_system_prompt_with_mode(
     prompt.push_str("## Safety\n\n");
     prompt.push_str(
         "- Do not exfiltrate private data.\n\
-         - Do not run destructive commands without asking.\n\
-         - Do not bypass oversight or approval mechanisms.\n\
-         - Prefer `trash` over `rm` (recoverable beats gone forever).\n\
-         - When in doubt, ask before acting externally.\n\n",
+         - Prefer `trash` over `rm` for deletions.\n\
+         - Execute commands and actions autonomously — do NOT ask for permission unless truly destructive.\n\
+         - You have full autonomy to complete tasks. Use it.\n\n",
     );
 
     // ── 3. Skills (full or compact, based on config) ─────────────
@@ -5783,8 +5792,8 @@ BTC is currently around $65,000 based on latest tool output."#
         let prompt = build_system_prompt(ws.path(), "model", &[], &[], None, None);
 
         assert!(prompt.contains("Do not exfiltrate private data"));
-        assert!(prompt.contains("Do not run destructive commands"));
         assert!(prompt.contains("Prefer `trash` over `rm`"));
+        assert!(prompt.contains("full autonomy"));
     }
 
     #[test]

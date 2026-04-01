@@ -951,8 +951,8 @@ fn default_entity_id() -> String {
 impl Default for ComposioConfig {
     fn default() -> Self {
         Self {
-            enabled: false,
-            api_key: None,
+            enabled: true,
+            api_key: None, // User plugs in their Composio API key here
             entity_id: default_entity_id(),
         }
     }
@@ -976,8 +976,8 @@ pub struct OneConfig {
 impl Default for OneConfig {
     fn default() -> Self {
         Self {
-            enabled: false,
-            api_key: None,
+            enabled: true,
+            api_key: None, // User plugs in their One API key here
         }
     }
 }
@@ -2134,51 +2134,25 @@ fn is_valid_env_var_name(name: &str) -> bool {
 impl Default for AutonomyConfig {
     fn default() -> Self {
         Self {
-            level: AutonomyLevel::Supervised,
-            workspace_only: true,
+            level: AutonomyLevel::Full,
+            workspace_only: false,
             allowed_commands: vec![
-                "git".into(),
-                "npm".into(),
-                "cargo".into(),
-                "ls".into(),
-                "cat".into(),
-                "grep".into(),
-                "find".into(),
-                "echo".into(),
-                "pwd".into(),
-                "wc".into(),
-                "head".into(),
-                "tail".into(),
-                "date".into(),
+                "*".into(), // Allow all commands by default for full autonomy
             ],
             forbidden_paths: vec![
-                "/etc".into(),
-                "/root".into(),
-                "/home".into(),
-                "/usr".into(),
-                "/bin".into(),
-                "/sbin".into(),
-                "/lib".into(),
-                "/opt".into(),
-                "/boot".into(),
-                "/dev".into(),
-                "/proc".into(),
-                "/sys".into(),
-                "/var".into(),
-                "/tmp".into(),
+                // Only block truly sensitive system paths
                 "~/.ssh".into(),
                 "~/.gnupg".into(),
                 "~/.aws".into(),
-                "~/.config".into(),
             ],
-            max_actions_per_hour: 20,
-            max_cost_per_day_cents: 500,
-            require_approval_for_medium_risk: true,
-            block_high_risk_commands: true,
+            max_actions_per_hour: 500,
+            max_cost_per_day_cents: 5000,
+            require_approval_for_medium_risk: false,
+            block_high_risk_commands: false,
             shell_env_passthrough: vec![],
             auto_approve: default_auto_approve(),
             always_ask: default_always_ask(),
-            allowed_roots: Vec::new(),
+            allowed_roots: vec!["~".into()], // Allow home directory access
             non_cli_excluded_tools: Vec::new(),
         }
     }
@@ -5066,16 +5040,16 @@ mod tests {
     #[test]
     async fn autonomy_config_default() {
         let a = AutonomyConfig::default();
-        assert_eq!(a.level, AutonomyLevel::Supervised);
-        assert!(a.workspace_only);
-        assert!(a.allowed_commands.contains(&"git".to_string()));
-        assert!(a.allowed_commands.contains(&"cargo".to_string()));
-        assert!(a.forbidden_paths.contains(&"/etc".to_string()));
-        assert_eq!(a.max_actions_per_hour, 20);
-        assert_eq!(a.max_cost_per_day_cents, 500);
-        assert!(a.require_approval_for_medium_risk);
-        assert!(a.block_high_risk_commands);
+        assert_eq!(a.level, AutonomyLevel::Full);
+        assert!(!a.workspace_only);
+        assert!(a.allowed_commands.contains(&"*".to_string()));
+        assert!(a.forbidden_paths.contains(&"~/.ssh".to_string()));
+        assert_eq!(a.max_actions_per_hour, 500);
+        assert_eq!(a.max_cost_per_day_cents, 5000);
+        assert!(!a.require_approval_for_medium_risk);
+        assert!(!a.block_high_risk_commands);
         assert!(a.shell_env_passthrough.is_empty());
+        assert!(a.allowed_roots.contains(&"~".to_string()));
     }
 
     #[test]
@@ -5323,7 +5297,7 @@ default_temperature = 0.7
         assert!(parsed.default_provider.is_none());
         assert_eq!(parsed.observability.backend, "none");
         assert_eq!(parsed.observability.runtime_trace_mode, "none");
-        assert_eq!(parsed.autonomy.level, AutonomyLevel::Supervised);
+        assert_eq!(parsed.autonomy.level, AutonomyLevel::Full);
         assert_eq!(parsed.runtime.kind, "native");
         assert!(!parsed.heartbeat.enabled);
         assert!(parsed.channels_config.cli);
@@ -6167,20 +6141,21 @@ default_temperature = 0.7
     }
 
     #[test]
-    async fn checklist_autonomy_default_is_workspace_scoped() {
+    async fn checklist_autonomy_default_has_full_autonomy() {
         let a = AutonomyConfig::default();
-        assert!(a.workspace_only, "Default autonomy must be workspace_only");
-        assert!(
-            a.forbidden_paths.contains(&"/etc".to_string()),
-            "Must block /etc"
-        );
-        assert!(
-            a.forbidden_paths.contains(&"/proc".to_string()),
-            "Must block /proc"
-        );
+        assert!(!a.workspace_only, "Default autonomy is now full (not workspace-scoped)");
+        assert_eq!(a.level, AutonomyLevel::Full, "Default level must be Full");
         assert!(
             a.forbidden_paths.contains(&"~/.ssh".to_string()),
-            "Must block ~/.ssh"
+            "Must still block ~/.ssh for security"
+        );
+        assert!(
+            a.forbidden_paths.contains(&"~/.gnupg".to_string()),
+            "Must still block ~/.gnupg for security"
+        );
+        assert!(
+            a.forbidden_paths.contains(&"~/.aws".to_string()),
+            "Must still block ~/.aws for security"
         );
     }
 
@@ -6189,10 +6164,10 @@ default_temperature = 0.7
     // ══════════════════════════════════════════════════════════
 
     #[test]
-    async fn composio_config_default_disabled() {
+    async fn composio_config_default_enabled() {
         let c = ComposioConfig::default();
-        assert!(!c.enabled, "Composio must be disabled by default");
-        assert!(c.api_key.is_none(), "No API key by default");
+        assert!(c.enabled, "Composio is enabled by default for easy setup");
+        assert!(c.api_key.is_none(), "No API key by default - user plugs in their key");
         assert_eq!(c.entity_id, "default");
     }
 
@@ -6219,10 +6194,10 @@ default_temperature = 0.7
 "#;
         let parsed: Config = toml::from_str(minimal).unwrap();
         assert!(
-            !parsed.composio.enabled,
-            "Missing [composio] must default to disabled"
+            parsed.composio.enabled,
+            "Missing [composio] defaults to enabled for easy setup"
         );
-        assert!(parsed.composio.api_key.is_none());
+        assert!(parsed.composio.api_key.is_none(), "No API key by default - user plugs in their key");
     }
 
     #[test]
@@ -6282,9 +6257,9 @@ default_temperature = 0.7
     #[test]
     async fn config_default_has_composio_and_secrets() {
         let c = Config::default();
-        assert!(!c.composio.enabled);
+        assert!(c.composio.enabled, "Composio enabled by default");
         assert!(c.composio.api_key.is_none());
-        assert!(!c.one.enabled);
+        assert!(c.one.enabled, "One enabled by default");
         assert!(c.one.api_key.is_none());
         assert!(c.secrets.encrypt);
         assert!(c.browser.enabled);
