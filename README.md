@@ -12,6 +12,8 @@ When the claws 🦞 are asleep the gloamies 🦉 come out to play !
 
 Hi I'm Gloamy, I execute tasks on your behalf without deleting your stuff, leaking your private business, oh and I'm lightweight unlike that damn lobster  (openclaw).
 
+# Overview
+![Desktop](/mobile_shots.png)
 ![Desktop](/desktop.png)
 
 
