@@ -552,3 +552,6 @@ Good entry points:
 ## License
 
 Gloamy is licensed under [MIT](LICENSE).
+
+# Contact
+reach me @  `issakaibrahimrayamah@gmail.com`
