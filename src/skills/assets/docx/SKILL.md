@@ -11,6 +11,7 @@ Handle `.docx` files with template-safe edits, extraction, review, and generatio
 - Use this skill when the main input or output is a Word-compatible document.
 - Use it for document drafting, structured updates, clause edits, tracked-review style work, and text extraction from existing `.docx` files.
 - If the source file is legacy `.doc`, convert it to `.docx` before making edits.
+- This skill is for file workflows, not Word.app GUI automation. If the task is to click, type, paste, or inspect content inside Microsoft Word on macOS, use `mac_automation` and verify the resulting document state before reporting success.
 
 ## Workflow
 

@@ -174,7 +174,7 @@ impl Tool for MacAutomationTool {
     }
 
     fn description(&self) -> &str {
-        "macOS desktop automation: launch or activate applications and run AppleScript for UI workflows."
+        "macOS desktop automation: launch or activate applications and run AppleScript for UI workflows. Success means the automation command ran, not that the UI state is verified. After state-changing actions, follow with an AppleScript read-back or screenshot check before concluding the task is complete."
     }
 
     fn parameters_schema(&self) -> serde_json::Value {

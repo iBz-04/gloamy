@@ -26,7 +26,7 @@ const BUNDLED_SKILL_ASSETS: &[BundledSkillAsset] = &[
     BundledSkillAsset {
         name: "docx",
         description:
-            "Create, review, and update Word-compatible .docx files without breaking templates.",
+            "Create, review, and update Word-compatible .docx files without breaking templates. File workflows only, not Word.app GUI automation.",
         contents: include_str!("assets/docx/SKILL.md"),
     },
     BundledSkillAsset {
