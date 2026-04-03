@@ -108,9 +108,7 @@ const DEFAULT_CHANNEL_MAX_BACKOFF_SECS: u64 = 60;
 const MIN_CHANNEL_MESSAGE_TIMEOUT_SECS: u64 = 30;
 /// Default timeout for processing a single channel message (LLM + tools).
 /// Used as fallback when not configured in channels_config.message_timeout_secs.
-const CHANNEL_MESSAGE_TIMEOUT_SECS: u64 = 300;
-/// Cap timeout scaling so large max_tool_iterations values do not create unbounded waits.
-const CHANNEL_MESSAGE_TIMEOUT_SCALE_CAP: u64 = 4;
+const CHANNEL_MESSAGE_TIMEOUT_SECS: u64 = 1_200;
 const CHANNEL_PARALLELISM_PER_CHANNEL: usize = 4;
 const CHANNEL_MIN_IN_FLIGHT_MESSAGES: usize = 8;
 const CHANNEL_MAX_IN_FLIGHT_MESSAGES: usize = 64;
@@ -138,8 +136,7 @@ fn channel_message_timeout_budget_secs(
     max_tool_iterations: usize,
 ) -> u64 {
     let iterations = max_tool_iterations.max(1) as u64;
-    let scale = iterations.min(CHANNEL_MESSAGE_TIMEOUT_SCALE_CAP);
-    message_timeout_secs.saturating_mul(scale)
+    message_timeout_secs.saturating_mul(iterations)
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -3745,14 +3742,12 @@ mod tests {
     }
 
     #[test]
-    fn channel_message_timeout_budget_uses_safe_defaults_and_cap() {
+    fn channel_message_timeout_budget_uses_safe_defaults_and_linear_scaling() {
         // 0 iterations falls back to 1x timeout budget.
         assert_eq!(channel_message_timeout_budget_secs(300, 0), 300);
-        // Large iteration counts are capped to avoid runaway waits.
-        assert_eq!(
-            channel_message_timeout_budget_secs(300, 10),
-            300 * CHANNEL_MESSAGE_TIMEOUT_SCALE_CAP
-        );
+        // Budget scales linearly with iterations (no cap).
+        assert_eq!(channel_message_timeout_budget_secs(300, 10), 3000);
+        assert_eq!(channel_message_timeout_budget_secs(1_200, 50), 60_000);
     }
 
     #[test]

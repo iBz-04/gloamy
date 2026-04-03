@@ -9,7 +9,7 @@ use std::fs;
 use std::sync::Arc;
 
 const DEFAULT_AGENT_MAX_DEPTH: u32 = 3;
-const DEFAULT_AGENT_MAX_ITERATIONS: usize = 10;
+const DEFAULT_AGENT_MAX_ITERATIONS: usize = 50;
 
 pub struct ModelRoutingConfigTool {
     config: Arc<Config>,
@@ -694,12 +694,6 @@ impl ModelRoutingConfigTool {
             anyhow::bail!("'max_iterations' must be greater than 0");
         }
 
-        if next_agent.agentic && next_agent.allowed_tools.is_empty() {
-            anyhow::bail!(
-                "Agent '{name}' has agentic=true but allowed_tools is empty. Set allowed_tools or disable agentic mode."
-            );
-        }
-
         cfg.agents.insert(name.clone(), next_agent);
         cfg.save().await?;
 
@@ -837,7 +831,7 @@ impl Tool for ModelRoutingConfigTool {
                     "description": "Enable tool-call loop mode for delegate agent"
                 },
                 "allowed_tools": {
-                    "description": "Allowed tools for agentic delegate mode (string or string array)",
+                    "description": "Optional tool filter for agentic delegate mode (string or string array). Empty or omitted means all available non-delegate tools.",
                     "oneOf": [
                         {"type": "string"},
                         {"type": "array", "items": {"type": "string"}}
@@ -1064,6 +1058,30 @@ mod tests {
         let get_result = tool.execute(json!({"action": "get"})).await.unwrap();
         let output: Value = serde_json::from_str(&get_result.output).unwrap();
         assert!(output["agents"]["coder"].is_null());
+    }
+
+    #[tokio::test]
+    async fn upsert_agent_allows_agentic_without_allowed_tools() {
+        let tmp = TempDir::new().unwrap();
+        let tool = ModelRoutingConfigTool::new(test_config(&tmp).await, test_security());
+
+        let upsert = tool
+            .execute(json!({
+                "action": "upsert_agent",
+                "name": "researcher",
+                "provider": "openrouter",
+                "model": "anthropic/claude-sonnet-4-6",
+                "agentic": true
+            }))
+            .await
+            .unwrap();
+        assert!(upsert.success, "{:?}", upsert.error);
+
+        let get_result = tool.execute(json!({"action": "get"})).await.unwrap();
+        assert!(get_result.success);
+        let output: Value = serde_json::from_str(&get_result.output).unwrap();
+        assert_eq!(output["agents"]["researcher"]["agentic"], json!(true));
+        assert_eq!(output["agents"]["researcher"]["allowed_tools"], json!([]));
     }
 
     #[tokio::test]

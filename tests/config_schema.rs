@@ -173,12 +173,12 @@ fn security_config_toml_roundtrip() {
 // ─────────────────────────────────────────────────────────────────────────────
 
 #[test]
-fn autonomy_config_default_is_supervised() {
+fn autonomy_config_default_is_full() {
     let autonomy = AutonomyConfig::default();
     assert_eq!(
         format!("{:?}", autonomy.level),
-        "Supervised",
-        "default autonomy should be Supervised"
+        "Full",
+        "default autonomy should be Full"
     );
 }
 
@@ -195,8 +195,8 @@ fn autonomy_config_default_max_actions_per_hour() {
 fn autonomy_config_default_workspace_only() {
     let autonomy = AutonomyConfig::default();
     assert!(
-        autonomy.workspace_only,
-        "workspace_only should default to true"
+        !autonomy.workspace_only,
+        "workspace_only should default to false"
     );
 }
 
@@ -230,7 +230,7 @@ fn config_empty_toml_requires_temperature() {
 fn config_minimal_toml_with_temperature_uses_defaults() {
     let toml_str = "default_temperature = 0.7\n";
     let parsed: Config = toml::from_str(toml_str).expect("minimal TOML should parse");
-    assert_eq!(parsed.agent.max_tool_iterations, 10);
+    assert_eq!(parsed.agent.max_tool_iterations, 50);
     assert_eq!(parsed.gateway.port, 42617);
 }
 
@@ -239,7 +239,7 @@ fn config_only_temperature_parses() {
     let toml_str = "default_temperature = 1.2\n";
     let parsed: Config = toml::from_str(toml_str).expect("temperature-only TOML should parse");
     assert!((parsed.default_temperature - 1.2).abs() < f64::EPSILON);
-    assert_eq!(parsed.agent.max_tool_iterations, 10);
+    assert_eq!(parsed.agent.max_tool_iterations, 50);
 }
 
 #[test]

@@ -77,7 +77,7 @@ Operational note for container users:
 | Key | Default | Purpose |
 |---|---|---|
 | `compact_context` | `false` | When true: bootstrap_max_chars=6000, rag_chunk_limit=2. Use for 13B or smaller models |
-| `max_tool_iterations` | `10` | Maximum tool-call loop turns per user message across CLI, gateway, and channels |
+| `max_tool_iterations` | `50` | Maximum tool-call loop turns per user message across CLI, gateway, and channels |
 | `max_history_messages` | `50` | Maximum conversation history messages retained per session |
 | `parallel_tools` | `false` | Enable parallel tool execution within a single iteration |
 | `tool_dispatcher` | `auto` | Tool dispatch strategy |
@@ -86,7 +86,7 @@ Operational note for container users:
 
 Notes:
 
-- Setting `max_tool_iterations = 0` falls back to safe default `10`.
+- Setting `max_tool_iterations = 0` falls back to safe default `50`.
 - If a channel message exceeds this value, the runtime returns: `Agent exceeded maximum tool iterations (<value>)`.
 - In CLI, gateway, and channel tool loops, multiple independent tool calls are executed concurrently by default when the pending calls do not require approval gating; result order remains stable.
 - `parallel_tools` applies to the `Agent::turn()` API surface. It does not gate the runtime loop used by CLI, gateway, or channel handlers.
@@ -151,13 +151,14 @@ Delegate sub-agent configurations. Each key under `[agents]` defines a named sub
 | `temperature` | unset | Temperature override for the sub-agent |
 | `max_depth` | `3` | Max recursion depth for nested delegation |
 | `agentic` | `false` | Enable multi-turn tool-call loop mode for the sub-agent |
-| `allowed_tools` | `[]` | Tool allowlist for agentic mode |
-| `max_iterations` | `10` | Max tool-call iterations for agentic mode |
+| `allowed_tools` | `[]` | Optional tool filter for agentic mode (`[]` means all available non-delegate tools) |
+| `max_iterations` | `50` | Max tool-call iterations for agentic mode |
 
 Notes:
 
 - `agentic = false` preserves existing single prompt→response delegate behavior.
-- `agentic = true` requires at least one matching entry in `allowed_tools`.
+- `agentic = true` with empty `allowed_tools` uses all available parent tools except `delegate`.
+- When `allowed_tools` is set, only matching tools are exposed to the sub-agent.
 - The `delegate` tool is excluded from sub-agent allowlists to prevent re-entrant delegation loops.
 
 ```toml
@@ -358,16 +359,16 @@ Notes:
 
 | Key | Default | Purpose |
 |---|---|---|
-| `level` | `supervised` | `read_only`, `supervised`, or `full` |
-| `workspace_only` | `true` | reject absolute path inputs unless explicitly disabled |
-| `allowed_commands` | _required for shell execution_ | allowlist of executable names, explicit executable paths, or `"*"` |
-| `forbidden_paths` | built-in protected list | explicit path denylist (system paths + sensitive dotdirs by default) |
-| `allowed_roots` | `[]` | additional roots allowed outside workspace after canonicalization |
-| `max_actions_per_hour` | `20` | per-policy action budget |
-| `max_cost_per_day_cents` | `500` | per-policy spend guardrail |
-| `require_approval_for_medium_risk` | `true` | approval gate for medium-risk commands |
+| `level` | `full` | `read_only`, `supervised`, or `full` |
+| `workspace_only` | `false` | reject absolute path inputs unless explicitly disabled |
+| `allowed_commands` | `["*"]` | allowlist of executable names, explicit executable paths, or `"*"` |
+| `forbidden_paths` | `["~/.ssh", "~/.gnupg", "~/.aws"]` | explicit path denylist |
+| `allowed_roots` | `["~"]` | additional roots allowed outside workspace after canonicalization |
+| `max_actions_per_hour` | `500` | per-policy action budget |
+| `max_cost_per_day_cents` | `5000` | per-policy spend guardrail |
+| `require_approval_for_medium_risk` | `false` | approval gate for medium-risk commands |
 | `block_high_risk_commands` | `true` | hard block for high-risk commands |
-| `auto_approve` | `[]` | tool operations always auto-approved |
+| `auto_approve` | `["file_read", "memory_recall"]` | tool operations always auto-approved |
 | `always_ask` | `[]` | tool operations that always require approval |
 
 Notes:

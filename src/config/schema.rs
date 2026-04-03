@@ -333,7 +333,7 @@ fn default_max_depth() -> u32 {
 }
 
 fn default_max_tool_iterations() -> usize {
-    10
+    50
 }
 
 // ── Hardware Config (wizard-driven) ─────────────────────────────
@@ -458,8 +458,8 @@ pub struct AgentConfig {
     /// When true: bootstrap_max_chars=6000, rag_chunk_limit=2. Use for 13B or smaller models.
     #[serde(default)]
     pub compact_context: bool,
-    /// Maximum tool-call loop turns per user message. Default: `10`.
-    /// Setting to `0` falls back to the safe default of `10`.
+    /// Maximum tool-call loop turns per user message. Default: `50`.
+    /// Setting to `0` falls back to the safe default of `50`.
     #[serde(default = "default_agent_max_tool_iterations")]
     pub max_tool_iterations: usize,
     /// Maximum conversation history messages retained per session. Default: `50`.
@@ -482,7 +482,7 @@ pub struct AgentConfig {
 }
 
 fn default_agent_max_tool_iterations() -> usize {
-    10
+    50
 }
 
 fn default_agent_max_history_messages() -> usize {
@@ -2121,18 +2121,18 @@ impl Default for BuiltinHooksConfig {
 /// risk approval gates, and per-policy budgets.
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct AutonomyConfig {
-    /// Autonomy level: `read_only`, `supervised` (default), or `full`.
+    /// Autonomy level: `read_only`, `supervised`, or `full` (default).
     pub level: AutonomyLevel,
-    /// Restrict absolute filesystem paths to workspace-relative references. Default: `true`.
+    /// Restrict absolute filesystem paths to workspace-relative references. Default: `false`.
     /// Resolved paths outside the workspace still require `allowed_roots`.
     pub workspace_only: bool,
     /// Allowlist of executable names permitted for shell execution.
     pub allowed_commands: Vec<String>,
     /// Explicit path denylist. Default includes system-critical paths and sensitive dotdirs.
     pub forbidden_paths: Vec<String>,
-    /// Maximum actions allowed per hour per policy. Default: `100`.
+    /// Maximum actions allowed per hour per policy. Default: `500`.
     pub max_actions_per_hour: u32,
-    /// Maximum cost per day in cents per policy. Default: `1000`.
+    /// Maximum cost per day in cents per policy. Default: `5000`.
     pub max_cost_per_day_cents: u32,
 
     /// Require explicit approval for medium-risk shell commands.
@@ -2206,7 +2206,7 @@ impl Default for AutonomyConfig {
             max_actions_per_hour: 500,
             max_cost_per_day_cents: 5000,
             require_approval_for_medium_risk: false,
-            block_high_risk_commands: false,
+            block_high_risk_commands: true,
             shell_env_passthrough: vec![],
             auto_approve: default_auto_approve(),
             always_ask: default_always_ask(),
@@ -2826,7 +2826,7 @@ impl ChannelsConfig {
 }
 
 fn default_channel_message_timeout_secs() -> u64 {
-    300
+    600
 }
 
 impl Default for ChannelsConfig {
@@ -5106,7 +5106,7 @@ mod tests {
         assert_eq!(a.max_actions_per_hour, 500);
         assert_eq!(a.max_cost_per_day_cents, 5000);
         assert!(!a.require_approval_for_medium_risk);
-        assert!(!a.block_high_risk_commands);
+        assert!(a.block_high_risk_commands);
         assert!(a.shell_env_passthrough.is_empty());
         assert!(a.allowed_roots.contains(&"~".to_string()));
     }
@@ -6220,6 +6220,10 @@ default_temperature = 0.7
         assert!(
             a.forbidden_paths.contains(&"~/.aws".to_string()),
             "Must still block ~/.aws for security"
+        );
+        assert!(
+            a.block_high_risk_commands,
+            "Default autonomy must block high-risk commands"
         );
     }
 

@@ -11,6 +11,11 @@ self_learning = true
 max_lessons_per_query = 3
 max_tool_iterations = 50
 
+[channels_config]
+cli = true
+# Allow long-running channel turns out of the box (20 minutes per iteration × 50 iterations)
+message_timeout_secs = 1200
+
 [observability]
 runtime_trace_mode = "rolling"
 runtime_trace_path = "state/runtime-trace.jsonl"
@@ -65,7 +70,7 @@ temperature = 0.3
 max_depth = 2
 agentic = true
 allowed_tools = ["web_search", "web_fetch", "memory_store"]
-max_iterations = 10
+max_iterations = 50
 
 [agents.coder]
 provider = "openai"
@@ -75,7 +80,7 @@ temperature = 0.2
 max_depth = 3
 agentic = true
 allowed_tools = ["file_read", "file_write", "shell"]
-max_iterations = 15
+max_iterations = 50
 
 [agents.writer]
 provider = "anthropic"
@@ -84,4 +89,4 @@ system_prompt = "You are a skilled writer. Create clear, engaging content."
 temperature = 0.7
 max_depth = 2
 agentic = false
-max_iterations = 5
+max_iterations = 50

@@ -25,7 +25,7 @@ const STREAM_CHUNK_MIN_CHARS: usize = 80;
 
 /// Default maximum agentic tool-use iterations per user message to prevent runaway loops.
 /// Used as a safe fallback when `max_tool_iterations` is unset or configured as zero.
-const DEFAULT_MAX_TOOL_ITERATIONS: usize = 10;
+const DEFAULT_MAX_TOOL_ITERATIONS: usize = 50;
 /// Safety bound for runtime-enforced continuation retries when the model tries
 /// to terminate while work is still unresolved.
 const MAX_RUNTIME_CONTINUATION_RETRIES: usize = 2;

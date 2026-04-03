@@ -12,9 +12,9 @@ use std::sync::Arc;
 use std::time::Duration;
 
 /// Default timeout for sub-agent provider calls.
-const DELEGATE_TIMEOUT_SECS: u64 = 120;
+const DELEGATE_TIMEOUT_SECS: u64 = 600;
 /// Default timeout for agentic sub-agent runs.
-const DELEGATE_AGENTIC_TIMEOUT_SECS: u64 = 300;
+const DELEGATE_AGENTIC_TIMEOUT_SECS: u64 = 3600;
 
 /// Tool that delegates a subtask to a named agent with a different
 /// provider/model configuration. Enables multi-agent workflows where
@@ -348,16 +348,6 @@ impl DelegateTool {
         full_prompt: &str,
         temperature: f64,
     ) -> anyhow::Result<ToolResult> {
-        if agent_config.allowed_tools.is_empty() {
-            return Ok(ToolResult {
-                success: false,
-                output: String::new(),
-                error: Some(format!(
-                    "Agent '{agent_name}' has agentic=true but allowed_tools is empty"
-                )),
-            });
-        }
-
         let allowed = agent_config
             .allowed_tools
             .iter()
@@ -365,22 +355,34 @@ impl DelegateTool {
             .filter(|name| !name.is_empty())
             .collect::<std::collections::HashSet<_>>();
 
-        let sub_tools: Vec<Box<dyn Tool>> = self
-            .parent_tools
-            .iter()
-            .filter(|tool| allowed.contains(tool.name()))
-            .filter(|tool| tool.name() != "delegate")
-            .map(|tool| Box::new(ToolArcRef::new(tool.clone())) as Box<dyn Tool>)
-            .collect();
+        let sub_tools: Vec<Box<dyn Tool>> = if allowed.is_empty() {
+            self.parent_tools
+                .iter()
+                .filter(|tool| tool.name() != "delegate")
+                .map(|tool| Box::new(ToolArcRef::new(tool.clone())) as Box<dyn Tool>)
+                .collect()
+        } else {
+            self.parent_tools
+                .iter()
+                .filter(|tool| allowed.contains(tool.name()))
+                .filter(|tool| tool.name() != "delegate")
+                .map(|tool| Box::new(ToolArcRef::new(tool.clone())) as Box<dyn Tool>)
+                .collect()
+        };
 
         if sub_tools.is_empty() {
+            let reason = if allowed.is_empty() {
+                "Agent has no executable tools in the parent registry".to_string()
+            } else {
+                format!(
+                    "Agent '{agent_name}' has no executable tools after filtering allowlist ({})",
+                    agent_config.allowed_tools.join(", ")
+                )
+            };
             return Ok(ToolResult {
                 success: false,
                 output: String::new(),
-                error: Some(format!(
-                    "Agent '{agent_name}' has no executable tools after filtering allowlist ({})",
-                    agent_config.allowed_tools.join(", ")
-                )),
+                error: Some(reason),
             });
         }
 
@@ -975,22 +977,18 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn agentic_mode_rejects_empty_allowed_tools() {
-        let mut agents = HashMap::new();
-        agents.insert("agentic".to_string(), agentic_config(Vec::new(), 10));
-
-        let tool = DelegateTool::new(agents, None, test_security());
+    async fn agentic_mode_uses_all_parent_tools_when_allowed_tools_empty() {
+        let config = agentic_config(Vec::new(), 10);
+        let tool = DelegateTool::new(HashMap::new(), None, test_security())
+            .with_parent_tools(Arc::new(vec![Arc::new(EchoTool)]));
+        let provider = OneToolThenFinalProvider;
         let result = tool
-            .execute(json!({"agent": "agentic", "prompt": "test"}))
+            .execute_agentic("agentic", &config, &provider, "run", 0.2)
             .await
             .unwrap();
 
-        assert!(!result.success);
-        assert!(result
-            .error
-            .as_deref()
-            .unwrap_or("")
-            .contains("allowed_tools is empty"));
+        assert!(result.success);
+        assert!(result.output.contains("done"));
     }
 
     #[tokio::test]
