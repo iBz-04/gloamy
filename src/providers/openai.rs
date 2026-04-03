@@ -70,7 +70,7 @@ struct NativeChatRequest {
 struct NativeMessage {
     role: String,
     #[serde(skip_serializing_if = "Option::is_none")]
-    content: Option<String>,
+    content: Option<serde_json::Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
     tool_call_id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -196,6 +196,28 @@ impl OpenAiProvider {
         })
     }
 
+    fn build_multimodal_content(content: &str) -> serde_json::Value {
+        let (cleaned_text, refs) = crate::multimodal::parse_image_markers(content);
+        if refs.is_empty() {
+            return serde_json::Value::String(content.to_string());
+        }
+
+        let mut parts = Vec::new();
+        if !cleaned_text.is_empty() {
+            parts.push(serde_json::json!({
+                "type": "text",
+                "text": cleaned_text
+            }));
+        }
+        for data_uri in &refs {
+            parts.push(serde_json::json!({
+                "type": "image_url",
+                "image_url": { "url": data_uri }
+            }));
+        }
+        serde_json::Value::Array(parts)
+    }
+
     fn convert_messages(messages: &[ChatMessage]) -> Vec<NativeMessage> {
         messages
             .iter()
@@ -222,7 +244,7 @@ impl OpenAiProvider {
                                 let content = value
                                     .get("content")
                                     .and_then(serde_json::Value::as_str)
-                                    .map(ToString::to_string);
+                                    .map(|s| serde_json::Value::String(s.to_string()));
                                 let reasoning_content = value
                                     .get("reasoning_content")
                                     .and_then(serde_json::Value::as_str)
@@ -248,7 +270,7 @@ impl OpenAiProvider {
                         let content = value
                             .get("content")
                             .and_then(serde_json::Value::as_str)
-                            .map(ToString::to_string);
+                            .map(|s| serde_json::Value::String(s.to_string()));
                         return NativeMessage {
                             role: "tool".to_string(),
                             content,
@@ -259,9 +281,15 @@ impl OpenAiProvider {
                     }
                 }
 
+                let content = if m.role == "user" {
+                    Self::build_multimodal_content(&m.content)
+                } else {
+                    serde_json::Value::String(m.content.clone())
+                };
+
                 NativeMessage {
                     role: m.role.clone(),
-                    content: Some(m.content.clone()),
+                    content: Some(content),
                     tool_call_id: None,
                     tool_calls: None,
                     reasoning_content: None,
@@ -854,10 +882,42 @@ mod tests {
     }
 
     #[test]
+    fn convert_messages_builds_multimodal_content_for_user_images() {
+        use crate::providers::ChatMessage;
+
+        let messages = vec![ChatMessage::user(
+            "Describe this [IMAGE:data:image/png;base64,abc123]".to_string(),
+        )];
+        let native = OpenAiProvider::convert_messages(&messages);
+        assert_eq!(native.len(), 1);
+
+        let content = native[0].content.as_ref().unwrap();
+        let parts = content.as_array().expect("content should be an array for image messages");
+        assert_eq!(parts.len(), 2);
+        assert_eq!(parts[0]["type"], "text");
+        assert_eq!(parts[0]["text"], "Describe this");
+        assert_eq!(parts[1]["type"], "image_url");
+        assert_eq!(parts[1]["image_url"]["url"], "data:image/png;base64,abc123");
+    }
+
+    #[test]
+    fn convert_messages_keeps_plain_string_for_user_without_images() {
+        use crate::providers::ChatMessage;
+
+        let messages = vec![ChatMessage::user("Hello world".to_string())];
+        let native = OpenAiProvider::convert_messages(&messages);
+        assert_eq!(native.len(), 1);
+
+        let content = native[0].content.as_ref().unwrap();
+        assert!(content.is_string(), "content should remain a plain string when no images");
+        assert_eq!(content.as_str().unwrap(), "Hello world");
+    }
+
+    #[test]
     fn native_message_omits_reasoning_content_when_none() {
         let msg = NativeMessage {
             role: "assistant".to_string(),
-            content: Some("hi".to_string()),
+            content: Some(serde_json::Value::String("hi".to_string())),
             tool_call_id: None,
             tool_calls: None,
             reasoning_content: None,
@@ -870,7 +930,7 @@ mod tests {
     fn native_message_includes_reasoning_content_when_some() {
         let msg = NativeMessage {
             role: "assistant".to_string(),
-            content: Some("hi".to_string()),
+            content: Some(serde_json::Value::String("hi".to_string())),
             tool_call_id: None,
             tool_calls: None,
             reasoning_content: Some("thinking...".to_string()),
