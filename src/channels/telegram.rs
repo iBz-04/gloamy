@@ -390,6 +390,12 @@ impl TelegramChannel {
         }
     }
 
+    fn voice_cache_key_from_channel_message_id(message_id: &str) -> Option<String> {
+        let raw = message_id.strip_prefix("telegram_")?;
+        let (chat_id, telegram_message_id) = raw.rsplit_once('_')?;
+        Some(format!("{chat_id}:{telegram_message_id}"))
+    }
+
     fn extract_update_message_target(update: &serde_json::Value) -> Option<(String, i64)> {
         let message = update.get("message")?;
         let chat_id = message
@@ -1127,11 +1133,18 @@ Allowlist Telegram username (without '@') or numeric user ID.",
             return None;
         }
 
-        // Cache transcription for reply-context lookups
+        // Cache transcription for reply-context lookups.
+        // Evict oldest entries when the cache exceeds the limit to avoid
+        // a cliff-edge clear that drops all recent transcriptions at once.
         {
+            const CACHE_CAPACITY: usize = 100;
+            const EVICT_COUNT: usize = CACHE_CAPACITY / 2;
             let mut cache = self.voice_transcriptions.lock();
-            if cache.len() >= 100 {
-                cache.clear();
+            if cache.len() >= CACHE_CAPACITY {
+                let keys_to_remove: Vec<String> = cache.keys().take(EVICT_COUNT).cloned().collect();
+                for key in keys_to_remove {
+                    cache.remove(&key);
+                }
             }
             cache.insert(format!("{chat_id}:{message_id}"), text.clone());
         }
@@ -1987,20 +2000,15 @@ Allowlist Telegram username (without '@') or numeric user ID.",
     }
 
     /// Send a voice message to a Telegram chat
-    pub async fn send_voice(
+    async fn send_voice_data(
         &self,
         chat_id: &str,
         thread_id: Option<&str>,
-        file_path: &Path,
+        file_name: &str,
+        audio_data: Vec<u8>,
         caption: Option<&str>,
     ) -> anyhow::Result<()> {
-        let file_name = file_path
-            .file_name()
-            .and_then(|n| n.to_str())
-            .unwrap_or("voice.ogg");
-
-        let file_bytes = tokio::fs::read(file_path).await?;
-        let part = Part::bytes(file_bytes).file_name(file_name.to_string());
+        let part = Part::bytes(audio_data).file_name(file_name.to_string());
 
         let mut form = Form::new()
             .text("chat_id", chat_id.to_string())
@@ -2028,6 +2036,23 @@ Allowlist Telegram username (without '@') or numeric user ID.",
 
         tracing::info!("Telegram voice sent to {chat_id}: {file_name}");
         Ok(())
+    }
+
+    pub async fn send_voice(
+        &self,
+        chat_id: &str,
+        thread_id: Option<&str>,
+        file_path: &Path,
+        caption: Option<&str>,
+    ) -> anyhow::Result<()> {
+        let file_name = file_path
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or("voice.ogg");
+
+        let file_bytes = tokio::fs::read(file_path).await?;
+        self.send_voice_data(chat_id, thread_id, file_name, file_bytes, caption)
+            .await
     }
 
     /// Send a file by URL (Telegram will download it)
@@ -2147,8 +2172,26 @@ impl Channel for TelegramChannel {
         "telegram"
     }
 
+    fn should_auto_reply_with_voice(&self, message: &ChannelMessage) -> bool {
+        Self::voice_cache_key_from_channel_message_id(&message.id)
+            .is_some_and(|cache_key| self.voice_transcriptions.lock().contains_key(&cache_key))
+    }
+
     fn supports_draft_updates(&self) -> bool {
         self.stream_mode != StreamMode::Off
+    }
+
+    async fn send_voice_bytes(
+        &self,
+        recipient: &str,
+        file_name: &str,
+        audio_data: Vec<u8>,
+        thread_ts: Option<&str>,
+    ) -> anyhow::Result<()> {
+        let (chat_id, fallback_thread) = Self::parse_reply_target(recipient);
+        let thread_id = thread_ts.or(fallback_thread.as_deref());
+        self.send_voice_data(&chat_id, thread_id, file_name, audio_data, None)
+            .await
     }
 
     async fn send_draft(&self, message: &SendMessage) -> anyhow::Result<Option<String>> {
@@ -4033,6 +4076,34 @@ mod tests {
         });
         let ctx = ch.extract_reply_context(&msg).unwrap();
         assert_eq!(ctx, "> @bob:\n> [Voice] Hello from voice");
+    }
+
+    #[test]
+    fn should_auto_reply_with_voice_uses_transcription_cache() {
+        let ch = TelegramChannel::new("t".into(), vec!["*".into()], false);
+        ch.voice_transcriptions
+            .lock()
+            .insert("-100123:42".to_string(), "voice text".to_string());
+
+        assert!(ch.should_auto_reply_with_voice(&ChannelMessage {
+            id: "telegram_-100123_42".to_string(),
+            sender: "alice".to_string(),
+            reply_target: "-100123".to_string(),
+            content: "voice text".to_string(),
+            channel: "telegram".to_string(),
+            timestamp: 1,
+            thread_ts: None,
+        }));
+
+        assert!(!ch.should_auto_reply_with_voice(&ChannelMessage {
+            id: "telegram_-100123_77".to_string(),
+            sender: "alice".to_string(),
+            reply_target: "-100123".to_string(),
+            content: "text".to_string(),
+            channel: "telegram".to_string(),
+            timestamp: 2,
+            thread_ts: None,
+        }));
     }
 
     #[test]

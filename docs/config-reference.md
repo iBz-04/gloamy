@@ -526,6 +526,39 @@ Notes:
   When enabled, a newer message from the same sender in the same chat cancels the in-flight request and preserves interrupted user context.
 - While `gloamy channel start` is running, updates to `default_provider`, `default_model`, `default_temperature`, `api_key`, `api_url`, and `reliability.*` are hot-applied from `config.toml` on the next inbound message.
 
+## `[transcription]`
+
+Inbound voice transcription is configured under `transcription`.
+
+| Key | Default | Purpose |
+|---|---|---|
+| `enabled` | `false` | Enable voice-message transcription for supported channels |
+| `api_url` | `https://api.groq.com/openai/v1/audio/transcriptions` | Whisper-compatible transcription endpoint |
+| `model` | `whisper-large-v3-turbo` | Transcription model name |
+| `language` | unset | Optional ISO-639-1 language hint |
+| `max_duration_secs` | `120` | Skip inbound voice messages longer than this |
+
+## `[tts]`
+
+Outbound voice synthesis is configured under `tts`.
+
+| Key | Default | Purpose |
+|---|---|---|
+| `enabled` | `false` | Enable synthesized voice replies |
+| `api_url` | `https://api.openai.com/v1/audio/speech` | OpenAI-compatible speech synthesis endpoint |
+| `model` | `tts-1` | Text-to-speech model name |
+| `voice` | `alloy` | Voice preset sent to the TTS endpoint |
+| `response_format` | `opus` | Audio format requested from the TTS endpoint |
+| `max_input_chars` | `4096` | Truncate synthesized input to this many characters |
+| `voice_reply_mode` | `off` | Auto-reply policy: `off`, `voice_only`, `voice_plus_text`, or `always` |
+
+Notes:
+
+- `response_format = "opus"` is the safe default for Telegram voice replies.
+- `voice_only` and `voice_plus_text` only auto-trigger when the inbound message was voice on channels that expose voice-origin context.
+- `always` synthesizes voice for every channel reply; if synthesis fails, Gloamy falls back to the normal text reply.
+- TTS authentication is resolved from `TTS_API_KEY`, then `config.api_key`, then `OPENAI_API_KEY` or `GROQ_API_KEY`.
+
 ### `[channels_config.nostr]`
 
 | Key | Default | Purpose |

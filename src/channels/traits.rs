@@ -84,6 +84,22 @@ pub trait Channel: Send + Sync {
         Ok(())
     }
 
+    /// Whether this inbound channel message originated from a voice message.
+    fn should_auto_reply_with_voice(&self, _message: &ChannelMessage) -> bool {
+        false
+    }
+
+    /// Send synthesized voice bytes back through the channel.
+    async fn send_voice_bytes(
+        &self,
+        _recipient: &str,
+        _file_name: &str,
+        _audio_data: Vec<u8>,
+        _thread_ts: Option<&str>,
+    ) -> anyhow::Result<()> {
+        anyhow::bail!("voice replies are not supported on this channel")
+    }
+
     /// Whether this channel supports progressive message updates via draft edits.
     fn supports_draft_updates(&self) -> bool {
         false
@@ -206,10 +222,23 @@ mod tests {
         assert!(channel.health_check().await);
         assert!(channel.start_typing("bob").await.is_ok());
         assert!(channel.stop_typing("bob").await.is_ok());
+        assert!(!channel.should_auto_reply_with_voice(&ChannelMessage {
+            id: "1".into(),
+            sender: "alice".into(),
+            reply_target: "bob".into(),
+            content: "hello".into(),
+            channel: "dummy".into(),
+            timestamp: 1,
+            thread_ts: None,
+        }));
         assert!(channel
             .send(&SendMessage::new("hello", "bob"))
             .await
             .is_ok());
+        assert!(channel
+            .send_voice_bytes("bob", "reply.ogg", vec![1, 2, 3], None)
+            .await
+            .is_err());
     }
 
     #[tokio::test]

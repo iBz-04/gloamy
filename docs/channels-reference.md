@@ -156,12 +156,27 @@ stream_mode = "off"               # optional: off | partial
 draft_update_interval_ms = 1000   # optional: edit throttle for partial streaming
 mention_only = false              # optional: require @mention in groups
 interrupt_on_new_message = false  # optional: cancel in-flight same-sender same-chat request
+
+[transcription]
+enabled = true
+model = "whisper-large-v3-turbo"  # optional
+max_duration_secs = 120           # optional
+
+[tts]
+enabled = true
+voice_reply_mode = "voice_only"   # optional: off | voice_only | voice_plus_text | always
+voice = "alloy"                   # optional
+response_format = "opus"          # optional, recommended for Telegram
 ```
 
 Telegram notes:
 
 - `interrupt_on_new_message = true` preserves interrupted user turns in conversation history, then restarts generation on the newest message.
 - Interruption scope is strict: same sender in the same chat. Messages from different chats are processed independently.
+- When `transcription.enabled = true`, Telegram voice messages are transcribed before they enter the agent loop.
+- When `tts.enabled = true`, Telegram can send synthesized voice replies through `sendVoice`.
+- `tts.voice_reply_mode = "voice_only"` suppresses the text reply for inbound voice messages and sends only the synthesized voice note.
+- `tts.voice_reply_mode = "voice_plus_text"` keeps the normal text reply and adds a synthesized voice note after it.
 
 ### 4.2 Discord
 

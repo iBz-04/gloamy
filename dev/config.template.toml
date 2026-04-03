@@ -16,6 +16,30 @@ cli = true
 # Allow long-running channel turns out of the box (20 minutes per iteration × 50 iterations)
 message_timeout_secs = 1200
 
+# Optional Telegram bot channel
+# [channels_config.telegram]
+# bot_token = "123456:telegram-token"
+# allowed_users = ["*"]
+# stream_mode = "partial"
+# draft_update_interval_ms = 1000
+# interrupt_on_new_message = true
+# mention_only = false
+
+[transcription]
+enabled = false
+api_url = "https://api.groq.com/openai/v1/audio/transcriptions"
+model = "whisper-large-v3-turbo"
+max_duration_secs = 120
+
+[tts]
+enabled = false
+api_url = "https://api.openai.com/v1/audio/speech"
+model = "tts-1"
+voice = "alloy"
+response_format = "opus"
+max_input_chars = 4096
+voice_reply_mode = "voice_only"
+
 [observability]
 runtime_trace_mode = "rolling"
 runtime_trace_path = "state/runtime-trace.jsonl"

@@ -44,6 +44,7 @@ const SUPPORTED_PROXY_SERVICE_KEYS: &[&str] = &[
     "memory.embeddings",
     "tunnel.custom",
     "transcription.groq",
+    "tts.openai",
 ];
 
 const SUPPORTED_PROXY_SERVICE_SELECTORS: &[&str] = &[
@@ -53,11 +54,23 @@ const SUPPORTED_PROXY_SERVICE_SELECTORS: &[&str] = &[
     "memory.*",
     "tunnel.*",
     "transcription.*",
+    "tts.*",
 ];
 
 static RUNTIME_PROXY_CONFIG: OnceLock<RwLock<ProxyConfig>> = OnceLock::new();
 static RUNTIME_PROXY_CLIENT_CACHE: OnceLock<RwLock<HashMap<String, reqwest::Client>>> =
     OnceLock::new();
+
+const DEFAULT_TELEGRAM_CONFIG_COMMENT_BLOCK: &str = r#"
+# Optional Telegram bot channel
+# [channels_config.telegram]
+# bot_token = "123456:telegram-token"
+# allowed_users = ["*"]
+# stream_mode = "partial"
+# draft_update_interval_ms = 1000
+# interrupt_on_new_message = true
+# mention_only = false
+"#;
 
 fn parse_env_value(raw: &str) -> String {
     let raw = raw.trim();
@@ -74,6 +87,19 @@ fn parse_env_value(raw: &str) -> String {
         || unquoted.trim().to_string(),
         |(value, _)| value.trim().to_string(),
     )
+}
+
+fn append_default_config_comment_blocks(config: &Config, toml_str: String) -> String {
+    let mut rendered = toml_str;
+
+    if config.channels_config.telegram.is_none() {
+        if !rendered.ends_with('\n') {
+            rendered.push('\n');
+        }
+        rendered.push_str(DEFAULT_TELEGRAM_CONFIG_COMMENT_BLOCK);
+    }
+
+    rendered
 }
 
 async fn load_env_file(path: &Path) -> Result<()> {
@@ -277,6 +303,10 @@ pub struct Config {
     /// Voice transcription configuration (Whisper API via Groq).
     #[serde(default)]
     pub transcription: TranscriptionConfig,
+
+    /// Voice synthesis configuration for auto voice replies (`[tts]`).
+    #[serde(default)]
+    pub tts: TtsConfig,
 }
 
 /// Named provider profile definition compatible with Codex app-server style config.
@@ -448,6 +478,87 @@ impl Default for TranscriptionConfig {
             model: default_transcription_model(),
             language: None,
             max_duration_secs: default_transcription_max_duration_secs(),
+        }
+    }
+}
+
+// ── Text-to-speech ───────────────────────────────────────────────
+
+fn default_tts_api_url() -> String {
+    "https://api.openai.com/v1/audio/speech".into()
+}
+
+fn default_tts_model() -> String {
+    "tts-1".into()
+}
+
+fn default_tts_voice() -> String {
+    "alloy".into()
+}
+
+fn default_tts_response_format() -> String {
+    "opus".into()
+}
+
+fn default_tts_max_input_chars() -> usize {
+    4_096
+}
+
+/// Auto voice-reply policy for channels that can return synthesized speech.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum VoiceReplyMode {
+    /// Never auto-synthesize a voice reply.
+    #[default]
+    Off,
+    /// Reply with synthesized voice only when the inbound message was voice.
+    VoiceOnly,
+    /// Reply with both text and synthesized voice when the inbound message was voice.
+    VoicePlusText,
+    /// Always synthesize a voice reply for channel messages.
+    Always,
+}
+
+/// Text-to-speech configuration for outbound channel replies.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub struct TtsConfig {
+    /// Enable voice synthesis for auto voice replies.
+    #[serde(default)]
+    pub enabled: bool,
+    /// Optional TTS-specific API key. Preferred over the global provider key.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub api_key: Option<String>,
+    /// OpenAI-compatible speech synthesis endpoint URL.
+    #[serde(default = "default_tts_api_url")]
+    pub api_url: String,
+    /// Text-to-speech model name.
+    #[serde(default = "default_tts_model")]
+    pub model: String,
+    /// Voice preset name supported by the configured endpoint.
+    #[serde(default = "default_tts_voice")]
+    pub voice: String,
+    /// Requested response format. `opus` is recommended for Telegram voice replies.
+    #[serde(default = "default_tts_response_format")]
+    pub response_format: String,
+    /// Maximum input length sent to the TTS endpoint.
+    #[serde(default = "default_tts_max_input_chars")]
+    pub max_input_chars: usize,
+    /// Auto voice-reply policy for inbound channel messages.
+    #[serde(default)]
+    pub voice_reply_mode: VoiceReplyMode,
+}
+
+impl Default for TtsConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            api_key: None,
+            api_url: default_tts_api_url(),
+            model: default_tts_model(),
+            voice: default_tts_voice(),
+            response_format: default_tts_response_format(),
+            max_input_chars: default_tts_max_input_chars(),
+            voice_reply_mode: VoiceReplyMode::default(),
         }
     }
 }
@@ -3764,6 +3875,7 @@ impl Default for Config {
             hardware: HardwareConfig::default(),
             query_classification: QueryClassificationConfig::default(),
             transcription: TranscriptionConfig::default(),
+            tts: TtsConfig::default(),
         }
     }
 }
@@ -4219,6 +4331,8 @@ impl Config {
                 "config.web_search.brave_api_key",
             )?;
 
+            decrypt_optional_secret(&store, &mut config.tts.api_key, "config.tts.api_key")?;
+
             decrypt_optional_secret(
                 &store,
                 &mut config.storage.provider.config.db_url,
@@ -4516,6 +4630,22 @@ impl Config {
                     "default_model uses ':cloud' with provider 'ollama', but no API key is configured. Set api_key or OLLAMA_API_KEY."
                 );
             }
+        }
+
+        if self.tts.max_input_chars == 0 {
+            anyhow::bail!("tts.max_input_chars must be greater than 0");
+        }
+        if self.tts.enabled && self.tts.api_url.trim().is_empty() {
+            anyhow::bail!("tts.api_url must not be empty when tts.enabled = true");
+        }
+        if self.tts.enabled && self.tts.model.trim().is_empty() {
+            anyhow::bail!("tts.model must not be empty when tts.enabled = true");
+        }
+        if self.tts.enabled && self.tts.voice.trim().is_empty() {
+            anyhow::bail!("tts.voice must not be empty when tts.enabled = true");
+        }
+        if self.tts.enabled && self.tts.response_format.trim().is_empty() {
+            anyhow::bail!("tts.response_format must not be empty when tts.enabled = true");
         }
 
         // Proxy (delegate to existing validation)
@@ -4879,6 +5009,7 @@ impl Config {
 
         let toml_str =
             toml::to_string_pretty(&config_to_save).context("Failed to serialize config")?;
+        let toml_str = append_default_config_comment_blocks(&config_to_save, toml_str);
 
         let parent_dir = self
             .config_path
@@ -5316,6 +5447,7 @@ default_temperature = 0.7
             hooks: HooksConfig::default(),
             hardware: HardwareConfig::default(),
             transcription: TranscriptionConfig::default(),
+            tts: TtsConfig::default(),
         };
 
         let toml_str = toml::to_string_pretty(&config).unwrap();
@@ -5505,6 +5637,7 @@ tool_dispatcher = "xml"
             hooks: HooksConfig::default(),
             hardware: HardwareConfig::default(),
             transcription: TranscriptionConfig::default(),
+            tts: TtsConfig::default(),
         };
 
         config.save().await.unwrap();
@@ -7806,6 +7939,76 @@ default_model = "legacy-model"
         let parsed: Config = toml::from_str(toml_str).unwrap();
         assert!(!parsed.transcription.enabled);
         assert_eq!(parsed.transcription.max_duration_secs, 120);
+    }
+
+    #[test]
+    async fn tts_config_defaults() {
+        let tc = TtsConfig::default();
+        assert!(!tc.enabled);
+        assert!(tc.api_url.contains("openai.com"));
+        assert_eq!(tc.model, "tts-1");
+        assert_eq!(tc.voice, "alloy");
+        assert_eq!(tc.response_format, "opus");
+        assert_eq!(tc.max_input_chars, 4096);
+        assert_eq!(tc.voice_reply_mode, VoiceReplyMode::Off);
+    }
+
+    #[test]
+    async fn config_roundtrip_with_tts() {
+        let mut config = Config::default();
+        config.tts.enabled = true;
+        config.tts.voice = "nova".into();
+        config.tts.voice_reply_mode = VoiceReplyMode::VoicePlusText;
+
+        let toml_str = toml::to_string_pretty(&config).unwrap();
+        let parsed: Config = toml::from_str(&toml_str).unwrap();
+
+        assert!(parsed.tts.enabled);
+        assert_eq!(parsed.tts.voice, "nova");
+        assert_eq!(parsed.tts.voice_reply_mode, VoiceReplyMode::VoicePlusText);
+    }
+
+    #[test]
+    async fn config_without_tts_uses_defaults() {
+        let toml_str = r#"
+            default_provider = "openai"
+            default_model = "test-model"
+            default_temperature = 0.7
+        "#;
+        let parsed: Config = toml::from_str(toml_str).unwrap();
+        assert!(!parsed.tts.enabled);
+        assert_eq!(parsed.tts.response_format, "opus");
+        assert_eq!(parsed.tts.voice_reply_mode, VoiceReplyMode::Off);
+    }
+
+    #[tokio::test]
+    async fn default_config_save_includes_commented_telegram_template_block() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let config_path = tmp.path().join("config.toml");
+
+        let mut config = Config::default();
+        config.config_path = config_path.clone();
+        config.save().await.unwrap();
+
+        let contents = tokio::fs::read_to_string(&config_path).await.unwrap();
+        assert!(contents.contains("[tts]"));
+        assert!(contents.contains("[transcription]"));
+        assert!(contents.contains("# [channels_config.telegram]"));
+        assert!(contents.contains("# bot_token = \"123456:telegram-token\""));
+    }
+
+    #[test]
+    async fn validate_rejects_zero_tts_max_input_chars() {
+        let mut config = Config::default();
+        config.tts.enabled = true;
+        config.tts.max_input_chars = 0;
+
+        let error = config
+            .validate()
+            .expect_err("expected tts validation failure");
+        assert!(error
+            .to_string()
+            .contains("tts.max_input_chars must be greater than 0"));
     }
 
     #[test]

@@ -35,6 +35,7 @@ pub mod slack;
 pub mod telegram;
 pub mod traits;
 pub mod transcription;
+pub mod tts;
 pub mod wati;
 pub mod whatsapp;
 #[cfg(feature = "whatsapp-web")]
@@ -139,6 +140,50 @@ fn channel_message_timeout_budget_secs(
     message_timeout_secs.saturating_mul(iterations)
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum AutoVoiceReplyPlan {
+    Disabled,
+    VoiceOnly,
+    VoicePlusText,
+}
+
+fn resolve_auto_voice_reply_plan(
+    tts: &crate::config::TtsConfig,
+    channel: Option<&Arc<dyn Channel>>,
+    message: &traits::ChannelMessage,
+) -> AutoVoiceReplyPlan {
+    use crate::config::VoiceReplyMode;
+
+    if !tts.enabled {
+        return AutoVoiceReplyPlan::Disabled;
+    }
+
+    match tts.voice_reply_mode {
+        VoiceReplyMode::Off => AutoVoiceReplyPlan::Disabled,
+        VoiceReplyMode::Always => AutoVoiceReplyPlan::VoicePlusText,
+        VoiceReplyMode::VoiceOnly => {
+            if channel.is_some_and(|channel| channel.should_auto_reply_with_voice(message)) {
+                AutoVoiceReplyPlan::VoiceOnly
+            } else {
+                AutoVoiceReplyPlan::Disabled
+            }
+        }
+        VoiceReplyMode::VoicePlusText => {
+            if channel.is_some_and(|channel| channel.should_auto_reply_with_voice(message)) {
+                AutoVoiceReplyPlan::VoicePlusText
+            } else {
+                AutoVoiceReplyPlan::Disabled
+            }
+        }
+    }
+}
+
+fn response_contains_attachment_markers(response: &str) -> bool {
+    ["[IMAGE:", "[DOCUMENT:", "[VIDEO:", "[AUDIO:", "[VOICE:"]
+        .iter()
+        .any(|marker| response.contains(marker))
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct ChannelRouteSelection {
     provider: String,
@@ -222,6 +267,7 @@ struct ChannelRuntimeContext {
     message_timeout_secs: u64,
     interrupt_on_new_message: bool,
     multimodal: crate::config::MultimodalConfig,
+    tts: crate::config::TtsConfig,
     hooks: Option<Arc<crate::hooks::HookRunner>>,
     non_cli_excluded_tools: Arc<Vec<String>>,
     task_store: Arc<dyn TaskStore>,
@@ -1620,6 +1666,8 @@ async fn process_channel_message(
     let history_key = conversation_history_key(&msg);
     let route = get_route_selection(ctx.as_ref(), &history_key);
     let runtime_defaults = runtime_defaults_snapshot(ctx.as_ref());
+    let auto_voice_reply_plan =
+        resolve_auto_voice_reply_plan(&ctx.tts, target_channel.as_ref(), &msg);
     let active_provider = match get_or_create_provider(ctx.as_ref(), &route.provider).await {
         Ok(provider) => provider,
         Err(err) => {
@@ -1728,9 +1776,10 @@ async fn process_channel_message(
         None,
     )
     .await;
-    let use_streaming = target_channel
-        .as_ref()
-        .is_some_and(|ch| ch.supports_draft_updates());
+    let use_streaming = auto_voice_reply_plan != AutoVoiceReplyPlan::VoiceOnly
+        && target_channel
+            .as_ref()
+            .is_some_and(|ch| ch.supports_draft_updates());
 
     tracing::debug!(
         channel = %msg.channel,
@@ -2039,27 +2088,91 @@ async fn process_channel_message(
                 truncate_with_ellipsis(&delivered_response, 80)
             );
             if let Some(channel) = target_channel.as_ref() {
-                if let Some(ref draft_id) = draft_message_id {
-                    if let Err(e) = channel
-                        .finalize_draft(&msg.reply_target, draft_id, &delivered_response)
+                let auto_voice_candidate = auto_voice_reply_plan != AutoVoiceReplyPlan::Disabled
+                    && !delivered_response.trim().is_empty()
+                    && !response_contains_attachment_markers(&delivered_response);
+                let should_send_normal_response = match auto_voice_reply_plan {
+                    AutoVoiceReplyPlan::Disabled | AutoVoiceReplyPlan::VoicePlusText => true,
+                    AutoVoiceReplyPlan::VoiceOnly => !auto_voice_candidate,
+                };
+
+                if should_send_normal_response {
+                    if let Some(ref draft_id) = draft_message_id {
+                        if let Err(e) = channel
+                            .finalize_draft(&msg.reply_target, draft_id, &delivered_response)
+                            .await
+                        {
+                            tracing::warn!("Failed to finalize draft: {e}; sending as new message");
+                            let _ = channel
+                                .send(
+                                    &SendMessage::new(&delivered_response, &msg.reply_target)
+                                        .in_thread(msg.thread_ts.clone()),
+                                )
+                                .await;
+                        }
+                    } else if let Err(e) = channel
+                        .send(
+                            &SendMessage::new(&delivered_response, &msg.reply_target)
+                                .in_thread(msg.thread_ts.clone()),
+                        )
                         .await
                     {
-                        tracing::warn!("Failed to finalize draft: {e}; sending as new message");
-                        let _ = channel
-                            .send(
-                                &SendMessage::new(&delivered_response, &msg.reply_target)
-                                    .in_thread(msg.thread_ts.clone()),
-                            )
-                            .await;
+                        eprintln!("  ❌ Failed to reply on {}: {e}", channel.name());
                     }
-                } else if let Err(e) = channel
-                    .send(
-                        &SendMessage::new(delivered_response, &msg.reply_target)
-                            .in_thread(msg.thread_ts.clone()),
+                }
+
+                if auto_voice_candidate {
+                    match tts::synthesize_speech(
+                        &delivered_response,
+                        &ctx.tts,
+                        ctx.api_key.as_deref(),
                     )
                     .await
-                {
-                    eprintln!("  ❌ Failed to reply on {}: {e}", channel.name());
+                    {
+                        Ok(audio_data) => {
+                            if let Err(e) = channel
+                                .send_voice_bytes(
+                                    &msg.reply_target,
+                                    &tts::tts_file_name(&ctx.tts),
+                                    audio_data,
+                                    msg.thread_ts.as_deref(),
+                                )
+                                .await
+                            {
+                                tracing::warn!(
+                                    channel = %channel.name(),
+                                    error = %e,
+                                    "Failed to send synthesized voice reply"
+                                );
+                                if !should_send_normal_response {
+                                    let _ = channel
+                                        .send(
+                                            &SendMessage::new(
+                                                &delivered_response,
+                                                &msg.reply_target,
+                                            )
+                                            .in_thread(msg.thread_ts.clone()),
+                                        )
+                                        .await;
+                                }
+                            }
+                        }
+                        Err(e) => {
+                            tracing::warn!(
+                                channel = %channel.name(),
+                                error = %e,
+                                "Failed to synthesize voice reply"
+                            );
+                            if !should_send_normal_response {
+                                let _ = channel
+                                    .send(
+                                        &SendMessage::new(&delivered_response, &msg.reply_target)
+                                            .in_thread(msg.thread_ts.clone()),
+                                    )
+                                    .await;
+                            }
+                        }
+                    }
                 }
             }
         }
@@ -3557,6 +3670,7 @@ async fn start_channels_internal(config: Config, run_scheduler: bool) -> Result<
         message_timeout_secs,
         interrupt_on_new_message,
         multimodal: config.multimodal.clone(),
+        tts: config.tts.clone(),
         hooks: if config.hooks.enabled {
             let mut runner = crate::hooks::HookRunner::new();
             if config.hooks.builtin.command_logger {
@@ -3916,6 +4030,7 @@ mod tests {
             reliability: Arc::new(crate::config::ReliabilityConfig::default()),
             interrupt_on_new_message: false,
             multimodal: crate::config::MultimodalConfig::default(),
+            tts: crate::config::TtsConfig::default(),
             hooks: None,
             provider_runtime_options: providers::ProviderRuntimeOptions::default(),
             workspace_dir: Arc::new(std::env::temp_dir()),
@@ -3966,6 +4081,7 @@ mod tests {
             reliability: Arc::new(crate::config::ReliabilityConfig::default()),
             interrupt_on_new_message: false,
             multimodal: crate::config::MultimodalConfig::default(),
+            tts: crate::config::TtsConfig::default(),
             hooks: None,
             provider_runtime_options: providers::ProviderRuntimeOptions::default(),
             workspace_dir: Arc::new(std::env::temp_dir()),
@@ -4019,6 +4135,7 @@ mod tests {
             reliability: Arc::new(crate::config::ReliabilityConfig::default()),
             interrupt_on_new_message: false,
             multimodal: crate::config::MultimodalConfig::default(),
+            tts: crate::config::TtsConfig::default(),
             hooks: None,
             provider_runtime_options: providers::ProviderRuntimeOptions::default(),
             workspace_dir: Arc::new(std::env::temp_dir()),
@@ -4069,6 +4186,7 @@ mod tests {
             reliability: Arc::new(crate::config::ReliabilityConfig::default()),
             interrupt_on_new_message: false,
             multimodal: crate::config::MultimodalConfig::default(),
+            tts: crate::config::TtsConfig::default(),
             hooks: None,
             provider_runtime_options: providers::ProviderRuntimeOptions::default(),
             workspace_dir: Arc::new(std::env::temp_dir()),
@@ -4134,6 +4252,28 @@ mod tests {
         sent_messages: tokio::sync::Mutex<Vec<String>>,
     }
 
+    struct AutoVoiceRecordingChannel {
+        name: &'static str,
+        auto_voice: bool,
+        supports_draft: bool,
+        sent_messages: tokio::sync::Mutex<Vec<String>>,
+        sent_voice: tokio::sync::Mutex<Vec<(String, String, Vec<u8>)>>,
+        draft_count: AtomicUsize,
+    }
+
+    impl AutoVoiceRecordingChannel {
+        fn new(name: &'static str, auto_voice: bool, supports_draft: bool) -> Self {
+            Self {
+                name,
+                auto_voice,
+                supports_draft,
+                sent_messages: tokio::sync::Mutex::new(Vec::new()),
+                sent_voice: tokio::sync::Mutex::new(Vec::new()),
+                draft_count: AtomicUsize::new(0),
+            }
+        }
+    }
+
     #[async_trait::async_trait]
     impl Channel for TelegramRecordingChannel {
         fn name(&self) -> &str {
@@ -4160,6 +4300,69 @@ mod tests {
         }
 
         async fn stop_typing(&self, _recipient: &str) -> anyhow::Result<()> {
+            Ok(())
+        }
+    }
+
+    #[async_trait::async_trait]
+    impl Channel for AutoVoiceRecordingChannel {
+        fn name(&self) -> &str {
+            self.name
+        }
+
+        fn should_auto_reply_with_voice(&self, _message: &traits::ChannelMessage) -> bool {
+            self.auto_voice
+        }
+
+        fn supports_draft_updates(&self) -> bool {
+            self.supports_draft
+        }
+
+        async fn send_draft(&self, _message: &SendMessage) -> anyhow::Result<Option<String>> {
+            self.draft_count.fetch_add(1, Ordering::SeqCst);
+            Ok(Some("draft-1".to_string()))
+        }
+
+        async fn finalize_draft(
+            &self,
+            recipient: &str,
+            _message_id: &str,
+            text: &str,
+        ) -> anyhow::Result<()> {
+            self.sent_messages
+                .lock()
+                .await
+                .push(format!("{recipient}:{text}"));
+            Ok(())
+        }
+
+        async fn send(&self, message: &SendMessage) -> anyhow::Result<()> {
+            self.sent_messages
+                .lock()
+                .await
+                .push(format!("{}:{}", message.recipient, message.content));
+            Ok(())
+        }
+
+        async fn send_voice_bytes(
+            &self,
+            recipient: &str,
+            file_name: &str,
+            audio_data: Vec<u8>,
+            _thread_ts: Option<&str>,
+        ) -> anyhow::Result<()> {
+            self.sent_voice.lock().await.push((
+                recipient.to_string(),
+                file_name.to_string(),
+                audio_data,
+            ));
+            Ok(())
+        }
+
+        async fn listen(
+            &self,
+            _tx: tokio::sync::mpsc::Sender<traits::ChannelMessage>,
+        ) -> anyhow::Result<()> {
             Ok(())
         }
     }
@@ -4240,6 +4443,46 @@ mod tests {
             tokio::time::sleep(self.delay).await;
             Ok(format!("echo: {message}"))
         }
+    }
+
+    fn make_test_runtime_ctx(
+        channel: Arc<dyn Channel>,
+        provider: Arc<dyn Provider>,
+        tts: crate::config::TtsConfig,
+        api_key: Option<String>,
+    ) -> Arc<ChannelRuntimeContext> {
+        let mut channels_by_name = HashMap::new();
+        channels_by_name.insert(channel.name().to_string(), channel);
+
+        Arc::new(ChannelRuntimeContext {
+            channels_by_name: Arc::new(channels_by_name),
+            provider,
+            default_provider: Arc::new("test-provider".to_string()),
+            memory: Arc::new(NoopMemory),
+            tools_registry: Arc::new(vec![]),
+            observer: Arc::new(NoopObserver),
+            system_prompt: Arc::new("test-system-prompt".to_string()),
+            model: Arc::new("test-model".to_string()),
+            temperature: 0.0,
+            auto_save_memory: false,
+            max_tool_iterations: 5,
+            min_relevance_score: 0.0,
+            conversation_histories: Arc::new(Mutex::new(HashMap::new())),
+            provider_cache: Arc::new(Mutex::new(HashMap::new())),
+            route_overrides: Arc::new(Mutex::new(HashMap::new())),
+            api_key,
+            api_url: None,
+            reliability: Arc::new(crate::config::ReliabilityConfig::default()),
+            provider_runtime_options: providers::ProviderRuntimeOptions::default(),
+            workspace_dir: Arc::new(std::env::temp_dir()),
+            message_timeout_secs: CHANNEL_MESSAGE_TIMEOUT_SECS,
+            interrupt_on_new_message: false,
+            multimodal: crate::config::MultimodalConfig::default(),
+            tts,
+            hooks: None,
+            non_cli_excluded_tools: Arc::new(Vec::new()),
+            task_store: Arc::new(MockTaskStore::default()),
+        })
     }
 
     struct ToolCallingProvider;
@@ -4564,6 +4807,7 @@ BTC is currently around $65,000 based on latest tool output."#
             non_cli_excluded_tools: Arc::new(Vec::new()),
             task_store: Arc::new(MockTaskStore::default()),
             multimodal: crate::config::MultimodalConfig::default(),
+            tts: crate::config::TtsConfig::default(),
             hooks: None,
         });
 
@@ -4624,6 +4868,7 @@ BTC is currently around $65,000 based on latest tool output."#
             non_cli_excluded_tools: Arc::new(Vec::new()),
             task_store: Arc::new(MockTaskStore::default()),
             multimodal: crate::config::MultimodalConfig::default(),
+            tts: crate::config::TtsConfig::default(),
             hooks: None,
         });
 
@@ -4665,6 +4910,133 @@ BTC is currently around $65,000 based on latest tool output."#
     }
 
     #[tokio::test]
+    async fn process_channel_message_voice_only_sends_synthesized_voice_without_text() {
+        let _guard = crate::channels::tts::lock_test_synthesis();
+        let channel_impl = Arc::new(AutoVoiceRecordingChannel::new("telegram", true, true));
+        let channel: Arc<dyn Channel> = channel_impl.clone();
+        crate::channels::tts::set_test_synthesis_result(Ok(vec![7_u8, 8, 9]));
+        let runtime_ctx = make_test_runtime_ctx(
+            channel,
+            Arc::new(DummyProvider),
+            crate::config::TtsConfig {
+                enabled: true,
+                api_url: "https://example.invalid/v1/audio/speech".to_string(),
+                voice_reply_mode: crate::config::VoiceReplyMode::VoiceOnly,
+                ..crate::config::TtsConfig::default()
+            },
+            Some("sk-test-tts".to_string()),
+        );
+
+        process_channel_message(
+            runtime_ctx,
+            traits::ChannelMessage {
+                id: "voice-msg-1".to_string(),
+                sender: "alice".to_string(),
+                reply_target: "chat-voice".to_string(),
+                content: "hello".to_string(),
+                channel: "telegram".to_string(),
+                timestamp: 1,
+                thread_ts: None,
+            },
+            CancellationToken::new(),
+        )
+        .await;
+
+        assert_eq!(channel_impl.draft_count.load(Ordering::SeqCst), 0);
+        assert!(channel_impl.sent_messages.lock().await.is_empty());
+
+        let sent_voice = channel_impl.sent_voice.lock().await;
+        assert_eq!(sent_voice.len(), 1);
+        assert_eq!(sent_voice[0].0, "chat-voice");
+        assert_eq!(sent_voice[0].1, "reply.ogg");
+        assert_eq!(sent_voice[0].2, vec![7_u8, 8, 9]);
+    }
+
+    #[tokio::test]
+    async fn process_channel_message_voice_plus_text_sends_text_and_voice() {
+        let _guard = crate::channels::tts::lock_test_synthesis();
+        let channel_impl = Arc::new(AutoVoiceRecordingChannel::new("telegram", true, false));
+        let channel: Arc<dyn Channel> = channel_impl.clone();
+        crate::channels::tts::set_test_synthesis_result(Ok(vec![1_u8, 2, 3]));
+        let runtime_ctx = make_test_runtime_ctx(
+            channel,
+            Arc::new(DummyProvider),
+            crate::config::TtsConfig {
+                enabled: true,
+                api_url: "https://example.invalid/v1/audio/speech".to_string(),
+                voice_reply_mode: crate::config::VoiceReplyMode::VoicePlusText,
+                ..crate::config::TtsConfig::default()
+            },
+            Some("sk-test-tts".to_string()),
+        );
+
+        process_channel_message(
+            runtime_ctx,
+            traits::ChannelMessage {
+                id: "voice-msg-2".to_string(),
+                sender: "alice".to_string(),
+                reply_target: "chat-voice".to_string(),
+                content: "hello".to_string(),
+                channel: "telegram".to_string(),
+                timestamp: 1,
+                thread_ts: None,
+            },
+            CancellationToken::new(),
+        )
+        .await;
+
+        let sent_messages = channel_impl.sent_messages.lock().await;
+        assert_eq!(sent_messages.len(), 1);
+        assert_eq!(sent_messages[0], "chat-voice:ok");
+        drop(sent_messages);
+
+        let sent_voice = channel_impl.sent_voice.lock().await;
+        assert_eq!(sent_voice.len(), 1);
+        assert_eq!(sent_voice[0].0, "chat-voice");
+    }
+
+    #[tokio::test]
+    async fn process_channel_message_voice_only_falls_back_to_text_on_tts_error() {
+        let _guard = crate::channels::tts::lock_test_synthesis();
+        let channel_impl = Arc::new(AutoVoiceRecordingChannel::new("telegram", true, false));
+        let channel: Arc<dyn Channel> = channel_impl.clone();
+        crate::channels::tts::set_test_synthesis_result(Err("tts failed".to_string()));
+        let runtime_ctx = make_test_runtime_ctx(
+            channel,
+            Arc::new(DummyProvider),
+            crate::config::TtsConfig {
+                enabled: true,
+                api_url: "https://example.invalid/v1/audio/speech".to_string(),
+                voice_reply_mode: crate::config::VoiceReplyMode::VoiceOnly,
+                ..crate::config::TtsConfig::default()
+            },
+            Some("sk-test-tts".to_string()),
+        );
+
+        process_channel_message(
+            runtime_ctx,
+            traits::ChannelMessage {
+                id: "voice-msg-3".to_string(),
+                sender: "alice".to_string(),
+                reply_target: "chat-voice".to_string(),
+                content: "hello".to_string(),
+                channel: "telegram".to_string(),
+                timestamp: 1,
+                thread_ts: None,
+            },
+            CancellationToken::new(),
+        )
+        .await;
+
+        let sent_messages = channel_impl.sent_messages.lock().await;
+        assert_eq!(sent_messages.len(), 1);
+        assert_eq!(sent_messages[0], "chat-voice:ok");
+        drop(sent_messages);
+
+        assert!(channel_impl.sent_voice.lock().await.is_empty());
+    }
+
+    #[tokio::test]
     async fn process_channel_message_strips_unexecuted_tool_json_artifacts_from_reply() {
         let channel_impl = Arc::new(RecordingChannel::default());
         let channel: Arc<dyn Channel> = channel_impl.clone();
@@ -4696,6 +5068,7 @@ BTC is currently around $65,000 based on latest tool output."#
             message_timeout_secs: CHANNEL_MESSAGE_TIMEOUT_SECS,
             interrupt_on_new_message: false,
             multimodal: crate::config::MultimodalConfig::default(),
+            tts: crate::config::TtsConfig::default(),
             hooks: None,
             non_cli_excluded_tools: Arc::new(Vec::new()),
             task_store: Arc::new(MockTaskStore::default()),
@@ -4756,6 +5129,7 @@ BTC is currently around $65,000 based on latest tool output."#
             message_timeout_secs: CHANNEL_MESSAGE_TIMEOUT_SECS,
             interrupt_on_new_message: false,
             multimodal: crate::config::MultimodalConfig::default(),
+            tts: crate::config::TtsConfig::default(),
             hooks: None,
             non_cli_excluded_tools: Arc::new(Vec::new()),
             task_store: Arc::new(MockTaskStore::default()),
@@ -4825,6 +5199,7 @@ BTC is currently around $65,000 based on latest tool output."#
             message_timeout_secs: CHANNEL_MESSAGE_TIMEOUT_SECS,
             interrupt_on_new_message: false,
             multimodal: crate::config::MultimodalConfig::default(),
+            tts: crate::config::TtsConfig::default(),
             hooks: None,
             non_cli_excluded_tools: Arc::new(Vec::new()),
             task_store: Arc::new(MockTaskStore::default()),
@@ -4915,6 +5290,7 @@ BTC is currently around $65,000 based on latest tool output."#
             message_timeout_secs: CHANNEL_MESSAGE_TIMEOUT_SECS,
             interrupt_on_new_message: false,
             multimodal: crate::config::MultimodalConfig::default(),
+            tts: crate::config::TtsConfig::default(),
             hooks: None,
             non_cli_excluded_tools: Arc::new(Vec::new()),
             task_store: Arc::new(MockTaskStore::default()),
@@ -4987,6 +5363,7 @@ BTC is currently around $65,000 based on latest tool output."#
             message_timeout_secs: CHANNEL_MESSAGE_TIMEOUT_SECS,
             interrupt_on_new_message: false,
             multimodal: crate::config::MultimodalConfig::default(),
+            tts: crate::config::TtsConfig::default(),
             hooks: None,
             non_cli_excluded_tools: Arc::new(Vec::new()),
             task_store: Arc::new(MockTaskStore::default()),
@@ -5074,6 +5451,7 @@ BTC is currently around $65,000 based on latest tool output."#
             message_timeout_secs: CHANNEL_MESSAGE_TIMEOUT_SECS,
             interrupt_on_new_message: false,
             multimodal: crate::config::MultimodalConfig::default(),
+            tts: crate::config::TtsConfig::default(),
             hooks: None,
             non_cli_excluded_tools: Arc::new(Vec::new()),
             task_store: Arc::new(MockTaskStore::default()),
@@ -5146,6 +5524,7 @@ BTC is currently around $65,000 based on latest tool output."#
             message_timeout_secs: CHANNEL_MESSAGE_TIMEOUT_SECS,
             interrupt_on_new_message: false,
             multimodal: crate::config::MultimodalConfig::default(),
+            tts: crate::config::TtsConfig::default(),
             hooks: None,
             non_cli_excluded_tools: Arc::new(Vec::new()),
             task_store: Arc::new(MockTaskStore::default()),
@@ -5207,6 +5586,7 @@ BTC is currently around $65,000 based on latest tool output."#
             message_timeout_secs: CHANNEL_MESSAGE_TIMEOUT_SECS,
             interrupt_on_new_message: false,
             multimodal: crate::config::MultimodalConfig::default(),
+            tts: crate::config::TtsConfig::default(),
             hooks: None,
             non_cli_excluded_tools: Arc::new(Vec::new()),
             task_store: Arc::new(MockTaskStore::default()),
@@ -5379,6 +5759,7 @@ BTC is currently around $65,000 based on latest tool output."#
             message_timeout_secs: CHANNEL_MESSAGE_TIMEOUT_SECS,
             interrupt_on_new_message: false,
             multimodal: crate::config::MultimodalConfig::default(),
+            tts: crate::config::TtsConfig::default(),
             hooks: None,
             non_cli_excluded_tools: Arc::new(Vec::new()),
             task_store: Arc::new(MockTaskStore::default()),
@@ -5460,6 +5841,7 @@ BTC is currently around $65,000 based on latest tool output."#
             message_timeout_secs: CHANNEL_MESSAGE_TIMEOUT_SECS,
             interrupt_on_new_message: true,
             multimodal: crate::config::MultimodalConfig::default(),
+            tts: crate::config::TtsConfig::default(),
             hooks: None,
             non_cli_excluded_tools: Arc::new(Vec::new()),
             task_store: Arc::new(MockTaskStore::default()),
@@ -5553,6 +5935,7 @@ BTC is currently around $65,000 based on latest tool output."#
             message_timeout_secs: CHANNEL_MESSAGE_TIMEOUT_SECS,
             interrupt_on_new_message: true,
             multimodal: crate::config::MultimodalConfig::default(),
+            tts: crate::config::TtsConfig::default(),
             hooks: None,
             non_cli_excluded_tools: Arc::new(Vec::new()),
             task_store: Arc::new(MockTaskStore::default()),
@@ -5628,6 +6011,7 @@ BTC is currently around $65,000 based on latest tool output."#
             message_timeout_secs: CHANNEL_MESSAGE_TIMEOUT_SECS,
             interrupt_on_new_message: false,
             multimodal: crate::config::MultimodalConfig::default(),
+            tts: crate::config::TtsConfig::default(),
             hooks: None,
             non_cli_excluded_tools: Arc::new(Vec::new()),
             task_store: Arc::new(MockTaskStore::default()),
@@ -5688,6 +6072,7 @@ BTC is currently around $65,000 based on latest tool output."#
             message_timeout_secs: CHANNEL_MESSAGE_TIMEOUT_SECS,
             interrupt_on_new_message: false,
             multimodal: crate::config::MultimodalConfig::default(),
+            tts: crate::config::TtsConfig::default(),
             hooks: None,
             non_cli_excluded_tools: Arc::new(Vec::new()),
             task_store: Arc::new(MockTaskStore::default()),
@@ -6210,6 +6595,7 @@ BTC is currently around $65,000 based on latest tool output."#
             message_timeout_secs: CHANNEL_MESSAGE_TIMEOUT_SECS,
             interrupt_on_new_message: false,
             multimodal: crate::config::MultimodalConfig::default(),
+            tts: crate::config::TtsConfig::default(),
             hooks: None,
             non_cli_excluded_tools: Arc::new(Vec::new()),
             task_store: Arc::new(MockTaskStore::default()),
@@ -6296,6 +6682,7 @@ BTC is currently around $65,000 based on latest tool output."#
             message_timeout_secs: CHANNEL_MESSAGE_TIMEOUT_SECS,
             interrupt_on_new_message: false,
             multimodal: crate::config::MultimodalConfig::default(),
+            tts: crate::config::TtsConfig::default(),
             hooks: None,
             non_cli_excluded_tools: Arc::new(Vec::new()),
             task_store: Arc::new(MockTaskStore::default()),
@@ -6382,6 +6769,7 @@ BTC is currently around $65,000 based on latest tool output."#
             message_timeout_secs: CHANNEL_MESSAGE_TIMEOUT_SECS,
             interrupt_on_new_message: false,
             multimodal: crate::config::MultimodalConfig::default(),
+            tts: crate::config::TtsConfig::default(),
             hooks: None,
             non_cli_excluded_tools: Arc::new(Vec::new()),
             task_store: Arc::new(MockTaskStore::default()),
@@ -6932,6 +7320,7 @@ This is an example JSON object for profile settings."#;
             message_timeout_secs: CHANNEL_MESSAGE_TIMEOUT_SECS,
             interrupt_on_new_message: false,
             multimodal: crate::config::MultimodalConfig::default(),
+            tts: crate::config::TtsConfig::default(),
             hooks: None,
             non_cli_excluded_tools: Arc::new(Vec::new()),
             task_store: Arc::new(MockTaskStore::default()),
@@ -6999,6 +7388,7 @@ This is an example JSON object for profile settings."#;
             message_timeout_secs: CHANNEL_MESSAGE_TIMEOUT_SECS,
             interrupt_on_new_message: false,
             multimodal: crate::config::MultimodalConfig::default(),
+            tts: crate::config::TtsConfig::default(),
             hooks: None,
             non_cli_excluded_tools: Arc::new(Vec::new()),
             task_store: Arc::new(MockTaskStore::default()),
