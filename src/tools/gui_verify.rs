@@ -16,6 +16,8 @@ use super::traits::{
     ExpectationResult, GuiActionReport, GuiExpectation, GuiExpectationKind, GuiObservation,
     PreObservationStrategy, ReversibilityLevel, VerificationStatus, WaitStrategy,
 };
+use crate::config::{GuiApprovalGate, GuiApprovalThreshold, GuiVerificationConfig};
+use crate::security::AutonomyLevel;
 use serde_json::{json, Value};
 use std::future::Future;
 use std::time::{Duration, Instant};
@@ -253,7 +255,10 @@ pub fn observation(source: &str, evidence: Value) -> GuiObservation {
 }
 
 /// Determine which evidence keys to snapshot based on expectation kinds.
-pub fn infer_pre_observation_keys(expectations: &[GuiExpectation]) -> Vec<String> {
+///
+/// This inference is used for both pre-observation and post-observation
+/// collection, so keep it focused on expectation-driven evidence needs.
+pub fn infer_evidence_keys(expectations: &[GuiExpectation]) -> Vec<String> {
     let mut keys = Vec::new();
     for exp in expectations {
         match &exp.kind {
@@ -283,6 +288,11 @@ pub fn infer_pre_observation_keys(expectations: &[GuiExpectation]) -> Vec<String
         }
     }
     keys
+}
+
+/// Backward-compatible alias kept for existing call sites.
+pub fn infer_pre_observation_keys(expectations: &[GuiExpectation]) -> Vec<String> {
+    infer_evidence_keys(expectations)
 }
 
 /// Apply a wait strategy before collecting post-observation evidence.
@@ -316,11 +326,14 @@ where
                 last_evidence = collect_evidence().await?;
             }
         }
-        WaitStrategy::DomEvent { timeout_ms, .. }
-        | WaitStrategy::AccessibilityEvent { timeout_ms, .. }
-        | WaitStrategy::SelectorPresent { timeout_ms, .. } => {
-            tokio::time::sleep(Duration::from_millis(*timeout_ms)).await;
-            collect_evidence().await
+        WaitStrategy::DomEvent { .. } => {
+            anyhow::bail!("wait.strategy=dom_event requires backend-native event handling; no fixed-sleep fallback is allowed")
+        }
+        WaitStrategy::AccessibilityEvent { .. } => {
+            anyhow::bail!("wait.strategy=accessibility_event requires backend-native event handling; no fixed-sleep fallback is allowed")
+        }
+        WaitStrategy::SelectorPresent { .. } => {
+            anyhow::bail!("wait.strategy=selector_present must be resolved by the tool backend before runtime polling")
         }
     }
 }
@@ -366,6 +379,74 @@ pub fn classify_reversibility(
             _ => ReversibilityLevel::Unknown,
         },
         _ => ReversibilityLevel::Unknown,
+    }
+}
+
+/// Describe an expectation in human-readable form for approval prompts.
+pub fn describe_expectation(expectation: &GuiExpectation) -> String {
+    match &expectation.kind {
+        GuiExpectationKind::FieldValueEquals { selector, value } => {
+            format!("field '{selector}' becomes '{value}'")
+        }
+        GuiExpectationKind::FocusedElementIs { selector } => {
+            format!("focus moves to '{selector}'")
+        }
+        GuiExpectationKind::CheckboxChecked { selector, checked } => {
+            format!("checkbox '{selector}' checked={checked}")
+        }
+        GuiExpectationKind::WindowTitleContains { substring } => {
+            format!("window title contains '{substring}'")
+        }
+        GuiExpectationKind::DialogPresent { present } => {
+            format!("dialog present={present}")
+        }
+        GuiExpectationKind::UrlIs { url } => format!("URL becomes '{url}'"),
+        GuiExpectationKind::UrlHostIs { host } => format!("URL host becomes '{host}'"),
+        GuiExpectationKind::FileExists { path } => format!("file exists at '{path}'"),
+        GuiExpectationKind::DownloadCompleted { path } => {
+            format!("download completes at '{path}'")
+        }
+        GuiExpectationKind::ElementAtCoordinate {
+            x,
+            y,
+            expected_element,
+            tolerance_px,
+        } => format!(
+            "element '{expected_element}' is present near ({x}, {y}) with tolerance {tolerance_px}px"
+        ),
+    }
+}
+
+/// Determine whether a GUI action should block on approval before execution.
+pub fn needs_gui_approval(
+    config: &GuiVerificationConfig,
+    autonomy: AutonomyLevel,
+    reversibility: ReversibilityLevel,
+) -> bool {
+    let gate_enabled = match config.approval_gate {
+        GuiApprovalGate::Never => false,
+        GuiApprovalGate::Always => true,
+        GuiApprovalGate::SupervisedOnly => autonomy == AutonomyLevel::Supervised,
+    };
+
+    gate_enabled && reversibility_meets_threshold(reversibility, config.approval_threshold)
+}
+
+fn reversibility_meets_threshold(
+    reversibility: ReversibilityLevel,
+    threshold: GuiApprovalThreshold,
+) -> bool {
+    match threshold {
+        GuiApprovalThreshold::PartiallyReversible => matches!(
+            reversibility,
+            ReversibilityLevel::PartiallyReversible
+                | ReversibilityLevel::Irreversible
+                | ReversibilityLevel::Unknown
+        ),
+        GuiApprovalThreshold::Irreversible => {
+            matches!(reversibility, ReversibilityLevel::Irreversible)
+        }
+        GuiApprovalThreshold::Unknown => matches!(reversibility, ReversibilityLevel::Unknown),
     }
 }
 
@@ -934,6 +1015,8 @@ fn classify_applescript_reversibility(args: &Value) -> ReversibilityLevel {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::config::{GuiApprovalGate, GuiApprovalThreshold, GuiVerificationConfig};
+    use crate::security::AutonomyLevel;
     use std::sync::{
         atomic::{AtomicUsize, Ordering},
         Arc,
@@ -1196,6 +1279,7 @@ mod tests {
             },
             required: true,
         }];
+        assert_eq!(infer_evidence_keys(&exps), vec!["url".to_string()]);
         assert_eq!(infer_pre_observation_keys(&exps), vec!["url".to_string()]);
     }
 
@@ -1376,6 +1460,21 @@ mod tests {
         assert!(polls.load(Ordering::SeqCst) >= 2);
     }
 
+    #[tokio::test]
+    async fn wait_selector_present_errors_without_backend_handling() {
+        let err = apply_wait_strategy(
+            &WaitStrategy::SelectorPresent {
+                selector: "#submit".into(),
+                timeout_ms: 100,
+            },
+            || async { Ok(json!({})) },
+            &[],
+        )
+        .await
+        .expect_err("selector_present should require backend wait handling");
+        assert!(err.to_string().contains("wait.strategy=selector_present"));
+    }
+
     #[test]
     fn classify_reversibility_respects_override() {
         let args = json!({"reversibility": "irreversible"});
@@ -1391,6 +1490,73 @@ mod tests {
         assert_eq!(
             classify_reversibility("browser", "click", &args, &[]),
             ReversibilityLevel::Irreversible
+        );
+    }
+
+    #[test]
+    fn gui_approval_default_threshold_does_not_prompt_for_unknown_in_supervised_mode() {
+        let config = GuiVerificationConfig::default();
+        assert!(!needs_gui_approval(
+            &config,
+            AutonomyLevel::Supervised,
+            ReversibilityLevel::Unknown
+        ));
+    }
+
+    #[test]
+    fn gui_approval_unknown_threshold_prompts_for_unknown_actions() {
+        let config = GuiVerificationConfig {
+            approval_gate: GuiApprovalGate::Always,
+            approval_threshold: GuiApprovalThreshold::Unknown,
+            approval_timeout_secs: 30,
+        };
+        assert!(needs_gui_approval(
+            &config,
+            AutonomyLevel::Full,
+            ReversibilityLevel::Unknown
+        ));
+        assert!(!needs_gui_approval(
+            &config,
+            AutonomyLevel::Full,
+            ReversibilityLevel::Irreversible
+        ));
+    }
+
+    #[test]
+    fn gui_approval_supervised_only_skips_full_autonomy() {
+        let config = GuiVerificationConfig::default();
+        assert!(!needs_gui_approval(
+            &config,
+            AutonomyLevel::Full,
+            ReversibilityLevel::Irreversible
+        ));
+    }
+
+    #[test]
+    fn gui_approval_partially_reversible_threshold_catches_partial_actions() {
+        let config = GuiVerificationConfig {
+            approval_gate: GuiApprovalGate::Always,
+            approval_threshold: GuiApprovalThreshold::PartiallyReversible,
+            approval_timeout_secs: 30,
+        };
+        assert!(needs_gui_approval(
+            &config,
+            AutonomyLevel::Full,
+            ReversibilityLevel::PartiallyReversible
+        ));
+    }
+
+    #[test]
+    fn describe_expectation_renders_url_host_expectation() {
+        let expectation = GuiExpectation {
+            kind: GuiExpectationKind::UrlHostIs {
+                host: "example.com".into(),
+            },
+            required: true,
+        };
+        assert_eq!(
+            describe_expectation(&expectation),
+            "URL host becomes 'example.com'"
         );
     }
 

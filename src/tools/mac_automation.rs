@@ -1,5 +1,9 @@
 use super::gui_verify;
-use super::traits::{GuiExpectation, PreObservationStrategy, Tool, ToolResult};
+use super::traits::{
+    GuiExpectation, GuiObservation, PreObservationStrategy, Tool, ToolResult, WaitStrategy,
+};
+use crate::approval::{ApprovalManager, ApprovalRequest, GuiApprovalContext};
+use crate::config::GuiVerificationConfig;
 use crate::security::SecurityPolicy;
 use async_trait::async_trait;
 use serde_json::{json, Value};
@@ -17,11 +21,31 @@ const MAX_OUTPUT_CHARS: usize = 8_000;
 /// so the agent does not need to improvise via shell allowlist gaps.
 pub struct MacAutomationTool {
     security: Arc<SecurityPolicy>,
+    gui_verification: GuiVerificationConfig,
+    gui_approval: Arc<ApprovalManager>,
 }
 
 impl MacAutomationTool {
     pub fn new(security: Arc<SecurityPolicy>) -> Self {
-        Self { security }
+        Self::new_with_gui_approval(
+            security,
+            GuiVerificationConfig::default(),
+            Arc::new(ApprovalManager::from_config(
+                &crate::config::AutonomyConfig::default(),
+            )),
+        )
+    }
+
+    pub fn new_with_gui_approval(
+        security: Arc<SecurityPolicy>,
+        gui_verification: GuiVerificationConfig,
+        gui_approval: Arc<ApprovalManager>,
+    ) -> Self {
+        Self {
+            security,
+            gui_verification,
+            gui_approval,
+        }
     }
 
     fn parse_action(args: &serde_json::Value) -> anyhow::Result<&str> {
@@ -187,10 +211,10 @@ impl MacAutomationTool {
         &self,
         strategy: &PreObservationStrategy,
         expectations: &[GuiExpectation],
-    ) -> Option<super::traits::GuiObservation> {
+    ) -> Option<GuiObservation> {
         let keys = match strategy {
             PreObservationStrategy::None => Vec::new(),
-            PreObservationStrategy::Auto => gui_verify::infer_pre_observation_keys(expectations),
+            PreObservationStrategy::Auto => gui_verify::infer_evidence_keys(expectations),
             PreObservationStrategy::Explicit { keys } => keys.clone(),
         };
 
@@ -202,6 +226,172 @@ impl MacAutomationTool {
             Ok(evidence) => Some(gui_verify::observation("mac_pre", evidence)),
             Err(_) => None,
         }
+    }
+
+    fn validate_wait_strategy(&self, wait_strategy: &WaitStrategy) -> anyhow::Result<()> {
+        match wait_strategy {
+            WaitStrategy::None
+            | WaitStrategy::FixedMs { .. }
+            | WaitStrategy::PollUntilVerified { .. }
+            | WaitStrategy::AccessibilityEvent { .. } => Ok(()),
+            WaitStrategy::DomEvent { .. } => anyhow::bail!(
+                "wait.strategy=dom_event is browser-specific and unsupported by mac_automation"
+            ),
+            WaitStrategy::SelectorPresent { .. } => anyhow::bail!(
+                "wait.strategy=selector_present is browser-specific and unsupported by mac_automation"
+            ),
+        }
+    }
+
+    /// Wait for a macOS accessibility state change by polling via osascript.
+    ///
+    /// Supported notifications (mapped to observable checks):
+    /// - `AXTitleChanged` — polls frontmost window title until it differs from baseline.
+    /// - `AXFocusedUIElementChanged` — polls frontmost app name until it differs.
+    /// - `AXSheetCreated` / `AXWindowCreated` — polls for dialog/sheet presence.
+    /// - `AXValueChanged` — generic; polls title as a proxy.
+    ///
+    /// Falls back to a fixed sleep for unrecognized notification names.
+    async fn apply_accessibility_event_wait(
+        &self,
+        notification: &str,
+        timeout_ms: u64,
+    ) -> anyhow::Result<()> {
+        const POLL_INTERVAL_MS: u64 = 200;
+
+        let baseline = match notification {
+            "AXTitleChanged" | "AXValueChanged" => {
+                self.frontmost_window_title().await.ok()
+            }
+            "AXFocusedUIElementChanged" => {
+                self.frontmost_app_name().await.ok()
+            }
+            "AXSheetCreated" | "AXWindowCreated" => {
+                let present = self.frontmost_dialog_present().await.unwrap_or(false);
+                Some(present.to_string())
+            }
+            _ => {
+                // Unrecognized notification: fall back to a bounded sleep.
+                let capped = timeout_ms.min(10_000);
+                tokio::time::sleep(Duration::from_millis(capped)).await;
+                return Ok(());
+            }
+        };
+
+        let deadline = tokio::time::Instant::now() + Duration::from_millis(timeout_ms);
+        loop {
+            tokio::time::sleep(Duration::from_millis(POLL_INTERVAL_MS)).await;
+
+            let current = match notification {
+                "AXTitleChanged" | "AXValueChanged" => {
+                    self.frontmost_window_title().await.ok()
+                }
+                "AXFocusedUIElementChanged" => {
+                    self.frontmost_app_name().await.ok()
+                }
+                "AXSheetCreated" | "AXWindowCreated" => {
+                    let present = self.frontmost_dialog_present().await.unwrap_or(false);
+                    Some(present.to_string())
+                }
+                _ => None,
+            };
+
+            if current != baseline {
+                return Ok(());
+            }
+
+            if tokio::time::Instant::now() >= deadline {
+                anyhow::bail!(
+                    "accessibility_event wait for '{notification}' timed out after {timeout_ms}ms"
+                );
+            }
+        }
+    }
+
+    /// Get the name of the frontmost application.
+    async fn frontmost_app_name(&self) -> anyhow::Result<String> {
+        let args = vec![
+            "-e".to_string(),
+            "tell application \"System Events\"".to_string(),
+            "-e".to_string(),
+            "return name of first process whose frontmost is true".to_string(),
+            "-e".to_string(),
+            "end tell".to_string(),
+        ];
+        let result = Self::run_macos_command("osascript", &args).await?;
+        if !result.success {
+            anyhow::bail!(result.error.unwrap_or_else(|| "osascript failed".into()));
+        }
+        Ok(result.output)
+    }
+
+    async fn maybe_request_gui_approval(
+        &self,
+        action: &str,
+        args: &Value,
+        expectations: &[GuiExpectation],
+        pre_observation: Option<&GuiObservation>,
+    ) -> anyhow::Result<Option<ToolResult>> {
+        let reversibility =
+            gui_verify::classify_reversibility(self.name(), action, args, expectations);
+        if !gui_verify::needs_gui_approval(
+            &self.gui_verification,
+            self.security.autonomy,
+            reversibility,
+        ) {
+            return Ok(None);
+        }
+
+        let action_summary = summarize_mac_action(action, args);
+
+        if self
+            .gui_approval
+            .has_gui_preapproval(self.name(), &action_summary)
+        {
+            return Ok(None);
+        }
+
+        let current_state = if let Some(observation) = pre_observation {
+            Some(observation.evidence.clone())
+        } else {
+            match self
+                .collect_gui_evidence(&default_mac_approval_keys())
+                .await
+            {
+                Ok(evidence) if !evidence.is_null() => Some(evidence),
+                Ok(_) => None,
+                Err(_) => None,
+            }
+        };
+
+        let request = ApprovalRequest {
+            tool_name: self.name().to_string(),
+            arguments: args.clone(),
+            gui_context: Some(GuiApprovalContext {
+                action_summary,
+                reversibility,
+                current_state,
+                expected_outcome: expectations
+                    .iter()
+                    .map(gui_verify::describe_expectation)
+                    .collect(),
+                screenshot_path: None,
+            }),
+        };
+
+        let decision = self
+            .gui_approval
+            .request_gui_approval(&request, self.gui_verification.approval_timeout_secs);
+
+        if decision == crate::approval::ApprovalResponse::No {
+            return Ok(Some(ToolResult {
+                success: false,
+                output: String::new(),
+                error: Some("Action blocked: GUI approval denied".into()),
+            }));
+        }
+
+        Ok(None)
     }
 
     async fn frontmost_window_title(&self) -> anyhow::Result<String> {
@@ -367,6 +557,14 @@ impl Tool for MacAutomationTool {
             }
         };
 
+        if let Err(error) = self.validate_wait_strategy(&wait_strategy) {
+            return Ok(ToolResult {
+                success: false,
+                output: String::new(),
+                error: Some(error.to_string()),
+            });
+        }
+
         let action = match Self::parse_action(&args) {
             Ok(action) => action,
             Err(error) => {
@@ -398,6 +596,17 @@ impl Tool for MacAutomationTool {
                         })
                     }
                 };
+                if let Some(result) = self
+                    .maybe_request_gui_approval(
+                        action,
+                        &args,
+                        &expectations,
+                        pre_observation.as_ref(),
+                    )
+                    .await?
+                {
+                    return Ok(result);
+                }
                 let launch = Self::run_macos_command(
                     "open",
                     &["-a".to_string(), app_name.clone()],
@@ -425,6 +634,17 @@ impl Tool for MacAutomationTool {
                         })
                     }
                 };
+                if let Some(result) = self
+                    .maybe_request_gui_approval(
+                        action,
+                        &args,
+                        &expectations,
+                        pre_observation.as_ref(),
+                    )
+                    .await?
+                {
+                    return Ok(result);
+                }
                 let script = format!(
                     "tell application \"{}\" to activate",
                     Self::escape_applescript_literal(&app_name)
@@ -456,6 +676,17 @@ impl Tool for MacAutomationTool {
                         })
                     }
                 };
+                if let Some(result) = self
+                    .maybe_request_gui_approval(
+                        action,
+                        &args,
+                        &expectations,
+                        pre_observation.as_ref(),
+                    )
+                    .await?
+                {
+                    return Ok(result);
+                }
                 let script_args: Vec<String> = script_lines
                     .into_iter()
                     .flat_map(|line| ["-e".to_string(), line])
@@ -481,10 +712,40 @@ impl Tool for MacAutomationTool {
 
         // ── GUI verification: build post-action evidence and verify ──
         let base_evidence = parse_tool_output(&raw_result.output);
-        let post_keys = gui_verify::infer_pre_observation_keys(&expectations);
+
+        // Apply backend-native wait strategy (AccessibilityEvent) before
+        // collecting post-action evidence.
+        if let WaitStrategy::AccessibilityEvent {
+            notification,
+            timeout_ms,
+        } = &wait_strategy
+        {
+            if raw_result.success {
+                if let Err(error) = self
+                    .apply_accessibility_event_wait(notification, *timeout_ms)
+                    .await
+                {
+                    return Ok(ToolResult {
+                        success: false,
+                        output: String::new(),
+                        error: Some(error.to_string()),
+                    });
+                }
+            }
+        }
+
+        let post_keys = gui_verify::infer_evidence_keys(&expectations);
+        // Only pass FixedMs/PollUntilVerified to the generic wait handler;
+        // AccessibilityEvent was already handled above.
+        let runtime_wait_strategy = match &wait_strategy {
+            WaitStrategy::FixedMs { .. } | WaitStrategy::PollUntilVerified { .. } => {
+                wait_strategy.clone()
+            }
+            _ => WaitStrategy::None,
+        };
         let post_evidence = if raw_result.success {
             match gui_verify::apply_wait_strategy(
-                &wait_strategy,
+                &runtime_wait_strategy,
                 || async {
                     let mut evidence = base_evidence.clone();
                     let extra = self.collect_gui_evidence(&post_keys).await?;
@@ -540,6 +801,22 @@ fn merge_json_objects(target: &mut Value, source: &Value) {
         (target_slot, source_value) => {
             *target_slot = source_value.clone();
         }
+    }
+}
+
+fn default_mac_approval_keys() -> Vec<String> {
+    vec!["title".into(), "dialog_present".into()]
+}
+
+fn summarize_mac_action(action: &str, args: &Value) -> String {
+    match action {
+        "launch_app" | "activate_app" => args
+            .get("app_name")
+            .and_then(Value::as_str)
+            .map(|app_name| format!("{action} '{app_name}'"))
+            .unwrap_or_else(|| action.to_string()),
+        "run_applescript" => "run AppleScript".into(),
+        _ => action.to_string(),
     }
 }
 

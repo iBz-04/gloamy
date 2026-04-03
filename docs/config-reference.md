@@ -314,6 +314,22 @@ Notes:
 - `allow_remote_endpoint = false` (default) rejects any non-loopback endpoint to prevent accidental public exposure.
 - Use `window_allowlist` to restrict which OS windows the sidecar can interact with.
 
+## `[gui_verification]`
+
+| Key | Default | Purpose |
+|---|---|---|
+| `approval_gate` | `supervised_only` | When to require approval for browser and `mac_automation` actions: `always`, `supervised_only`, or `never` |
+| `approval_threshold` | `irreversible` | Reversibility bucket that triggers approval: `partially_reversible`, `irreversible`, or `unknown` |
+| `approval_timeout_secs` | `120` | Timeout for native GUI approval prompts when supported; `0` waits indefinitely |
+
+Notes:
+
+- The GUI approval gate runs inside the browser and mac automation tools, before an irreversible or unknown action is executed.
+- `approval_gate = "supervised_only"` prompts only when autonomy is `supervised`.
+- `approval_threshold = "irreversible"` prompts only for actions classified `irreversible`.
+- `approval_threshold = "partially_reversible"` also prompts for partially reversible actions such as window-closing or actions that may have an undo path.
+- `approval_threshold = "unknown"` prompts only when action reversibility cannot be classified.
+
 ## `[http_request]`
 
 | Key | Default | Purpose |

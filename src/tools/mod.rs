@@ -223,6 +223,9 @@ pub fn all_tools_with_runtime(
     fallback_api_key: Option<&str>,
     root_config: &crate::config::Config,
 ) -> Vec<Box<dyn Tool>> {
+    let gui_approval_manager = Arc::new(crate::approval::ApprovalManager::from_config(
+        &root_config.autonomy,
+    ));
     let mut tool_arcs: Vec<Arc<dyn Tool>> = vec![
         Arc::new(ShellTool::new(security.clone(), runtime)),
         Arc::new(FileReadTool::new(security.clone())),
@@ -262,8 +265,10 @@ pub fn all_tools_with_runtime(
             browser_config.allowed_domains.clone(),
         )));
         // Add full browser automation tool (pluggable backend)
-        tool_arcs.push(Arc::new(BrowserTool::new_with_backend(
+        tool_arcs.push(Arc::new(BrowserTool::new_with_backend_and_gui_approval(
             security.clone(),
+            root_config.gui_verification.clone(),
+            gui_approval_manager.clone(),
             browser_config.allowed_domains.clone(),
             browser_config.session_name.clone(),
             browser_config.backend.clone(),
@@ -318,7 +323,11 @@ pub fn all_tools_with_runtime(
     tool_arcs.push(Arc::new(ScreenshotTool::new(security.clone())));
     tool_arcs.push(Arc::new(ImageInfoTool::new(security.clone())));
     #[cfg(target_os = "macos")]
-    tool_arcs.push(Arc::new(MacAutomationTool::new(security.clone())));
+    tool_arcs.push(Arc::new(MacAutomationTool::new_with_gui_approval(
+        security.clone(),
+        root_config.gui_verification.clone(),
+        gui_approval_manager.clone(),
+    )));
 
     if let Some(key) = composio_key {
         if !key.is_empty() {

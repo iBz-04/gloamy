@@ -226,6 +226,10 @@ pub struct Config {
     #[serde(default)]
     pub browser: BrowserConfig,
 
+    /// GUI verification and approval gating (`[gui_verification]`).
+    #[serde(default)]
+    pub gui_verification: GuiVerificationConfig,
+
     /// HTTP request tool configuration (`[http_request]`).
     #[serde(default)]
     pub http_request: HttpRequestConfig,
@@ -1100,6 +1104,60 @@ impl Default for BrowserConfig {
             native_webdriver_url: default_browser_webdriver_url(),
             native_chrome_path: None,
             computer_use: BrowserComputerUseConfig::default(),
+        }
+    }
+}
+
+/// How GUI approvals should be enforced for browser and desktop actions.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, JsonSchema, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum GuiApprovalGate {
+    Always,
+    SupervisedOnly,
+    Never,
+}
+
+/// Reversibility class that triggers a GUI approval prompt.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, JsonSchema, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum GuiApprovalThreshold {
+    PartiallyReversible,
+    Irreversible,
+    Unknown,
+}
+
+/// GUI verification and approval gating (`[gui_verification]` section).
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub struct GuiVerificationConfig {
+    /// Approval policy for GUI actions.
+    #[serde(default = "default_gui_approval_gate")]
+    pub approval_gate: GuiApprovalGate,
+    /// Reversibility class that should trigger approval.
+    #[serde(default = "default_gui_approval_threshold")]
+    pub approval_threshold: GuiApprovalThreshold,
+    /// Timeout for native GUI approval prompts. `0` blocks indefinitely when supported.
+    #[serde(default = "default_gui_approval_timeout_secs")]
+    pub approval_timeout_secs: u64,
+}
+
+fn default_gui_approval_gate() -> GuiApprovalGate {
+    GuiApprovalGate::SupervisedOnly
+}
+
+fn default_gui_approval_threshold() -> GuiApprovalThreshold {
+    GuiApprovalThreshold::Irreversible
+}
+
+fn default_gui_approval_timeout_secs() -> u64 {
+    120
+}
+
+impl Default for GuiVerificationConfig {
+    fn default() -> Self {
+        Self {
+            approval_gate: default_gui_approval_gate(),
+            approval_threshold: default_gui_approval_threshold(),
+            approval_timeout_secs: default_gui_approval_timeout_secs(),
         }
     }
 }
@@ -3692,6 +3750,7 @@ impl Default for Config {
             one: OneConfig::default(),
             secrets: SecretsConfig::default(),
             browser: BrowserConfig::default(),
+            gui_verification: GuiVerificationConfig::default(),
             http_request: HttpRequestConfig::default(),
             multimodal: MultimodalConfig::default(),
             web_fetch: WebFetchConfig::default(),
@@ -5243,6 +5302,7 @@ default_temperature = 0.7
             one: OneConfig::default(),
             secrets: SecretsConfig::default(),
             browser: BrowserConfig::default(),
+            gui_verification: GuiVerificationConfig::default(),
             http_request: HttpRequestConfig::default(),
             multimodal: MultimodalConfig::default(),
             web_fetch: WebFetchConfig::default(),
@@ -5431,6 +5491,7 @@ tool_dispatcher = "xml"
             one: OneConfig::default(),
             secrets: SecretsConfig::default(),
             browser: BrowserConfig::default(),
+            gui_verification: GuiVerificationConfig::default(),
             http_request: HttpRequestConfig::default(),
             multimodal: MultimodalConfig::default(),
             web_fetch: WebFetchConfig::default(),
@@ -6291,6 +6352,33 @@ default_temperature = 0.7
         assert!(b.computer_use.window_allowlist.is_empty());
         assert!(b.computer_use.max_coordinate_x.is_none());
         assert!(b.computer_use.max_coordinate_y.is_none());
+    }
+
+    #[test]
+    async fn gui_verification_config_defaults_are_phase_three_safe() {
+        let config = GuiVerificationConfig::default();
+        assert_eq!(config.approval_gate, GuiApprovalGate::SupervisedOnly);
+        assert_eq!(
+            config.approval_threshold,
+            GuiApprovalThreshold::Irreversible
+        );
+        assert_eq!(config.approval_timeout_secs, 120);
+    }
+
+    #[test]
+    async fn gui_verification_config_toml_roundtrip() {
+        let toml_str = r#"
+approval_gate = "always"
+approval_threshold = "partially_reversible"
+approval_timeout_secs = 45
+"#;
+        let parsed: GuiVerificationConfig = toml::from_str(toml_str).unwrap();
+        assert_eq!(parsed.approval_gate, GuiApprovalGate::Always);
+        assert_eq!(
+            parsed.approval_threshold,
+            GuiApprovalThreshold::PartiallyReversible
+        );
+        assert_eq!(parsed.approval_timeout_secs, 45);
     }
 
     #[test]

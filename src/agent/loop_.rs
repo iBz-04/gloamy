@@ -2903,7 +2903,9 @@ pub(crate) async fn run_tool_call_loop(
 
             // ── Approval hook ────────────────────────────────
             if let Some(mgr) = approval {
-                if mgr.needs_approval(&tool_name) {
+                let gui_managed_tool = matches!(tool_name.as_str(), "browser" | "mac_automation");
+
+                if !gui_managed_tool && mgr.needs_approval(&tool_name) {
                     let request = ApprovalRequest {
                         tool_name: tool_name.clone(),
                         arguments: tool_args.clone(),

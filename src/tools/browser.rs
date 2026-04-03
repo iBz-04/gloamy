@@ -7,9 +7,11 @@
 
 use super::gui_verify;
 use super::traits::{
-    GuiExpectation, GuiExpectationKind, PreObservationStrategy, Tool, ToolResult,
+    GuiExpectation, GuiExpectationKind, GuiObservation, PreObservationStrategy, Tool, ToolResult,
     VerificationStatus, WaitStrategy,
 };
+use crate::approval::{ApprovalManager, ApprovalRequest, GuiApprovalContext};
+use crate::config::GuiVerificationConfig;
 use crate::security::SecurityPolicy;
 use anyhow::Context;
 use async_trait::async_trait;
@@ -64,6 +66,8 @@ impl Default for ComputerUseConfig {
 /// Browser automation tool using pluggable backends.
 pub struct BrowserTool {
     security: Arc<SecurityPolicy>,
+    gui_verification: GuiVerificationConfig,
+    gui_approval: Arc<ApprovalManager>,
     allowed_domains: Vec<String>,
     session_name: Option<String>,
     backend: String,
@@ -206,8 +210,12 @@ impl BrowserTool {
         allowed_domains: Vec<String>,
         session_name: Option<String>,
     ) -> Self {
-        Self::new_with_backend(
+        Self::new_with_backend_and_gui_approval(
             security,
+            GuiVerificationConfig::default(),
+            Arc::new(ApprovalManager::from_config(
+                &crate::config::AutonomyConfig::default(),
+            )),
             allowed_domains,
             session_name,
             "computer_use".into(),
@@ -229,8 +237,39 @@ impl BrowserTool {
         native_chrome_path: Option<String>,
         computer_use: ComputerUseConfig,
     ) -> Self {
+        Self::new_with_backend_and_gui_approval(
+            security,
+            GuiVerificationConfig::default(),
+            Arc::new(ApprovalManager::from_config(
+                &crate::config::AutonomyConfig::default(),
+            )),
+            allowed_domains,
+            session_name,
+            backend,
+            native_headless,
+            native_webdriver_url,
+            native_chrome_path,
+            computer_use,
+        )
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub fn new_with_backend_and_gui_approval(
+        security: Arc<SecurityPolicy>,
+        gui_verification: GuiVerificationConfig,
+        gui_approval: Arc<ApprovalManager>,
+        allowed_domains: Vec<String>,
+        session_name: Option<String>,
+        backend: String,
+        native_headless: bool,
+        native_webdriver_url: String,
+        native_chrome_path: Option<String>,
+        computer_use: ComputerUseConfig,
+    ) -> Self {
         Self {
             security,
+            gui_verification,
+            gui_approval,
             allowed_domains: normalize_domains(allowed_domains),
             session_name,
             backend,
@@ -1005,13 +1044,14 @@ impl BrowserTool {
         wait_strategy: &WaitStrategy,
     ) -> anyhow::Result<()> {
         match wait_strategy {
-            WaitStrategy::SelectorPresent { selector, .. } => match backend {
+            WaitStrategy::SelectorPresent { selector, timeout_ms } => match backend {
                 ResolvedBackend::ComputerUse => {
                     let _ = self
                         .execute_computer_use_aux_action(
                             "wait",
                             json!({
                                 "selector": selector,
+                                "timeout_ms": timeout_ms,
                             }),
                         )
                         .await?;
@@ -1031,7 +1071,94 @@ impl BrowserTool {
                     Ok(())
                 }
             },
+            WaitStrategy::DomEvent { event, timeout_ms } => {
+                self.apply_dom_event_wait(backend, event, *timeout_ms)
+                    .await
+            }
             _ => Ok(()),
+        }
+    }
+
+    /// Wait for a DOM event using backend-native mechanisms.
+    async fn apply_dom_event_wait(
+        &self,
+        backend: ResolvedBackend,
+        event: &str,
+        timeout_ms: u64,
+    ) -> anyhow::Result<()> {
+        match backend {
+            ResolvedBackend::AgentBrowser => {
+                // Inject a JS one-shot event listener via agent-browser eval.
+                // The script resolves when the event fires or rejects on timeout.
+                let js = format!(
+                    "new Promise((resolve, reject) => {{ \
+                        const timer = setTimeout(() => reject(new Error('dom_event timeout: {event} not received within {timeout_ms}ms')), {timeout_ms}); \
+                        window.addEventListener('{event}', () => {{ clearTimeout(timer); resolve('ok'); }}, {{ once: true }}); \
+                    }})"
+                );
+                let resp = self.run_command(&["eval", &js]).await?;
+                if !resp.success {
+                    let err = resp
+                        .error
+                        .unwrap_or_else(|| format!("dom_event wait for '{event}' failed"));
+                    anyhow::bail!("{err}");
+                }
+                Ok(())
+            }
+            ResolvedBackend::ComputerUse => {
+                // Delegate to sidecar wait_event action.
+                self.execute_computer_use_aux_action(
+                    "wait_event",
+                    json!({
+                        "event": event,
+                        "timeout_ms": timeout_ms,
+                    }),
+                )
+                .await?;
+                Ok(())
+            }
+            ResolvedBackend::RustNative => {
+                self.apply_dom_event_wait_native(event, timeout_ms).await
+            }
+        }
+    }
+
+    /// DomEvent wait for the rust-native WebDriver backend.
+    #[allow(clippy::unused_async)]
+    async fn apply_dom_event_wait_native(
+        &self,
+        event: &str,
+        timeout_ms: u64,
+    ) -> anyhow::Result<()> {
+        #[cfg(feature = "browser-native")]
+        {
+            let state = self.native_state.lock().await;
+            state.wait_for_dom_event(event, timeout_ms).await
+        }
+
+        #[cfg(not(feature = "browser-native"))]
+        {
+            let _ = (event, timeout_ms);
+            anyhow::bail!(
+                "dom_event wait requires the browser-native feature"
+            )
+        }
+    }
+
+    fn validate_wait_strategy(
+        &self,
+        _backend: ResolvedBackend,
+        wait_strategy: &WaitStrategy,
+    ) -> anyhow::Result<()> {
+        match wait_strategy {
+            WaitStrategy::None
+            | WaitStrategy::FixedMs { .. }
+            | WaitStrategy::SelectorPresent { .. }
+            | WaitStrategy::PollUntilVerified { .. }
+            | WaitStrategy::DomEvent { .. } => Ok(()),
+            WaitStrategy::AccessibilityEvent { .. } => anyhow::bail!(
+                "wait.strategy=accessibility_event is only supported by mac_automation"
+            ),
         }
     }
 
@@ -1040,10 +1167,10 @@ impl BrowserTool {
         backend: ResolvedBackend,
         strategy: &PreObservationStrategy,
         expectations: &[GuiExpectation],
-    ) -> Option<super::traits::GuiObservation> {
+    ) -> Option<GuiObservation> {
         let keys = match strategy {
             PreObservationStrategy::None => Vec::new(),
-            PreObservationStrategy::Auto => gui_verify::infer_pre_observation_keys(expectations),
+            PreObservationStrategy::Auto => gui_verify::infer_evidence_keys(expectations),
             PreObservationStrategy::Explicit { keys } => keys.clone(),
         };
 
@@ -1058,6 +1185,77 @@ impl BrowserTool {
                 None
             }
         }
+    }
+
+    async fn maybe_request_gui_approval(
+        &self,
+        backend: ResolvedBackend,
+        action: &str,
+        args: &Value,
+        expectations: &[GuiExpectation],
+        pre_observation: Option<&GuiObservation>,
+    ) -> anyhow::Result<Option<ToolResult>> {
+        let reversibility =
+            gui_verify::classify_reversibility(self.name(), action, args, expectations);
+        if !gui_verify::needs_gui_approval(
+            &self.gui_verification,
+            self.security.autonomy,
+            reversibility,
+        ) {
+            return Ok(None);
+        }
+
+        let action_summary = summarize_browser_action(action, args);
+
+        if self
+            .gui_approval
+            .has_gui_preapproval(self.name(), &action_summary)
+        {
+            return Ok(None);
+        }
+
+        let current_state = if let Some(observation) = pre_observation {
+            Some(observation.evidence.clone())
+        } else {
+            let keys = default_browser_approval_keys();
+            match self.collect_browser_evidence(backend, &keys).await {
+                Ok(evidence) if !evidence.is_null() => Some(evidence),
+                Ok(_) => None,
+                Err(error) => {
+                    debug!("browser approval pre-state capture skipped: {error}");
+                    None
+                }
+            }
+        };
+
+        let request = ApprovalRequest {
+            tool_name: self.name().to_string(),
+            arguments: args.clone(),
+            gui_context: Some(GuiApprovalContext {
+                action_summary,
+                reversibility,
+                current_state,
+                expected_outcome: expectations
+                    .iter()
+                    .map(gui_verify::describe_expectation)
+                    .collect(),
+                screenshot_path: None,
+            }),
+        };
+
+        let decision = self
+            .gui_approval
+            .request_gui_approval(&request, self.gui_verification.approval_timeout_secs);
+
+        if decision == crate::approval::ApprovalResponse::No {
+            return Ok(Some(ToolResult {
+                success: false,
+                output: String::new(),
+                error: Some("Action blocked: GUI approval denied".into()),
+            }));
+        }
+
+        Ok(None)
     }
 
     async fn maybe_block_on_coordinate_precheck(
@@ -1391,6 +1589,14 @@ impl Tool for BrowserTool {
             }
         };
 
+        if let Err(error) = self.validate_wait_strategy(backend, &wait_strategy) {
+            return Ok(ToolResult {
+                success: false,
+                output: String::new(),
+                error: Some(error.to_string()),
+            });
+        }
+
         // Parse action from args
         let action_str = args
             .get("action")
@@ -1421,9 +1627,25 @@ impl Tool for BrowserTool {
             return Ok(result);
         }
 
-        // Execute the action via the resolved backend
-        let raw_result = if backend == ResolvedBackend::ComputerUse {
-            self.execute_computer_use_action(action_str, &args).await?
+        let parsed_action = if backend == ResolvedBackend::ComputerUse {
+            let params = match args.as_object() {
+                Some(params) => params,
+                None => {
+                    return Ok(ToolResult {
+                        success: false,
+                        output: String::new(),
+                        error: Some("Browser arguments must be a JSON object".into()),
+                    });
+                }
+            };
+            if let Err(error) = self.validate_computer_use_action(action_str, params) {
+                return Ok(ToolResult {
+                    success: false,
+                    output: String::new(),
+                    error: Some(error.to_string()),
+                });
+            }
+            None
         } else if is_computer_use_only_action(action_str) {
             return Ok(ToolResult {
                 success: false,
@@ -1432,16 +1654,40 @@ impl Tool for BrowserTool {
             });
         } else {
             let action = match parse_browser_action(action_str, &args) {
-                Ok(a) => a,
-                Err(e) => {
+                Ok(action) => action,
+                Err(error) => {
                     return Ok(ToolResult {
                         success: false,
                         output: String::new(),
-                        error: Some(e.to_string()),
+                        error: Some(error.to_string()),
                     });
                 }
             };
-            self.execute_action(action, backend).await?
+            Some(action)
+        };
+
+        if let Some(result) = self
+            .maybe_request_gui_approval(
+                backend,
+                action_str,
+                &args,
+                &expectations,
+                pre_observation.as_ref(),
+            )
+            .await?
+        {
+            return Ok(result);
+        }
+
+        // Execute the action via the resolved backend
+        let raw_result = if backend == ResolvedBackend::ComputerUse {
+            self.execute_computer_use_action(action_str, &args).await?
+        } else {
+            self.execute_action(
+                parsed_action.expect("non-computer_use action must be prevalidated"),
+                backend,
+            )
+            .await?
         };
 
         // If no expectations, return the raw result (unverified/raw mode)
@@ -1466,7 +1712,7 @@ impl Tool for BrowserTool {
             });
         }
 
-        let post_keys = gui_verify::infer_pre_observation_keys(&expectations);
+        let post_keys = gui_verify::infer_evidence_keys(&expectations);
         let runtime_wait_strategy = match &wait_strategy {
             WaitStrategy::FixedMs { .. } | WaitStrategy::PollUntilVerified { .. } => {
                 wait_strategy.clone()
@@ -2005,6 +2251,33 @@ mod native_backend {
                 anyhow::anyhow!("No active native browser session. Run browser action='open' first")
             })
         }
+
+        /// Wait for a DOM event using WebDriver async script execution.
+        pub async fn wait_for_dom_event(&self, event: &str, timeout_ms: u64) -> Result<()> {
+            let client = self.active_client()?;
+            // execute_async passes a callback as the last argument to the script.
+            // The script must call that callback to signal completion.
+            let js = format!(
+                "var callback = arguments[arguments.length - 1]; \
+                 var timer = setTimeout(function() {{ callback(JSON.stringify({{\"error\":\"timeout\"}})); }}, {timeout_ms}); \
+                 window.addEventListener('{event}', function handler() {{ \
+                     clearTimeout(timer); \
+                     window.removeEventListener('{event}', handler); \
+                     callback(JSON.stringify({{\"ok\":true}})); \
+                 }});"
+            );
+            let result = client
+                .execute_async(&js, vec![])
+                .await
+                .context("dom_event wait: execute_async failed")?;
+            let result_str = result.as_str().unwrap_or("");
+            if result_str.contains("\"error\"") {
+                anyhow::bail!(
+                    "dom_event wait for '{event}' timed out after {timeout_ms}ms"
+                );
+            }
+            Ok(())
+        }
     }
 
     fn webdriver_endpoint_reachable(webdriver_url: &str, timeout: Duration) -> bool {
@@ -2472,6 +2745,81 @@ fn is_supported_browser_action(action: &str) -> bool {
             | "key_press"
             | "screen_capture"
     )
+}
+
+fn default_browser_approval_keys() -> Vec<String> {
+    vec!["url".into(), "title".into()]
+}
+
+fn summarize_browser_action(action: &str, args: &Value) -> String {
+    match action {
+        "open" => args
+            .get("url")
+            .and_then(Value::as_str)
+            .map(|url| format!("open '{url}'"))
+            .unwrap_or_else(|| "open URL".into()),
+        "click" | "fill" | "type" | "hover" | "is_visible" => args
+            .get("selector")
+            .and_then(Value::as_str)
+            .map(|selector| format!("{action} '{selector}'"))
+            .unwrap_or_else(|| action.to_string()),
+        "get_text" => args
+            .get("selector")
+            .and_then(Value::as_str)
+            .map(|selector| format!("read text from '{selector}'"))
+            .unwrap_or_else(|| "read text".into()),
+        "press" | "key_press" => args
+            .get("key")
+            .and_then(Value::as_str)
+            .map(|key| format!("press key '{key}'"))
+            .unwrap_or_else(|| action.to_string()),
+        "key_type" => args
+            .get("text")
+            .and_then(Value::as_str)
+            .map(|text| format!("type text '{}'", truncate_summary_value(text)))
+            .unwrap_or_else(|| "type text".into()),
+        "mouse_move" | "mouse_click" => {
+            let x = args.get("x").and_then(Value::as_i64);
+            let y = args.get("y").and_then(Value::as_i64);
+            match (x, y) {
+                (Some(x), Some(y)) => format!("{action} at ({x}, {y})"),
+                _ => action.to_string(),
+            }
+        }
+        "mouse_drag" => {
+            let from_x = args.get("from_x").and_then(Value::as_i64);
+            let from_y = args.get("from_y").and_then(Value::as_i64);
+            let to_x = args.get("to_x").and_then(Value::as_i64);
+            let to_y = args.get("to_y").and_then(Value::as_i64);
+            match (from_x, from_y, to_x, to_y) {
+                (Some(from_x), Some(from_y), Some(to_x), Some(to_y)) => {
+                    format!("drag from ({from_x}, {from_y}) to ({to_x}, {to_y})")
+                }
+                _ => "mouse drag".into(),
+            }
+        }
+        "find" => {
+            let by = args.get("by").and_then(Value::as_str).unwrap_or("selector");
+            let value = args.get("value").and_then(Value::as_str).unwrap_or("");
+            let find_action = args
+                .get("find_action")
+                .and_then(Value::as_str)
+                .unwrap_or("resolve");
+            format!("{find_action} element by {by}='{value}'")
+        }
+        "screen_capture" => "capture the current screen".into(),
+        _ => action.to_string(),
+    }
+}
+
+fn truncate_summary_value(value: &str) -> String {
+    let mut chars = value.chars();
+    let truncated: String = chars.by_ref().take(80).collect();
+    if chars.next().is_some() {
+        format!("{truncated}...")
+    } else {
+        truncated
+    }
 }
 
 fn is_computer_use_only_action(action: &str) -> bool {

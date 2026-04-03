@@ -566,7 +566,6 @@ pub async fn run_gateway(host: &str, port: u16, config: Config) -> Result<()> {
     if let Some(ref url) = tunnel_url {
         println!("  🌐 Public URL: {url}");
     }
-    println!("  🌐 Web Dashboard: http://{display_addr}/");
     println!("  POST /pair      — pair a new client (X-Pairing-Code header)");
     println!("  POST /webhook   — {{\"message\": \"your prompt\"}}");
     if whatsapp_channel.is_some() {

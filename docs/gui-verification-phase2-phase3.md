@@ -2,6 +2,17 @@
 
 > Builds on Phase 1 (`gui_verify.rs`, `traits.rs` GUI types, browser/mac_automation wiring).
 > Date: 2026-04-03
+>
+> Status note (2026-04-03): this document is now a mixed implementation record and forward plan.
+> Phase 2 is mostly shipped. Phase 3 core approval gates are shipped, while eval framework and
+> channel-specific approval UX are still pending.
+>
+> Update (2026-04-03):
+> - **DomEvent wait** is now backend-native in `browser.rs` (agent-browser JS eval, computer-use sidecar `wait_event`, rust-native WebDriver `execute_async`). No longer a stub sleep.
+> - **AccessibilityEvent wait** is now backend-native in `mac_automation.rs` (polling-based osascript observation for `AXTitleChanged`, `AXFocusedUIElementChanged`, `AXSheetCreated`, `AXWindowCreated`, `AXValueChanged`). No longer a stub sleep.
+> - **SelectorPresent wait** was already backend-native (browser `wait` action / computer-use sidecar).
+> - **Approval "Always" scoping** narrowed from tool-level to `tool_name::action_summary` for GUI actions (`has_gui_preapproval`, `record_gui_decision`). Non-GUI approvals retain tool-level scoping.
+> - Remaining unimplemented: eval framework (§3.3), channel-specific approval UX (Telegram/Discord/Gateway).
 
 ---
 
@@ -9,12 +20,12 @@
 
 ### Overview
 
-Phase 1 captures post-action evidence and verifies expectations against it, but:
+Original Phase 1 gaps this plan addressed:
 
-- **No pre-observation** — `pre_observation` is always `None`; we cannot diff before/after state.
-- **No intelligent waiting** — verification runs immediately after the action; async UI transitions (animations, network fetches, SPAs) may not have settled.
-- **No coordinate validation** — computer-use mouse actions target (x, y) coordinates with no verification that the intended element actually occupies that region.
-- **No confidence scoring** — results are tri-state (`Verified`/`Failed`/`Ambiguous`) with no granularity.
+- **No pre-observation** — `pre_observation` was always `None`, so we could not diff before and after state.
+- **No intelligent waiting** — verification ran immediately after the action, so async UI transitions could be missed.
+- **No coordinate validation** — computer-use mouse actions targeted (x, y) with no verification that the intended element occupied that region.
+- **No confidence scoring** — results were tri-state (`Verified`/`Failed`/`Ambiguous`) with no granularity.
 
 Phase 2 addresses all four.
 
@@ -293,10 +304,10 @@ pub async fn apply_wait_strategy(
                 tokio::time::sleep(Duration::from_millis(*poll_interval_ms)).await;
             }
         }
-        // DomEvent, AccessibilityEvent, SelectorPresent are handled
-        // by the backend before calling this function. If they fall through
-        // here, treat as a fixed wait fallback.
-        _ => collect_evidence().await,
+        // DomEvent, AccessibilityEvent, and SelectorPresent must be handled
+        // by backend-native wait paths before calling this helper.
+        // If they reach this function, return an explicit error.
+        _ => anyhow::bail!("unsupported wait strategy for runtime wait helper"),
     }
 }
 ```
@@ -503,14 +514,14 @@ No change to `success` logic (still driven by `VerificationStatus`). Confidence 
 
 ### Phase 2 File Change Summary
 
-| File | Changes |
-|------|---------|
-| `src/tools/traits.rs` | Add `PreObservationStrategy`, `WaitStrategy`, `ElementAtCoordinate` kind, `confidence` fields, `state_diff` field |
-| `src/tools/gui_verify.rs` | Add `infer_pre_observation_keys()`, `apply_wait_strategy()`, `verify_element_at_coordinate()`, `compute_diff()`, scoring logic |
-| `src/tools/browser.rs` | Wire pre-observation capture, wait strategy application, hit-test pre-check for coordinate actions |
-| `src/tools/mac_automation.rs` | Wire pre-observation (AppleScript reads), AX event waits |
-| `src/tools/gui_wait.rs` (new) | Optional: shared wait strategy helpers if logic is reused across tools |
-| `scripts/ax_wait` (new, macOS only) | Optional Swift CLI for AXObserver-based event waits and hit-testing |
+| File | Changes | Status |
+|------|---------|--------|
+| `src/tools/traits.rs` | `PreObservationStrategy`, `WaitStrategy`, `ElementAtCoordinate`, confidence fields, `state_diff` | Shipped |
+| `src/tools/gui_verify.rs` | `infer_evidence_keys()`, runtime wait helper, coordinate verification, diffing, confidence scoring | Shipped (event waits require backend support) |
+| `src/tools/browser.rs` | Pre-observation capture, selector wait hook, coordinate hit-test pre-check, GUI report wiring | Shipped |
+| `src/tools/mac_automation.rs` | Pre-observation capture and GUI report wiring | Shipped (AX event waits pending) |
+| `src/tools/gui_wait.rs` (new) | Shared wait helpers | Pending / not added |
+| `scripts/ax_wait` (new, macOS only) | AXObserver-based event waits and hit-testing helper | Pending / not added |
 
 ---
 
@@ -982,22 +993,22 @@ jobs:
 
 ### Phase 3 File Change Summary
 
-| File | Changes |
-|------|---------|
-| `src/tools/traits.rs` | Add `ReversibilityLevel` enum |
-| `src/tools/gui_verify.rs` | Add `classify_reversibility()`, `classify_click_reversibility()`, `classify_applescript_reversibility()`, `describe_expectation()`, `needs_gui_approval()` |
-| `src/tools/browser.rs` | Wire approval gate before execution for irreversible actions |
-| `src/tools/mac_automation.rs` | Wire approval gate before execution |
-| `src/approval/mod.rs` | Add `GuiApprovalContext`, extend `ApprovalRequest`, add `request_gui_approval()` |
-| `src/config/schema.rs` | Add `[gui_verification]` config section |
-| `src/tools/gui_eval.rs` (new) | Eval runner, task parser, scoring |
-| `src/main.rs` (or `src/lib.rs`) | Add `gui-eval` CLI subcommand |
-| `tests/gui_evals/` (new dir) | TOML task definitions + optional test server |
-| `.github/workflows/gui-eval.yml` (new) | Optional CI job |
+| File | Changes | Status |
+|------|---------|--------|
+| `src/tools/traits.rs` | `ReversibilityLevel` enum | Shipped |
+| `src/tools/gui_verify.rs` | Reversibility classification helpers, expectation descriptions, approval-threshold gate checks | Shipped |
+| `src/tools/browser.rs` | GUI approval gate before execution | Shipped |
+| `src/tools/mac_automation.rs` | GUI approval gate before execution | Shipped |
+| `src/approval/mod.rs` | `GuiApprovalContext`, `ApprovalRequest` extension, GUI approval request path | Shipped |
+| `src/config/schema.rs` | `[gui_verification]` config section | Shipped |
+| `src/tools/gui_eval.rs` (new) | Eval runner, task parser, scoring | Pending / not added |
+| `src/main.rs` (or `src/lib.rs`) | `gui-eval` CLI subcommand | Pending / not added |
+| `tests/gui_evals/` (new dir) | TOML task definitions + optional test server | Pending / not added |
+| `.github/workflows/gui-eval.yml` (new) | Optional CI job | Pending / not added |
 
 ---
 
-## Implementation Order (Recommended)
+## Implementation Order (Remaining Work)
 
 | Order | Item | Depends On | Risk |
 |-------|------|------------|------|

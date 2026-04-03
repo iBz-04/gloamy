@@ -20,6 +20,11 @@ runtime_trace_max_entries = 400
 enabled = true
 backend = "computer_use"
 
+[gui_verification]
+approval_gate = "supervised_only"
+approval_threshold = "irreversible"
+approval_timeout_secs = 120
+
 [gateway]
 port = 42617
 host = "[::]"
