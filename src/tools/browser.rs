@@ -5,7 +5,11 @@
 //! `--features browser-native` and selected through config.
 //! Computer-use (OS-level) actions are supported via an optional sidecar endpoint.
 
-use super::traits::{Tool, ToolResult};
+use super::gui_verify;
+use super::traits::{
+    GuiExpectation, GuiExpectationKind, PreObservationStrategy, Tool, ToolResult,
+    VerificationStatus, WaitStrategy,
+};
 use crate::security::SecurityPolicy;
 use anyhow::Context;
 use async_trait::async_trait;
@@ -851,6 +855,276 @@ impl BrowserTool {
         })
     }
 
+    async fn execute_computer_use_aux_action(
+        &self,
+        action: &str,
+        params: Value,
+    ) -> anyhow::Result<Value> {
+        let endpoint = self.computer_use_endpoint_url()?;
+        let payload = json!({
+            "action": action,
+            "params": params,
+            "policy": {
+                "allowed_domains": self.allowed_domains,
+                "window_allowlist": self.computer_use.window_allowlist,
+                "max_coordinate_x": self.computer_use.max_coordinate_x,
+                "max_coordinate_y": self.computer_use.max_coordinate_y,
+            },
+            "metadata": {
+                "session_name": self.session_name,
+                "source": "gloamy.browser",
+                "version": env!("CARGO_PKG_VERSION"),
+            }
+        });
+
+        let client = crate::config::build_runtime_proxy_client("tool.browser");
+        let mut request = client
+            .post(endpoint)
+            .timeout(Duration::from_millis(self.computer_use.timeout_ms))
+            .json(&payload);
+
+        if let Some(api_key) = self.computer_use.api_key.as_deref() {
+            let token = api_key.trim();
+            if !token.is_empty() {
+                request = request.bearer_auth(token);
+            }
+        }
+
+        let response = request.send().await.with_context(|| {
+            format!(
+                "Failed to call computer-use sidecar at {}",
+                self.computer_use.endpoint
+            )
+        })?;
+        let status = response.status();
+        let body = response
+            .text()
+            .await
+            .context("Failed to read computer-use sidecar response body")?;
+
+        if let Ok(parsed) = serde_json::from_str::<ComputerUseResponse>(&body) {
+            if status.is_success() && parsed.success.unwrap_or(true) {
+                return Ok(parsed.data.unwrap_or(Value::Null));
+            }
+
+            let error = parsed.error.unwrap_or_else(|| {
+                format!("computer-use sidecar auxiliary action failed with status {status}")
+            });
+            anyhow::bail!("{error}");
+        }
+
+        if status.is_success() {
+            return Ok(
+                serde_json::from_str(&body).unwrap_or_else(|_| json!({ "output": body.trim() }))
+            );
+        }
+
+        anyhow::bail!(
+            "computer-use sidecar auxiliary action failed with status {status}: {}",
+            body.trim()
+        )
+    }
+
+    async fn collect_agent_browser_evidence(&self, keys: &[String]) -> anyhow::Result<Value> {
+        let mut evidence = json!({});
+
+        if keys.iter().any(|key| key == "url") {
+            let resp = self.run_command(&["get", "url"]).await?;
+            if resp.success {
+                merge_json_objects(&mut evidence, &resp.data.unwrap_or(Value::Null));
+            }
+        }
+
+        if keys.iter().any(|key| key == "title") {
+            let resp = self.run_command(&["get", "title"]).await?;
+            if resp.success {
+                merge_json_objects(&mut evidence, &resp.data.unwrap_or(Value::Null));
+            }
+        }
+
+        Ok(evidence)
+    }
+
+    #[allow(clippy::unused_async)]
+    async fn collect_rust_native_evidence(&self, keys: &[String]) -> anyhow::Result<Value> {
+        #[cfg(feature = "browser-native")]
+        {
+            let mut state = self.native_state.lock().await;
+            state
+                .collect_evidence(
+                    keys,
+                    self.native_headless,
+                    &self.native_webdriver_url,
+                    self.native_chrome_path.as_deref(),
+                )
+                .await
+        }
+
+        #[cfg(not(feature = "browser-native"))]
+        {
+            let _ = keys;
+            Ok(json!({}))
+        }
+    }
+
+    async fn collect_computer_use_evidence(&self, keys: &[String]) -> anyhow::Result<Value> {
+        if keys.is_empty() {
+            return Ok(json!({}));
+        }
+        self.execute_computer_use_aux_action("query_state", json!({ "keys": keys }))
+            .await
+    }
+
+    async fn collect_browser_evidence(
+        &self,
+        backend: ResolvedBackend,
+        keys: &[String],
+    ) -> anyhow::Result<Value> {
+        match backend {
+            ResolvedBackend::AgentBrowser => self.collect_agent_browser_evidence(keys).await,
+            ResolvedBackend::RustNative => self.collect_rust_native_evidence(keys).await,
+            ResolvedBackend::ComputerUse => self.collect_computer_use_evidence(keys).await,
+        }
+    }
+
+    async fn collect_post_evidence(
+        &self,
+        backend: ResolvedBackend,
+        keys: &[String],
+        base: &Value,
+    ) -> anyhow::Result<Value> {
+        let mut evidence = base.clone();
+        let extra = self.collect_browser_evidence(backend, keys).await?;
+        merge_json_objects(&mut evidence, &extra);
+        Ok(evidence)
+    }
+
+    async fn apply_backend_wait_strategy(
+        &self,
+        backend: ResolvedBackend,
+        wait_strategy: &WaitStrategy,
+    ) -> anyhow::Result<()> {
+        match wait_strategy {
+            WaitStrategy::SelectorPresent { selector, .. } => match backend {
+                ResolvedBackend::ComputerUse => {
+                    let _ = self
+                        .execute_computer_use_aux_action(
+                            "wait",
+                            json!({
+                                "selector": selector,
+                            }),
+                        )
+                        .await?;
+                    Ok(())
+                }
+                _ => {
+                    let _ = self
+                        .execute_action(
+                            BrowserAction::Wait {
+                                selector: Some(selector.clone()),
+                                ms: None,
+                                text: None,
+                            },
+                            backend,
+                        )
+                        .await?;
+                    Ok(())
+                }
+            },
+            _ => Ok(()),
+        }
+    }
+
+    async fn maybe_collect_pre_observation(
+        &self,
+        backend: ResolvedBackend,
+        strategy: &PreObservationStrategy,
+        expectations: &[GuiExpectation],
+    ) -> Option<super::traits::GuiObservation> {
+        let keys = match strategy {
+            PreObservationStrategy::None => Vec::new(),
+            PreObservationStrategy::Auto => gui_verify::infer_pre_observation_keys(expectations),
+            PreObservationStrategy::Explicit { keys } => keys.clone(),
+        };
+
+        if keys.is_empty() {
+            return None;
+        }
+
+        match self.collect_browser_evidence(backend, &keys).await {
+            Ok(evidence) => Some(gui_verify::observation("browser_pre", evidence)),
+            Err(error) => {
+                debug!("browser pre-observation capture skipped: {error}");
+                None
+            }
+        }
+    }
+
+    async fn maybe_block_on_coordinate_precheck(
+        &self,
+        backend: ResolvedBackend,
+        action: &str,
+        expectations: &[GuiExpectation],
+    ) -> anyhow::Result<Option<ToolResult>> {
+        if backend != ResolvedBackend::ComputerUse
+            || !matches!(action, "mouse_move" | "mouse_click" | "mouse_drag")
+        {
+            return Ok(None);
+        }
+
+        let coordinate_expectations: Vec<GuiExpectation> = expectations
+            .iter()
+            .filter(|exp| matches!(exp.kind, GuiExpectationKind::ElementAtCoordinate { .. }))
+            .cloned()
+            .collect();
+
+        if coordinate_expectations.is_empty() {
+            return Ok(None);
+        }
+
+        let mut reports = Vec::new();
+        let mut precheck_results = Vec::new();
+
+        for exp in &coordinate_expectations {
+            if let GuiExpectationKind::ElementAtCoordinate { x, y, .. } = &exp.kind {
+                let hit_test_result = self
+                    .execute_computer_use_aux_action("hit_test", json!({ "x": x, "y": y }))
+                    .await
+                    .unwrap_or(Value::Null);
+                reports.push(json!({
+                    "x": x,
+                    "y": y,
+                    "result": hit_test_result,
+                }));
+
+                let (_, mut results) = gui_verify::verify_expectations(
+                    std::slice::from_ref(exp),
+                    &json!({ "hit_test_result": reports.last().and_then(|entry| entry.get("result")).cloned().unwrap_or(Value::Null) }),
+                );
+                precheck_results.append(&mut results);
+            }
+        }
+
+        if precheck_results
+            .iter()
+            .any(|result| result.status != VerificationStatus::Verified)
+        {
+            let report = gui_verify::build_report_from_results(
+                false,
+                Some(gui_verify::observation(
+                    "coordinate_precheck",
+                    json!({ "hit_test_results": reports }),
+                )),
+                None,
+                precheck_results,
+                &coordinate_expectations,
+            );
+            return Ok(Some(ToolResult::from_gui_report(&report)));
+        }
+
+        Ok(None)
+    }
+
     async fn execute_action(
         &self,
         action: BrowserAction,
@@ -898,7 +1172,10 @@ impl Tool for BrowserTool {
             "Web/browser automation with pluggable backends (agent-browser, rust-native, computer_use). ",
             "Supports DOM actions plus optional OS-level actions (mouse_move, mouse_click, mouse_drag, ",
             "key_type, key_press, screen_capture) through a computer-use sidecar. Use 'snapshot' to map ",
-            "interactive elements to refs (@e1, @e2). Enforces browser.allowed_domains for open actions."
+            "interactive elements to refs (@e1, @e2). Enforces browser.allowed_domains for open actions. ",
+            "For mutating actions, pass 'expect' with verification expectations (e.g. field_value_equals, ",
+            "url_is, window_title_contains) so success means the expected state was verified, not just ",
+            "that the event was dispatched. Without 'expect', success reflects backend acknowledgment only."
         )
     }
 
@@ -1010,6 +1287,41 @@ impl Tool for BrowserTool {
                 "fill_value": {
                     "type": "string",
                     "description": "For find with fill action: value to fill"
+                },
+                "expect": {
+                    "description": "Verification expectation(s) for mutating actions. When provided, success means the expected UI state was verified, not just that the event was dispatched. Accepts a single object or array of objects. Each object must have a 'kind' field: field_value_equals, focused_element_is, checkbox_checked, window_title_contains, dialog_present, url_is, url_host_is, file_exists, download_completed, element_at_coordinate. Set 'required': false on optional checks.",
+                    "oneOf": [
+                        {
+                            "type": "object",
+                            "properties": {
+                                "kind": { "type": "string" },
+                                "required": { "type": "boolean", "default": true }
+                            },
+                            "required": ["kind"]
+                        },
+                        {
+                            "type": "array",
+                            "items": {
+                                "type": "object",
+                                "properties": {
+                                    "kind": { "type": "string" },
+                                    "required": { "type": "boolean", "default": true }
+                                },
+                                "required": ["kind"]
+                            }
+                        }
+                    ]
+                },
+                "pre_observe": {
+                    "description": "Optional pre-action observation strategy. Use \"auto\" to infer evidence keys from expectations or provide {\"keys\": [...]} for explicit keys."
+                },
+                "wait": {
+                    "description": "Optional post-action wait strategy object. Example: {\"strategy\":\"poll_until_verified\",\"poll_interval_ms\":200,\"timeout_ms\":5000}."
+                },
+                "reversibility": {
+                    "type": "string",
+                    "enum": ["reversible", "partially_reversible", "irreversible", "unknown"],
+                    "description": "Optional caller override for GUI action reversibility classification."
                 }
             },
             "required": ["action"]
@@ -1033,6 +1345,40 @@ impl Tool for BrowserTool {
                 error: Some("Action blocked: rate limit exceeded".into()),
             });
         }
+
+        // Parse verification expectations (if any) before executing
+        let expectations = match gui_verify::parse_expectations(&args) {
+            Ok(exps) => exps,
+            Err(e) => {
+                return Ok(ToolResult {
+                    success: false,
+                    output: String::new(),
+                    error: Some(e.to_string()),
+                });
+            }
+        };
+
+        let pre_observe = match gui_verify::parse_pre_observation_strategy(&args) {
+            Ok(strategy) => strategy,
+            Err(error) => {
+                return Ok(ToolResult {
+                    success: false,
+                    output: String::new(),
+                    error: Some(error.to_string()),
+                });
+            }
+        };
+
+        let wait_strategy = match gui_verify::parse_wait_strategy(&args) {
+            Ok(strategy) => strategy,
+            Err(error) => {
+                return Ok(ToolResult {
+                    success: false,
+                    output: String::new(),
+                    error: Some(error.to_string()),
+                });
+            }
+        };
 
         let backend = match self.resolve_backend().await {
             Ok(selected) => selected,
@@ -1059,30 +1405,105 @@ impl Tool for BrowserTool {
             });
         }
 
-        if backend == ResolvedBackend::ComputerUse {
-            return self.execute_computer_use_action(action_str, &args).await;
+        let expectations = match expectations {
+            Some(exps) => exps,
+            None => Vec::new(),
+        };
+
+        let pre_observation = self
+            .maybe_collect_pre_observation(backend, &pre_observe, &expectations)
+            .await;
+
+        if let Some(result) = self
+            .maybe_block_on_coordinate_precheck(backend, action_str, &expectations)
+            .await?
+        {
+            return Ok(result);
         }
 
-        if is_computer_use_only_action(action_str) {
+        // Execute the action via the resolved backend
+        let raw_result = if backend == ResolvedBackend::ComputerUse {
+            self.execute_computer_use_action(action_str, &args).await?
+        } else if is_computer_use_only_action(action_str) {
             return Ok(ToolResult {
                 success: false,
                 output: String::new(),
                 error: Some(unavailable_action_for_backend_error(action_str, backend)),
             });
-        }
-
-        let action = match parse_browser_action(action_str, &args) {
-            Ok(a) => a,
-            Err(e) => {
-                return Ok(ToolResult {
-                    success: false,
-                    output: String::new(),
-                    error: Some(e.to_string()),
-                });
-            }
+        } else {
+            let action = match parse_browser_action(action_str, &args) {
+                Ok(a) => a,
+                Err(e) => {
+                    return Ok(ToolResult {
+                        success: false,
+                        output: String::new(),
+                        error: Some(e.to_string()),
+                    });
+                }
+            };
+            self.execute_action(action, backend).await?
         };
 
-        self.execute_action(action, backend).await
+        // If no expectations, return the raw result (unverified/raw mode)
+        if expectations.is_empty() {
+            return Ok(raw_result);
+        }
+
+        let base_evidence = if raw_result.success {
+            parse_tool_output(&raw_result.output)
+        } else {
+            json!({})
+        };
+
+        if let Err(error) = self
+            .apply_backend_wait_strategy(backend, &wait_strategy)
+            .await
+        {
+            return Ok(ToolResult {
+                success: false,
+                output: String::new(),
+                error: Some(error.to_string()),
+            });
+        }
+
+        let post_keys = gui_verify::infer_pre_observation_keys(&expectations);
+        let runtime_wait_strategy = match &wait_strategy {
+            WaitStrategy::FixedMs { .. } | WaitStrategy::PollUntilVerified { .. } => {
+                wait_strategy.clone()
+            }
+            _ => WaitStrategy::None,
+        };
+        let post_evidence = if raw_result.success {
+            match gui_verify::apply_wait_strategy(
+                &runtime_wait_strategy,
+                || self.collect_post_evidence(backend, &post_keys, &base_evidence),
+                &expectations,
+            )
+            .await
+            {
+                Ok(evidence) => evidence,
+                Err(error) => {
+                    return Ok(ToolResult {
+                        success: false,
+                        output: String::new(),
+                        error: Some(error.to_string()),
+                    });
+                }
+            }
+        } else {
+            base_evidence
+        };
+
+        let post_obs = gui_verify::observation("backend_output", post_evidence.clone());
+        let report = gui_verify::build_report(
+            raw_result.success,
+            pre_observation,
+            Some(post_obs),
+            &expectations,
+            &post_evidence,
+        );
+
+        Ok(ToolResult::from_gui_report(&report))
     }
 }
 
@@ -1436,6 +1857,87 @@ mod native_backend {
             }
         }
 
+        pub async fn collect_evidence(
+            &mut self,
+            keys: &[String],
+            headless: bool,
+            webdriver_url: &str,
+            chrome_path: Option<&str>,
+        ) -> Result<Value> {
+            if self.client.is_none() {
+                return Ok(json!({}));
+            }
+
+            self.ensure_session(headless, webdriver_url, chrome_path)
+                .await?;
+            let client = self.active_client()?;
+            let mut evidence = json!({});
+
+            for key in keys {
+                match key.as_str() {
+                    "url" => {
+                        let url = client
+                            .current_url()
+                            .await
+                            .context("Failed to read current URL")?;
+                        insert_evidence_path(&mut evidence, key, json!(url.as_str()));
+                    }
+                    "title" => {
+                        let title = client.title().await.context("Failed to read page title")?;
+                        insert_evidence_path(&mut evidence, key, json!(title));
+                    }
+                    "focused_element" => {
+                        let focused = client
+                            .execute(
+                                r#"(() => {
+                                    const el = document.activeElement;
+                                    if (!el) return null;
+                                    if (el.id) return `#${el.id}`;
+                                    if (el.getAttribute('data-zc-ref')) return el.getAttribute('data-zc-ref');
+                                    if (el.getAttribute('name')) return el.getAttribute('name');
+                                    return el.tagName.toLowerCase();
+                                })();"#,
+                                vec![],
+                            )
+                            .await
+                            .context("Failed to read focused element")?;
+                        insert_evidence_path(&mut evidence, key, focused);
+                    }
+                    "dialog_present" => {
+                        let present = client
+                            .execute(
+                                r#"return Boolean(document.querySelector('dialog[open], [role="dialog"], [aria-modal="true"], .modal, .dialog'));"#,
+                                vec![],
+                            )
+                            .await
+                            .context("Failed to detect dialog state")?;
+                        insert_evidence_path(&mut evidence, key, present);
+                    }
+                    other if other.starts_with("field_values.") => {
+                        let selector = &other["field_values.".len()..];
+                        if let Ok(element) = find_element(client, selector).await {
+                            let value = element
+                                .prop("value")
+                                .await
+                                .context("Failed to read field value")?
+                                .unwrap_or_default();
+                            insert_evidence_path(&mut evidence, other, json!(value));
+                        }
+                    }
+                    other if other.starts_with("checkbox_states.") => {
+                        let selector = &other["checkbox_states.".len()..];
+                        if let Ok(element) = find_element(client, selector).await {
+                            let checked = element_checked(&element).await?;
+                            insert_evidence_path(&mut evidence, other, json!(checked));
+                        }
+                    }
+                    _ => {}
+                }
+            }
+
+            Ok(evidence)
+        }
+
         pub async fn reset_session(&mut self) {
             if let Some(client) = self.client.take() {
                 let _ = client.close().await;
@@ -1762,6 +2264,29 @@ mod native_backend {
 }})();"#
         )
     }
+
+    fn insert_evidence_path(target: &mut Value, path: &str, value: Value) {
+        let segments: Vec<&str> = path.split('.').collect();
+        let mut current = target;
+        for (index, segment) in segments.iter().enumerate() {
+            if index + 1 == segments.len() {
+                if let Value::Object(map) = current {
+                    map.insert((*segment).to_string(), value);
+                }
+                return;
+            }
+
+            if !current.is_object() {
+                *current = json!({});
+            }
+
+            if let Value::Object(map) = current {
+                current = map
+                    .entry((*segment).to_string())
+                    .or_insert_with(|| json!({}));
+            }
+        }
+    }
 }
 
 // ── Action parsing ──────────────────────────────────────────────
@@ -1984,6 +2509,28 @@ fn is_recoverable_rust_native_error(err: &anyhow::Error) -> bool {
     }
 
     message.contains("webdriver") && (message.contains("timed out") || message.contains("timeout"))
+}
+
+fn parse_tool_output(output: &str) -> Value {
+    serde_json::from_str(output).unwrap_or_else(|_| json!({ "output": output.trim() }))
+}
+
+fn merge_json_objects(target: &mut Value, source: &Value) {
+    match (target, source) {
+        (Value::Object(target_map), Value::Object(source_map)) => {
+            for (key, value) in source_map {
+                match target_map.get_mut(key) {
+                    Some(existing) => merge_json_objects(existing, value),
+                    None => {
+                        target_map.insert(key.clone(), value.clone());
+                    }
+                }
+            }
+        }
+        (target_slot, source_value) => {
+            *target_slot = source_value.clone();
+        }
+    }
 }
 
 fn normalize_domains(domains: Vec<String>) -> Vec<String> {

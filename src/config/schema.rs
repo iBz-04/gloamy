@@ -6143,7 +6143,10 @@ default_temperature = 0.7
     #[test]
     async fn checklist_autonomy_default_has_full_autonomy() {
         let a = AutonomyConfig::default();
-        assert!(!a.workspace_only, "Default autonomy is now full (not workspace-scoped)");
+        assert!(
+            !a.workspace_only,
+            "Default autonomy is now full (not workspace-scoped)"
+        );
         assert_eq!(a.level, AutonomyLevel::Full, "Default level must be Full");
         assert!(
             a.forbidden_paths.contains(&"~/.ssh".to_string()),
@@ -6167,7 +6170,10 @@ default_temperature = 0.7
     async fn composio_config_default_enabled() {
         let c = ComposioConfig::default();
         assert!(c.enabled, "Composio is enabled by default for easy setup");
-        assert!(c.api_key.is_none(), "No API key by default - user plugs in their key");
+        assert!(
+            c.api_key.is_none(),
+            "No API key by default - user plugs in their key"
+        );
         assert_eq!(c.entity_id, "default");
     }
 
@@ -6197,7 +6203,10 @@ default_temperature = 0.7
             parsed.composio.enabled,
             "Missing [composio] defaults to enabled for easy setup"
         );
-        assert!(parsed.composio.api_key.is_none(), "No API key by default - user plugs in their key");
+        assert!(
+            parsed.composio.api_key.is_none(),
+            "No API key by default - user plugs in their key"
+        );
     }
 
     #[test]

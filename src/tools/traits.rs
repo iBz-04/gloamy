@@ -9,6 +9,190 @@ pub struct ToolResult {
     pub error: Option<String>,
 }
 
+impl ToolResult {
+    /// Build a `ToolResult` from a [`GuiActionReport`].
+    ///
+    /// `success` follows `verification_status == Verified`, not mere execution
+    /// acknowledgment. The report is serialized into `output` as structured JSON
+    /// so the LLM and downstream consumers can inspect verification evidence.
+    pub fn from_gui_report(report: &GuiActionReport) -> Self {
+        let success = report.verification_status == VerificationStatus::Verified;
+        let output = serde_json::to_string_pretty(report).unwrap_or_default();
+        let error = if success {
+            None
+        } else {
+            Some(format!(
+                "GUI verification: {:?}",
+                report.verification_status
+            ))
+        };
+        Self {
+            success,
+            output,
+            error,
+        }
+    }
+}
+
+// ── GUI verification contract ───────────────────────────────────
+
+/// Whether the post-action UI state matches the expectation.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum VerificationStatus {
+    Verified,
+    Failed,
+    Ambiguous,
+}
+
+/// How to capture pre-action state for diffing.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+pub enum PreObservationStrategy {
+    /// No pre-observation (Phase 1 behavior, default).
+    #[default]
+    None,
+    /// Capture evidence keys inferred from the supplied expectations.
+    Auto,
+    /// Capture an explicit set of evidence keys.
+    Explicit { keys: Vec<String> },
+}
+
+/// How to wait for the UI to settle before collecting post-observation.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+pub enum WaitStrategy {
+    /// No wait (Phase 1 behavior, default).
+    #[default]
+    None,
+    /// Fixed delay in milliseconds.
+    FixedMs { ms: u64 },
+    /// Wait for a DOM event (browser-oriented backends).
+    DomEvent { event: String, timeout_ms: u64 },
+    /// Wait for a macOS accessibility notification.
+    AccessibilityEvent {
+        notification: String,
+        timeout_ms: u64,
+    },
+    /// Wait until a selector becomes present/visible.
+    SelectorPresent { selector: String, timeout_ms: u64 },
+    /// Poll evidence collection until expectations verify or the timeout expires.
+    PollUntilVerified {
+        poll_interval_ms: u64,
+        timeout_ms: u64,
+    },
+}
+
+/// How reversible a GUI action is.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ReversibilityLevel {
+    Reversible,
+    PartiallyReversible,
+    Irreversible,
+    Unknown,
+}
+
+/// What kind of end-state the caller expects after a GUI action.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum GuiExpectationKind {
+    FieldValueEquals {
+        selector: String,
+        value: String,
+    },
+    FocusedElementIs {
+        selector: String,
+    },
+    CheckboxChecked {
+        selector: String,
+        checked: bool,
+    },
+    WindowTitleContains {
+        substring: String,
+    },
+    DialogPresent {
+        present: bool,
+    },
+    UrlIs {
+        url: String,
+    },
+    UrlHostIs {
+        host: String,
+    },
+    FileExists {
+        path: String,
+    },
+    DownloadCompleted {
+        path: String,
+    },
+    ElementAtCoordinate {
+        x: i64,
+        y: i64,
+        expected_element: String,
+        #[serde(default)]
+        tolerance_px: u32,
+    },
+}
+
+/// A single expectation attached to a GUI action.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GuiExpectation {
+    #[serde(flatten)]
+    pub kind: GuiExpectationKind,
+    /// If `true`, verification failure makes the whole action fail.
+    /// If `false`, a mismatch is reported as `Ambiguous` but `success` can
+    /// still be `true` when `execution_ok` is `true`.
+    #[serde(default = "default_required")]
+    pub required: bool,
+}
+
+fn default_required() -> bool {
+    true
+}
+
+/// A point-in-time observation of GUI state used for pre/post comparison.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GuiObservation {
+    /// Free-form evidence captured from DOM, accessibility tree, filesystem, etc.
+    pub evidence: serde_json::Value,
+    /// Source of the observation (e.g. "dom", "accessibility", "filesystem", "screenshot").
+    pub source: String,
+}
+
+/// Structured report returned by GUI tools when verification is requested.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GuiActionReport {
+    /// Whether the input event was dispatched without transport error.
+    pub execution_ok: bool,
+    /// Observation captured *before* the action.
+    pub pre_observation: Option<GuiObservation>,
+    /// Observation captured *after* the action.
+    pub post_observation: Option<GuiObservation>,
+    /// Overall verification outcome.
+    pub verification_status: VerificationStatus,
+    /// Per-expectation detail (index-aligned with the input expectations).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub expectation_results: Vec<ExpectationResult>,
+    /// Optional diff between pre and post observations.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub state_diff: Option<serde_json::Value>,
+    /// Aggregate confidence across all expectations.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub confidence: Option<f64>,
+}
+
+/// Result of evaluating a single expectation.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ExpectationResult {
+    pub status: VerificationStatus,
+    pub expected: serde_json::Value,
+    pub actual: serde_json::Value,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub message: Option<String>,
+    /// Confidence score in [0.0, 1.0].
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub confidence: Option<f64>,
+}
+
 /// Description of a tool for the LLM
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ToolSpec {

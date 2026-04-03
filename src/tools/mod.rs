@@ -32,6 +32,7 @@ pub mod file_read;
 pub mod file_write;
 pub mod git_operations;
 pub mod glob_search;
+pub mod gui_verify;
 #[cfg(feature = "hardware")]
 pub mod hardware_board_info;
 #[cfg(feature = "hardware")]
@@ -99,7 +100,11 @@ pub use screenshot::ScreenshotTool;
 pub use shell::ShellTool;
 pub use traits::Tool;
 #[allow(unused_imports)]
-pub use traits::{ToolResult, ToolSpec};
+pub use traits::{
+    ExpectationResult, GuiActionReport, GuiExpectation, GuiExpectationKind, GuiObservation,
+    PreObservationStrategy, ReversibilityLevel, ToolResult, ToolSpec, VerificationStatus,
+    WaitStrategy,
+};
 pub use web_fetch::WebFetchTool;
 pub use web_search_tool::WebSearchTool;
 

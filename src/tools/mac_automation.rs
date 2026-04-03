@@ -1,7 +1,8 @@
-use super::traits::{Tool, ToolResult};
+use super::gui_verify;
+use super::traits::{GuiExpectation, PreObservationStrategy, Tool, ToolResult};
 use crate::security::SecurityPolicy;
 use async_trait::async_trait;
-use serde_json::json;
+use serde_json::{json, Value};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -165,6 +166,99 @@ impl MacAutomationTool {
             }),
         }
     }
+
+    async fn collect_gui_evidence(&self, keys: &[String]) -> anyhow::Result<Value> {
+        let mut evidence = json!({});
+
+        if keys.iter().any(|key| key == "title") {
+            let title = self.frontmost_window_title().await.unwrap_or_default();
+            merge_json_objects(&mut evidence, &json!({ "title": title }));
+        }
+
+        if keys.iter().any(|key| key == "dialog_present") {
+            let present = self.frontmost_dialog_present().await.unwrap_or(false);
+            merge_json_objects(&mut evidence, &json!({ "dialog_present": present }));
+        }
+
+        Ok(evidence)
+    }
+
+    async fn maybe_collect_pre_observation(
+        &self,
+        strategy: &PreObservationStrategy,
+        expectations: &[GuiExpectation],
+    ) -> Option<super::traits::GuiObservation> {
+        let keys = match strategy {
+            PreObservationStrategy::None => Vec::new(),
+            PreObservationStrategy::Auto => gui_verify::infer_pre_observation_keys(expectations),
+            PreObservationStrategy::Explicit { keys } => keys.clone(),
+        };
+
+        if keys.is_empty() {
+            return None;
+        }
+
+        match self.collect_gui_evidence(&keys).await {
+            Ok(evidence) => Some(gui_verify::observation("mac_pre", evidence)),
+            Err(_) => None,
+        }
+    }
+
+    async fn frontmost_window_title(&self) -> anyhow::Result<String> {
+        let args = vec![
+            "-e".to_string(),
+            "tell application \"System Events\"".to_string(),
+            "-e".to_string(),
+            "tell (first process whose frontmost is true)".to_string(),
+            "-e".to_string(),
+            "try".to_string(),
+            "-e".to_string(),
+            "return name of front window".to_string(),
+            "-e".to_string(),
+            "on error".to_string(),
+            "-e".to_string(),
+            "return \"\"".to_string(),
+            "-e".to_string(),
+            "end try".to_string(),
+            "-e".to_string(),
+            "end tell".to_string(),
+            "-e".to_string(),
+            "end tell".to_string(),
+        ];
+
+        let result = Self::run_macos_command("osascript", &args).await?;
+        if !result.success {
+            anyhow::bail!(result.error.unwrap_or_else(|| "osascript failed".into()));
+        }
+        Ok(result.output)
+    }
+
+    async fn frontmost_dialog_present(&self) -> anyhow::Result<bool> {
+        let args = vec![
+            "-e".to_string(),
+            "tell application \"System Events\"".to_string(),
+            "-e".to_string(),
+            "tell (first process whose frontmost is true)".to_string(),
+            "-e".to_string(),
+            "try".to_string(),
+            "-e".to_string(),
+            "if exists (sheet 1 of front window) then return \"true\"".to_string(),
+            "-e".to_string(),
+            "end try".to_string(),
+            "-e".to_string(),
+            "return \"false\"".to_string(),
+            "-e".to_string(),
+            "end tell".to_string(),
+            "-e".to_string(),
+            "end tell".to_string(),
+        ];
+
+        let result = Self::run_macos_command("osascript", &args).await?;
+        if !result.success {
+            anyhow::bail!(result.error.unwrap_or_else(|| "osascript failed".into()));
+        }
+        Ok(result.output.trim().eq_ignore_ascii_case("true"))
+    }
 }
 
 #[async_trait]
@@ -198,6 +292,24 @@ impl Tool for MacAutomationTool {
                     "type": "array",
                     "items": { "type": "string" },
                     "description": "AppleScript passed as multiple lines (-e per line)"
+                },
+                "expect": {
+                    "description": "Verification expectation(s) for mutating actions. When provided, success means the expected UI state was verified, not just that the command exited 0. Accepts a single object or array. Each object must have a 'kind' field: field_value_equals, focused_element_is, checkbox_checked, window_title_contains, dialog_present, url_is, url_host_is, file_exists, download_completed, element_at_coordinate.",
+                    "oneOf": [
+                        { "type": "object", "properties": { "kind": { "type": "string" } }, "required": ["kind"] },
+                        { "type": "array", "items": { "type": "object", "properties": { "kind": { "type": "string" } }, "required": ["kind"] } }
+                    ]
+                },
+                "pre_observe": {
+                    "description": "Optional pre-action observation strategy. Use \"auto\" to infer evidence keys from expectations or provide {\"keys\": [...]}."
+                },
+                "wait": {
+                    "description": "Optional wait strategy object. Example: {\"strategy\":\"fixed_ms\",\"ms\":500}."
+                },
+                "reversibility": {
+                    "type": "string",
+                    "enum": ["reversible", "partially_reversible", "irreversible", "unknown"],
+                    "description": "Optional caller override for GUI action reversibility classification."
                 }
             },
             "required": ["action"]
@@ -221,6 +333,40 @@ impl Tool for MacAutomationTool {
             });
         }
 
+        // Parse verification expectations (if any) before executing
+        let expectations = match gui_verify::parse_expectations(&args) {
+            Ok(exps) => exps,
+            Err(e) => {
+                return Ok(ToolResult {
+                    success: false,
+                    output: String::new(),
+                    error: Some(e.to_string()),
+                });
+            }
+        };
+
+        let pre_observe = match gui_verify::parse_pre_observation_strategy(&args) {
+            Ok(strategy) => strategy,
+            Err(error) => {
+                return Ok(ToolResult {
+                    success: false,
+                    output: String::new(),
+                    error: Some(error.to_string()),
+                });
+            }
+        };
+
+        let wait_strategy = match gui_verify::parse_wait_strategy(&args) {
+            Ok(strategy) => strategy,
+            Err(error) => {
+                return Ok(ToolResult {
+                    success: false,
+                    output: String::new(),
+                    error: Some(error.to_string()),
+                });
+            }
+        };
+
         let action = match Self::parse_action(&args) {
             Ok(action) => action,
             Err(error) => {
@@ -232,7 +378,15 @@ impl Tool for MacAutomationTool {
             }
         };
 
-        match action {
+        let expectations = match expectations {
+            Some(exps) => exps,
+            None => Vec::new(),
+        };
+        let pre_observation = self
+            .maybe_collect_pre_observation(&pre_observe, &expectations)
+            .await;
+
+        let raw_result = match action {
             "launch_app" => {
                 let app_name = match Self::parse_app_name(&args) {
                     Ok(value) => value,
@@ -250,7 +404,7 @@ impl Tool for MacAutomationTool {
                 )
                 .await?;
 
-                Ok(ToolResult {
+                ToolResult {
                     success: launch.success,
                     output: if launch.success {
                         format!("Launched app: {app_name}")
@@ -258,7 +412,7 @@ impl Tool for MacAutomationTool {
                         launch.output
                     },
                     error: launch.error,
-                })
+                }
             }
             "activate_app" => {
                 let app_name = match Self::parse_app_name(&args) {
@@ -281,7 +435,7 @@ impl Tool for MacAutomationTool {
                 )
                 .await?;
 
-                Ok(ToolResult {
+                ToolResult {
                     success: activation.success,
                     output: if activation.success {
                         format!("Activated app: {app_name}")
@@ -289,7 +443,7 @@ impl Tool for MacAutomationTool {
                         activation.output
                     },
                     error: activation.error,
-                })
+                }
             }
             "run_applescript" => {
                 let script_lines = match Self::parse_applescript_lines(&args) {
@@ -307,15 +461,84 @@ impl Tool for MacAutomationTool {
                     .flat_map(|line| ["-e".to_string(), line])
                     .collect();
 
-                Self::run_macos_command("osascript", &script_args).await
+                Self::run_macos_command("osascript", &script_args).await?
             }
-            other => Ok(ToolResult {
-                success: false,
-                output: String::new(),
-                error: Some(format!(
-                    "Unsupported action '{other}'. Allowed: launch_app, activate_app, run_applescript"
-                )),
-            }),
+            other => {
+                return Ok(ToolResult {
+                    success: false,
+                    output: String::new(),
+                    error: Some(format!(
+                        "Unsupported action '{other}'. Allowed: launch_app, activate_app, run_applescript"
+                    )),
+                })
+            }
+        };
+
+        // If no expectations, return the raw result (unverified/raw mode)
+        if expectations.is_empty() {
+            return Ok(raw_result);
+        }
+
+        // ── GUI verification: build post-action evidence and verify ──
+        let base_evidence = parse_tool_output(&raw_result.output);
+        let post_keys = gui_verify::infer_pre_observation_keys(&expectations);
+        let post_evidence = if raw_result.success {
+            match gui_verify::apply_wait_strategy(
+                &wait_strategy,
+                || async {
+                    let mut evidence = base_evidence.clone();
+                    let extra = self.collect_gui_evidence(&post_keys).await?;
+                    merge_json_objects(&mut evidence, &extra);
+                    Ok(evidence)
+                },
+                &expectations,
+            )
+            .await
+            {
+                Ok(evidence) => evidence,
+                Err(error) => {
+                    return Ok(ToolResult {
+                        success: false,
+                        output: String::new(),
+                        error: Some(error.to_string()),
+                    });
+                }
+            }
+        } else {
+            base_evidence
+        };
+
+        let post_obs = gui_verify::observation("osascript_output", post_evidence.clone());
+        let report = gui_verify::build_report(
+            raw_result.success,
+            pre_observation,
+            Some(post_obs),
+            &expectations,
+            &post_evidence,
+        );
+
+        Ok(ToolResult::from_gui_report(&report))
+    }
+}
+
+fn parse_tool_output(output: &str) -> Value {
+    serde_json::from_str(output).unwrap_or_else(|_| json!({"output": output}))
+}
+
+fn merge_json_objects(target: &mut Value, source: &Value) {
+    match (target, source) {
+        (Value::Object(target_map), Value::Object(source_map)) => {
+            for (key, value) in source_map {
+                match target_map.get_mut(key) {
+                    Some(existing) => merge_json_objects(existing, value),
+                    None => {
+                        target_map.insert(key.clone(), value.clone());
+                    }
+                }
+            }
+        }
+        (target_slot, source_value) => {
+            *target_slot = source_value.clone();
         }
     }
 }

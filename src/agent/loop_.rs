@@ -2907,6 +2907,7 @@ pub(crate) async fn run_tool_call_loop(
                     let request = ApprovalRequest {
                         tool_name: tool_name.clone(),
                         arguments: tool_args.clone(),
+                        gui_context: None,
                     };
 
                     // Only prompt interactively on CLI; auto-approve on other channels.

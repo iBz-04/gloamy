@@ -5,6 +5,7 @@
 
 use crate::config::AutonomyConfig;
 use crate::security::AutonomyLevel;
+use crate::tools::traits::ReversibilityLevel;
 use chrono::Utc;
 use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};
@@ -18,6 +19,21 @@ use std::io::{self, BufRead, Write};
 pub struct ApprovalRequest {
     pub tool_name: String,
     pub arguments: serde_json::Value,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub gui_context: Option<GuiApprovalContext>,
+}
+
+/// GUI-specific metadata attached to an approval request.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GuiApprovalContext {
+    pub action_summary: String,
+    pub reversibility: ReversibilityLevel,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub current_state: Option<serde_json::Value>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub expected_outcome: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub screenshot_path: Option<String>,
 }
 
 /// The user's response to an approval request.
@@ -418,9 +434,17 @@ mod tests {
         let req = ApprovalRequest {
             tool_name: "shell".into(),
             arguments: serde_json::json!({"command": "echo hi"}),
+            gui_context: Some(GuiApprovalContext {
+                action_summary: "click #submit".into(),
+                reversibility: ReversibilityLevel::Irreversible,
+                current_state: Some(serde_json::json!({"title": "Checkout"})),
+                expected_outcome: vec!["navigates to receipt page".into()],
+                screenshot_path: None,
+            }),
         };
         let json = serde_json::to_string(&req).unwrap();
         let parsed: ApprovalRequest = serde_json::from_str(&json).unwrap();
         assert_eq!(parsed.tool_name, "shell");
+        assert!(parsed.gui_context.is_some());
     }
 }
