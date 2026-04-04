@@ -1,5 +1,6 @@
 use super::traits::{Tool, ToolResult};
 use crate::agent::loop_::run_tool_call_loop;
+use crate::approval::ApprovalManager;
 use crate::config::DelegateAgentConfig;
 use crate::observability::traits::{Observer, ObserverEvent, ObserverMetric};
 use crate::providers::{self, ChatMessage, Provider};
@@ -33,6 +34,10 @@ pub struct DelegateTool {
     parent_tools: Arc<Vec<Arc<dyn Tool>>>,
     /// Inherited multimodal handling config for sub-agent loops.
     multimodal_config: crate::config::MultimodalConfig,
+    /// Optional approval manager for delegated agentic loops.
+    approval: Option<Arc<ApprovalManager>>,
+    /// Channel label used for delegated approval audit entries.
+    execution_channel: String,
 }
 
 impl DelegateTool {
@@ -63,6 +68,8 @@ impl DelegateTool {
             depth: 0,
             parent_tools: Arc::new(Vec::new()),
             multimodal_config: crate::config::MultimodalConfig::default(),
+            approval: None,
+            execution_channel: "delegate".to_string(),
         }
     }
 
@@ -99,6 +106,8 @@ impl DelegateTool {
             depth,
             parent_tools: Arc::new(Vec::new()),
             multimodal_config: crate::config::MultimodalConfig::default(),
+            approval: None,
+            execution_channel: "delegate".to_string(),
         }
     }
 
@@ -111,6 +120,18 @@ impl DelegateTool {
     /// Attach multimodal configuration for sub-agent tool loops.
     pub fn with_multimodal_config(mut self, config: crate::config::MultimodalConfig) -> Self {
         self.multimodal_config = config;
+        self
+    }
+
+    /// Attach approval manager for delegated agentic loops.
+    pub fn with_approval_manager(mut self, approval: Arc<ApprovalManager>) -> Self {
+        self.approval = Some(approval);
+        self
+    }
+
+    /// Override execution channel label used in approval logs.
+    pub fn with_execution_channel(mut self, channel: impl Into<String>) -> Self {
+        self.execution_channel = channel.into();
         self
     }
 }
@@ -386,9 +407,22 @@ impl DelegateTool {
             });
         }
 
+        let sub_tool_specs: Vec<_> = sub_tools.iter().map(|tool| tool.spec()).collect();
+
         let mut history = Vec::new();
         if let Some(system_prompt) = agent_config.system_prompt.as_ref() {
             history.push(ChatMessage::system(system_prompt.clone()));
+        }
+        if !provider.supports_native_tools() {
+            let instructions = match provider.convert_tools(&sub_tool_specs) {
+                providers::traits::ToolsPayload::PromptGuided { instructions } => instructions,
+                payload => {
+                    anyhow::bail!(
+                        "Provider returned non-prompt-guided tools payload ({payload:?}) while supports_native_tools() is false"
+                    )
+                }
+            };
+            history.push(ChatMessage::system(instructions));
         }
         history.push(ChatMessage::user(full_prompt.to_string()));
 
@@ -405,8 +439,8 @@ impl DelegateTool {
                 &agent_config.model,
                 temperature,
                 true,
-                None,
-                "delegate",
+                self.approval.as_deref(),
+                &self.execution_channel,
                 &self.multimodal_config,
                 agent_config.max_iterations,
                 None,
@@ -501,6 +535,8 @@ impl Observer for NoopObserver {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::approval::ApprovalManager;
+    use crate::config::AutonomyConfig;
     use crate::providers::{ChatRequest, ChatResponse, ToolCall};
     use crate::security::{AutonomyLevel, SecurityPolicy};
     use anyhow::anyhow;
@@ -676,6 +712,73 @@ mod tests {
             _temperature: f64,
         ) -> anyhow::Result<ChatResponse> {
             Err(anyhow!("provider boom"))
+        }
+    }
+
+    struct CustomPromptGuidedProvider;
+
+    #[async_trait]
+    impl Provider for CustomPromptGuidedProvider {
+        fn convert_tools(
+            &self,
+            _tools: &[crate::tools::ToolSpec],
+        ) -> providers::traits::ToolsPayload {
+            providers::traits::ToolsPayload::PromptGuided {
+                instructions: "CUSTOM_TOOL_INSTRUCTIONS".to_string(),
+            }
+        }
+
+        async fn chat_with_system(
+            &self,
+            _system_prompt: Option<&str>,
+            _message: &str,
+            _model: &str,
+            _temperature: f64,
+        ) -> anyhow::Result<String> {
+            Ok("unused".to_string())
+        }
+
+        async fn chat(
+            &self,
+            request: ChatRequest<'_>,
+            _model: &str,
+            _temperature: f64,
+        ) -> anyhow::Result<ChatResponse> {
+            let has_tool_message = request.messages.iter().any(|message| {
+                message.role == "tool"
+                    || (message.role == "user" && message.content.starts_with("[Tool results]"))
+            });
+            if has_tool_message {
+                return Ok(ChatResponse {
+                    text: Some("done".to_string()),
+                    tool_calls: Vec::new(),
+                    usage: None,
+                    reasoning_content: None,
+                });
+            }
+
+            let has_custom_instructions = request.messages.iter().any(|message| {
+                message.role == "system" && message.content.contains("CUSTOM_TOOL_INSTRUCTIONS")
+            });
+
+            if has_custom_instructions {
+                Ok(ChatResponse {
+                    text: Some(
+                        "<tool_call>\n{\"name\":\"echo_tool\",\"arguments\":{\"value\":\"ping\"}}\n</tool_call>"
+                            .to_string(),
+                    ),
+                    tool_calls: Vec::new(),
+                    usage: None,
+                    reasoning_content: None,
+                })
+            } else {
+                Ok(ChatResponse {
+                    text: Some("missing custom instructions".to_string()),
+                    tool_calls: Vec::new(),
+                    usage: None,
+                    reasoning_content: None,
+                })
+            }
         }
     }
 
@@ -987,7 +1090,7 @@ mod tests {
             .await
             .unwrap();
 
-        assert!(result.success);
+        assert!(result.success, "{result:?}");
         assert!(result.output.contains("done"));
     }
 
@@ -1030,9 +1133,51 @@ mod tests {
             .await
             .unwrap();
 
-        assert!(result.success);
+        assert!(result.success, "{result:?}");
         assert!(result.output.contains("(openrouter/model-test, agentic)"));
         assert!(result.output.contains("done"));
+    }
+
+    #[tokio::test]
+    async fn execute_agentic_uses_provider_prompt_guided_instructions_for_non_native_provider() {
+        let config = agentic_config(vec!["echo_tool".to_string()], 10);
+        let tool = DelegateTool::new(HashMap::new(), None, test_security())
+            .with_parent_tools(Arc::new(vec![Arc::new(EchoTool)]));
+
+        let provider = CustomPromptGuidedProvider;
+        let result = tool
+            .execute_agentic("agentic", &config, &provider, "run", 0.2)
+            .await
+            .unwrap();
+
+        assert!(result.success, "{result:?}");
+        assert!(result.output.contains("done"));
+    }
+
+    #[tokio::test]
+    async fn execute_agentic_uses_approval_manager_when_configured() {
+        let config = agentic_config(vec!["echo_tool".to_string()], 10);
+        let mut approval_config = AutonomyConfig::default();
+        approval_config.level = AutonomyLevel::Supervised;
+        approval_config.auto_approve.clear();
+        approval_config.always_ask.clear();
+        let approval_manager = Arc::new(ApprovalManager::from_config(&approval_config));
+
+        let tool = DelegateTool::new(HashMap::new(), None, test_security())
+            .with_parent_tools(Arc::new(vec![Arc::new(EchoTool)]))
+            .with_approval_manager(approval_manager.clone());
+
+        let provider = OneToolThenFinalProvider;
+        let result = tool
+            .execute_agentic("agentic", &config, &provider, "run", 0.2)
+            .await
+            .unwrap();
+
+        assert!(result.success);
+        let log = approval_manager.audit_log();
+        assert!(!log.is_empty());
+        assert_eq!(log[0].tool_name, "echo_tool");
+        assert_eq!(log[0].channel, "delegate");
     }
 
     #[tokio::test]

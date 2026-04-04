@@ -372,7 +372,9 @@ pub fn all_tools_with_runtime(
             },
         )
         .with_parent_tools(parent_tools)
-        .with_multimodal_config(root_config.multimodal.clone());
+        .with_multimodal_config(root_config.multimodal.clone())
+        .with_approval_manager(gui_approval_manager.clone())
+        .with_execution_channel("delegate");
         tool_arcs.push(Arc::new(delegate_tool));
     }
 

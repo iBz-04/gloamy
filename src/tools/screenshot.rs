@@ -2,15 +2,14 @@ use super::traits::{Tool, ToolResult};
 use crate::security::SecurityPolicy;
 use async_trait::async_trait;
 use serde_json::json;
-use std::fmt::Write;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 
 /// Maximum time to wait for a screenshot command to complete.
 const SCREENSHOT_TIMEOUT_SECS: u64 = 15;
-/// Maximum base64 payload size to return (2 MB of base64 ≈ 1.5 MB image).
-const MAX_BASE64_BYTES: usize = 2_097_152;
+const MACOS_SCREENSHOT_MAX_ATTEMPTS: usize = 2;
+const SCREENSHOT_RETRY_DELAY_MS: u64 = 750;
 
 /// Tool for capturing screenshots using platform-native commands.
 ///
@@ -103,111 +102,98 @@ impl ScreenshotTool {
         }
 
         let program = cmd_args.remove(0);
-        let result = tokio::time::timeout(
-            Duration::from_secs(SCREENSHOT_TIMEOUT_SECS),
-            tokio::process::Command::new(&program)
-                .args(&cmd_args)
-                .output(),
-        )
-        .await;
+        let max_attempts = if cfg!(target_os = "macos") {
+            MACOS_SCREENSHOT_MAX_ATTEMPTS
+        } else {
+            1
+        };
 
-        match result {
-            Ok(Ok(output)) => {
-                if !output.status.success() {
-                    let stderr = String::from_utf8_lossy(&output.stderr);
-                    if stderr.contains("NO_SCREENSHOT_TOOL") {
+        for attempt in 1..=max_attempts {
+            let mut command = tokio::process::Command::new(&program);
+            command.kill_on_drop(true);
+            command.args(&cmd_args);
+
+            let result = tokio::time::timeout(
+                Duration::from_secs(SCREENSHOT_TIMEOUT_SECS),
+                command.output(),
+            )
+            .await;
+
+            match result {
+                Ok(Ok(output)) => {
+                    if !output.status.success() {
+                        let stderr = String::from_utf8_lossy(&output.stderr);
+                        if stderr.contains("NO_SCREENSHOT_TOOL") {
+                            return Ok(ToolResult {
+                                success: false,
+                                output: String::new(),
+                                error: Some(
+                                    "No screenshot tool found. Install gnome-screenshot, scrot, or ImageMagick."
+                                        .into(),
+                                ),
+                            });
+                        }
                         return Ok(ToolResult {
                             success: false,
                             output: String::new(),
-                            error: Some(
-                                "No screenshot tool found. Install gnome-screenshot, scrot, or ImageMagick."
-                                    .into(),
-                            ),
+                            error: Some(format!("Screenshot command failed: {stderr}")),
                         });
                     }
+
+                    return Self::build_image_result(&output_path).await;
+                }
+                Ok(Err(e)) => {
                     return Ok(ToolResult {
                         success: false,
                         output: String::new(),
-                        error: Some(format!("Screenshot command failed: {stderr}")),
+                        error: Some(format!("Failed to execute screenshot command: {e}")),
                     });
                 }
-
-                Self::read_and_encode(&output_path).await
+                Err(_) if attempt < max_attempts => {
+                    tokio::time::sleep(Duration::from_millis(SCREENSHOT_RETRY_DELAY_MS)).await;
+                }
+                Err(_) => {
+                    return Ok(ToolResult {
+                        success: false,
+                        output: String::new(),
+                        error: Some(format!(
+                            "Screenshot timed out after {SCREENSHOT_TIMEOUT_SECS}s"
+                        )),
+                    });
+                }
             }
-            Ok(Err(e)) => Ok(ToolResult {
-                success: false,
-                output: String::new(),
-                error: Some(format!("Failed to execute screenshot command: {e}")),
-            }),
-            Err(_) => Ok(ToolResult {
-                success: false,
-                output: String::new(),
-                error: Some(format!(
-                    "Screenshot timed out after {SCREENSHOT_TIMEOUT_SECS}s"
-                )),
-            }),
         }
+
+        unreachable!("screenshot retry loop should always return before exhaustion")
     }
 
-    /// Read the screenshot file and return base64-encoded result.
-    async fn read_and_encode(output_path: &std::path::Path) -> anyhow::Result<ToolResult> {
-        // Check file size before reading to prevent OOM on large screenshots
-        const MAX_RAW_BYTES: u64 = 1_572_864; // ~1.5 MB (base64 expands ~33%)
-        if let Ok(meta) = tokio::fs::metadata(output_path).await {
-            if meta.len() > MAX_RAW_BYTES {
+    /// Build a tool result referencing the screenshot via [IMAGE:] marker.
+    ///
+    /// The multimodal pipeline resolves the marker to a proper image content
+    /// block for the provider, so the LLM can visually inspect the screenshot.
+    /// This replaces the previous approach of dumping raw base64 into the tool
+    /// output (which was invisible to the LLM since providers only process
+    /// image markers in user-role messages).
+    async fn build_image_result(output_path: &std::path::Path) -> anyhow::Result<ToolResult> {
+        let size = match tokio::fs::metadata(output_path).await {
+            Ok(meta) => meta.len(),
+            Err(e) => {
                 return Ok(ToolResult {
-                    success: true,
-                    output: format!(
-                        "Screenshot saved to: {}\nSize: {} bytes (too large to base64-encode inline)",
-                        output_path.display(),
-                        meta.len(),
-                    ),
-                    error: None,
+                    success: false,
+                    output: format!("Screenshot saved to: {}", output_path.display()),
+                    error: Some(format!("Failed to read screenshot file: {e}")),
                 });
             }
-        }
+        };
 
-        match tokio::fs::read(output_path).await {
-            Ok(bytes) => {
-                use base64::Engine;
-                let size = bytes.len();
-                let mut encoded = base64::engine::general_purpose::STANDARD.encode(&bytes);
-                let truncated = if encoded.len() > MAX_BASE64_BYTES {
-                    encoded.truncate(encoded.floor_char_boundary(MAX_BASE64_BYTES));
-                    true
-                } else {
-                    false
-                };
-
-                let mut output_msg = format!(
-                    "Screenshot saved to: {}\nSize: {size} bytes\nBase64 length: {}",
-                    output_path.display(),
-                    encoded.len(),
-                );
-                if truncated {
-                    output_msg.push_str(" (truncated)");
-                }
-                let mime = match output_path.extension().and_then(|e| e.to_str()) {
-                    Some("jpg" | "jpeg") => "image/jpeg",
-                    Some("bmp") => "image/bmp",
-                    Some("gif") => "image/gif",
-                    Some("webp") => "image/webp",
-                    _ => "image/png",
-                };
-                let _ = write!(output_msg, "\ndata:{mime};base64,{encoded}");
-
-                Ok(ToolResult {
-                    success: true,
-                    output: output_msg,
-                    error: None,
-                })
-            }
-            Err(e) => Ok(ToolResult {
-                success: false,
-                output: format!("Screenshot saved to: {}", output_path.display()),
-                error: Some(format!("Failed to read screenshot file: {e}")),
-            }),
-        }
+        Ok(ToolResult {
+            success: true,
+            output: format!(
+                "Screenshot saved to: {path}\nSize: {size} bytes\n[IMAGE:{path}]",
+                path = output_path.display(),
+            ),
+            error: None,
+        })
     }
 }
 
@@ -218,7 +204,7 @@ impl Tool for ScreenshotTool {
     }
 
     fn description(&self) -> &str {
-        "Capture a screenshot of the current screen. Returns the file path and base64-encoded PNG data."
+        "Capture a screenshot of the current screen (pixel dump). Returns the file path and base64-encoded PNG data. This is a passive screen-capture tool — it does NOT interact with any application. To trigger an in-app action like clicking a camera shutter button (e.g. Photo Booth, FaceTime), use mac_automation with click_at or run_applescript instead."
     }
 
     fn parameters_schema(&self) -> serde_json::Value {

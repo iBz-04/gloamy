@@ -309,10 +309,7 @@ fn prompt_cli_interactive(request: &ApprovalRequest) -> ApprovalResponse {
         eprintln!("   {summary}");
     }
     if let Some(gui) = &request.gui_context {
-        eprint!(
-            "   [Y]es / [N]o / [A]lways for '{}': ",
-            gui.action_summary
-        );
+        eprint!("   [Y]es / [N]o / [A]lways for '{}': ", gui.action_summary);
     } else {
         eprint!("   [Y]es / [N]o / [A]lways for {}: ", request.tool_name);
     }

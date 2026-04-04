@@ -184,6 +184,12 @@ fn classify_tool_failure(output: &str) -> &'static str {
     {
         return "transient_or_rate_limit";
     }
+    // GUI/AX element failures — AppleScript click/button/keystroke that couldn't
+    // find the target element. Must be checked before generic "missing" to avoid
+    // misclassifying as invalid_arguments.
+    if is_gui_element_failure(&lower) {
+        return "gui_element_not_found";
+    }
     if lower.contains("missing")
         || lower.contains("required")
         || lower.contains("invalid parameter")
@@ -211,8 +217,33 @@ fn classify_tool_failure(output: &str) -> &'static str {
     {
         return "validation_failed";
     }
+    // GUI verification failures (expect-based)
+    if lower.contains("gui verification") || lower.contains("verification_status") {
+        return "gui_verification_failed";
+    }
 
     "execution_error"
+}
+
+/// Detect failures where AppleScript or AX tried to interact with a UI element
+/// that doesn't exist in the accessibility tree (common with custom controls).
+fn is_gui_element_failure(lower: &str) -> bool {
+    // AppleScript errors when a button/element can't be found
+    let has_ax_target = lower.contains("button")
+        || lower.contains("click")
+        || lower.contains("ui element")
+        || lower.contains("menu item")
+        || lower.contains("checkbox")
+        || lower.contains("pop up button")
+        || lower.contains("scroll area");
+    let has_ax_error = lower.contains("can't get")
+        || lower.contains("doesn't understand")
+        || lower.contains("invalid index")
+        || lower.contains("nselement")
+        || lower.contains("access not allowed")
+        || lower.contains("not accessible")
+        || lower.contains("axerror");
+    has_ax_target && has_ax_error
 }
 
 fn recovery_hint_for_failure(classification: &str, tool_name: &str) -> String {
@@ -234,6 +265,19 @@ fn recovery_hint_for_failure(classification: &str, tool_name: &str) -> String {
         ),
         "validation_failed" => format!(
             "{tool_name}: inspect the failing output, apply a targeted fix, and rerun validation"
+        ),
+        "gui_element_not_found" => format!(
+            "{tool_name}: the target UI element was not found in the accessibility tree. \
+            Many apps use custom controls that are invisible to AppleScript button/element queries. \
+            Do NOT retry the same AppleScript click. Instead: \
+            1) take a screenshot to locate the control visually, \
+            2) use mac_automation action=click_at with the pixel coordinates from the screenshot. \
+            This works on all controls including custom ones (e.g. Photo Booth shutter, media buttons)."
+        ),
+        "gui_verification_failed" => format!(
+            "{tool_name}: the GUI action executed but post-action verification failed. \
+            Take a screenshot or inspect native app state, then adjust the action or expectations. \
+            For mac_automation on native apps, prefer inspect_window_elements plus pre_observe:auto and a concrete expect condition instead of retrying blind."
         ),
         _ => format!(
             "{tool_name}: gather more context, narrow the step, or switch to another tool"
@@ -3076,7 +3120,7 @@ pub(crate) async fn run_tool_call_loop(
                 let tool_result_obj = crate::tools::ToolResult {
                     success: outcome.success,
                     output: outcome.output.clone(),
-                    error: None,
+                    error: outcome.error_reason.clone(),
                 };
                 hooks
                     .fire_after_tool_call(&call.name, &tool_result_obj, outcome.duration)
@@ -3189,6 +3233,27 @@ pub(crate) async fn run_tool_call_loop(
                     "content": result,
                 });
                 history.push(ChatMessage::tool(tool_msg.to_string()));
+            }
+        }
+
+        // When tool results go as `tool` role messages (native tool calling),
+        // providers skip multimodal processing for those messages. If any tool
+        // result contains [IMAGE:] markers (e.g. screenshots), inject them as
+        // a user message so the LLM can actually see the images.
+        if use_native_tools {
+            let image_refs: Vec<String> = individual_results
+                .iter()
+                .flat_map(|(_, output)| multimodal::parse_image_markers(output).1)
+                .collect();
+            if !image_refs.is_empty() {
+                let markers: String = image_refs
+                    .iter()
+                    .map(|r| format!("[IMAGE:{r}]"))
+                    .collect::<Vec<_>>()
+                    .join("\n");
+                history.push(ChatMessage::user(format!(
+                    "[Tool screenshot attached]\n{markers}"
+                )));
             }
         }
 
@@ -5499,6 +5564,24 @@ Tail"#;
         assert!(note.contains("Re-read the edited code/config"));
         assert!(note.contains("Recovery guidance:"));
         assert!(note.contains("retry with backoff"));
+    }
+
+    #[test]
+    fn build_execution_checkpoint_note_guides_gui_click_recovery() {
+        let note = build_execution_checkpoint_note(&[ExecutionCheckpointItem {
+            tool_name: "mac_automation".into(),
+            arguments: serde_json::json!({
+                "action": "run_applescript",
+                "script": "tell application \"System Events\" to click button 1 of window 1"
+            }),
+            success: false,
+            output: "Error: System Events got an error: Can't get button 1 of window 1".into(),
+        }])
+        .expect("checkpoint note should be generated");
+
+        assert!(note.contains("Failed steps: mac_automation [gui_element_not_found]"));
+        assert!(note.contains("action=click_at"));
+        assert!(note.contains("accessibility tree"));
     }
 
     #[test]

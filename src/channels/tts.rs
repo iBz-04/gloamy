@@ -43,10 +43,7 @@ fn resolve_tts_api_key(config: &TtsConfig, api_key_override: Option<&str>) -> Re
         }
     }
 
-    if let Some(value) = api_key_override
-        .map(str::trim)
-        .filter(|v| !v.is_empty())
-    {
+    if let Some(value) = api_key_override.map(str::trim).filter(|v| !v.is_empty()) {
         return Ok(value.to_string());
     }
 

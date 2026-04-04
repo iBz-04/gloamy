@@ -14,6 +14,40 @@ const MAC_AUTOMATION_TIMEOUT_SECS: u64 = 20;
 const MAX_APP_NAME_CHARS: usize = 120;
 const MAX_SCRIPT_CHARS: usize = 8_000;
 const MAX_OUTPUT_CHARS: usize = 8_000;
+const DEFAULT_CLICK_SETTLE_MS: u64 = 150;
+const MAX_MODIFIER_KEYS: usize = 4;
+const MAX_FILTER_CHARS: usize = 200;
+const DEFAULT_WINDOW_QUERY_SAMPLE_LIMIT: usize = 5;
+const MAX_WINDOW_QUERY_RESULTS: usize = 50;
+const FRONT_WINDOW_ROW_SEPARATOR: char = '\u{001e}';
+const FRONT_WINDOW_FIELD_SEPARATOR: char = '\u{001f}';
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct CoordinateSpace {
+    source_width: i64,
+    source_height: i64,
+    target_width: i64,
+    target_height: i64,
+    offset_x: i64,
+    offset_y: i64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct ResolvedCoordinates {
+    requested_x: i64,
+    requested_y: i64,
+    resolved_x: i64,
+    resolved_y: i64,
+    coordinate_space: Option<CoordinateSpace>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct FrontWindowElementQuery {
+    role: Option<String>,
+    title_contains: Option<String>,
+    description_contains: Option<String>,
+    value_contains: Option<String>,
+}
 
 /// macOS desktop automation helper (launch/activate apps and run AppleScript).
 ///
@@ -129,6 +163,332 @@ impl MacAutomationTool {
             .replace('\r', " ")
     }
 
+    fn parse_coordinates(args: &serde_json::Value, action: &str) -> anyhow::Result<(i64, i64)> {
+        let x = args
+            .get("x")
+            .and_then(serde_json::Value::as_i64)
+            .ok_or_else(|| anyhow::anyhow!("Missing 'x' coordinate for {action}"))?;
+        let y = args
+            .get("y")
+            .and_then(serde_json::Value::as_i64)
+            .ok_or_else(|| anyhow::anyhow!("Missing 'y' coordinate for {action}"))?;
+        Ok((x, y))
+    }
+
+    fn parse_optional_text_arg(
+        args: &serde_json::Value,
+        key: &str,
+        max_chars: usize,
+    ) -> anyhow::Result<Option<String>> {
+        let Some(raw) = args.get(key) else {
+            return Ok(None);
+        };
+
+        let value = raw
+            .as_str()
+            .ok_or_else(|| anyhow::anyhow!("'{key}' must be a string"))?
+            .trim();
+        if value.is_empty() {
+            return Ok(None);
+        }
+        if value.chars().count() > max_chars {
+            anyhow::bail!("'{key}' is too long (max {max_chars} characters)");
+        }
+        if value.chars().any(char::is_control) {
+            anyhow::bail!("'{key}' contains control characters");
+        }
+
+        Ok(Some(value.to_string()))
+    }
+
+    fn parse_max_results_arg(args: &serde_json::Value) -> anyhow::Result<usize> {
+        let Some(raw) = args.get("max_results") else {
+            return Ok(DEFAULT_WINDOW_QUERY_SAMPLE_LIMIT);
+        };
+
+        let value = raw
+            .as_u64()
+            .ok_or_else(|| anyhow::anyhow!("'max_results' must be a positive integer"))?;
+        if value == 0 {
+            anyhow::bail!("'max_results' must be > 0");
+        }
+        if value > MAX_WINDOW_QUERY_RESULTS as u64 {
+            anyhow::bail!("'max_results' exceeds {MAX_WINDOW_QUERY_RESULTS}");
+        }
+
+        Ok(value as usize)
+    }
+
+    fn parse_front_window_query(
+        args: &serde_json::Value,
+    ) -> anyhow::Result<FrontWindowElementQuery> {
+        Ok(FrontWindowElementQuery {
+            role: Self::parse_optional_text_arg(args, "role", MAX_FILTER_CHARS)?,
+            title_contains: Self::parse_optional_text_arg(
+                args,
+                "title_contains",
+                MAX_FILTER_CHARS,
+            )?,
+            description_contains: Self::parse_optional_text_arg(
+                args,
+                "description_contains",
+                MAX_FILTER_CHARS,
+            )?,
+            value_contains: Self::parse_optional_text_arg(
+                args,
+                "value_contains",
+                MAX_FILTER_CHARS,
+            )?,
+        })
+    }
+
+    fn front_window_query_from_key(key: &str) -> anyhow::Result<FrontWindowElementQuery> {
+        let payload = key
+            .strip_prefix("front_window_match_count::")
+            .ok_or_else(|| anyhow::anyhow!("Invalid front window match key prefix"))?;
+        let parsed: Value = serde_json::from_str(payload)
+            .map_err(|error| anyhow::anyhow!("Invalid front window match key: {error}"))?;
+        Ok(FrontWindowElementQuery {
+            role: parsed
+                .get("role")
+                .and_then(Value::as_str)
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .map(ToOwned::to_owned),
+            title_contains: parsed
+                .get("title_contains")
+                .and_then(Value::as_str)
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .map(ToOwned::to_owned),
+            description_contains: parsed
+                .get("description_contains")
+                .and_then(Value::as_str)
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .map(ToOwned::to_owned),
+            value_contains: parsed
+                .get("value_contains")
+                .and_then(Value::as_str)
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .map(ToOwned::to_owned),
+        })
+    }
+
+    fn front_window_query_json(query: &FrontWindowElementQuery) -> Value {
+        json!({
+            "role": query.role.as_deref(),
+            "title_contains": query.title_contains.as_deref(),
+            "description_contains": query.description_contains.as_deref(),
+            "value_contains": query.value_contains.as_deref(),
+        })
+    }
+
+    fn parse_modifier_keys(args: &serde_json::Value) -> anyhow::Result<Vec<String>> {
+        let Some(raw) = args.get("keys") else {
+            return Ok(Vec::new());
+        };
+
+        let values = raw
+            .as_array()
+            .ok_or_else(|| anyhow::anyhow!("'keys' must be an array of modifier names"))?;
+        if values.len() > MAX_MODIFIER_KEYS {
+            anyhow::bail!("'keys' accepts at most {MAX_MODIFIER_KEYS} modifiers");
+        }
+
+        let mut normalized = Vec::new();
+        for (idx, value) in values.iter().enumerate() {
+            let key = value
+                .as_str()
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .ok_or_else(|| anyhow::anyhow!("keys[{idx}] must be a non-empty string"))?
+                .to_ascii_lowercase();
+            let canonical = match key.as_str() {
+                "option" | "alt" => "option",
+                "shift" => "shift",
+                "command" | "cmd" => "command",
+                "control" | "ctrl" => "control",
+                "function" | "fn" => "fn",
+                other => {
+                    anyhow::bail!(
+                        "Unsupported modifier key '{other}'. Allowed: option, shift, command, control, fn"
+                    )
+                }
+            };
+            if !normalized.iter().any(|existing| existing == canonical) {
+                normalized.push(canonical.to_string());
+            }
+        }
+
+        Ok(normalized)
+    }
+
+    fn modifier_flag_expression(keys: &[String]) -> String {
+        if keys.is_empty() {
+            return "0".into();
+        }
+
+        keys.iter()
+            .map(|key| match key.as_str() {
+                "option" => "$.kCGEventFlagMaskAlternate",
+                "shift" => "$.kCGEventFlagMaskShift",
+                "command" => "$.kCGEventFlagMaskCommand",
+                "control" => "$.kCGEventFlagMaskControl",
+                "fn" => "$.kCGEventFlagMaskSecondaryFn",
+                _ => "0",
+            })
+            .collect::<Vec<_>>()
+            .join(" | ")
+    }
+
+    fn scale_axis(value: i64, source_extent: i64, target_extent: i64) -> i64 {
+        if source_extent <= 1 || target_extent <= 1 {
+            0
+        } else {
+            let source_denominator = (source_extent - 1) as f64;
+            let target_denominator = (target_extent - 1) as f64;
+            ((value as f64 / source_denominator) * target_denominator).round() as i64
+        }
+    }
+
+    async fn resolve_coordinates(
+        &self,
+        args: &serde_json::Value,
+        action: &str,
+    ) -> anyhow::Result<ResolvedCoordinates> {
+        let (requested_x, requested_y) = Self::parse_coordinates(args, action)?;
+        let Some(raw_space) = args.get("coordinate_space") else {
+            return Ok(ResolvedCoordinates {
+                requested_x,
+                requested_y,
+                resolved_x: requested_x,
+                resolved_y: requested_y,
+                coordinate_space: None,
+            });
+        };
+
+        let map = raw_space
+            .as_object()
+            .ok_or_else(|| anyhow::anyhow!("'coordinate_space' must be an object"))?;
+
+        let desktop = Self::virtual_screen_bounds().await?;
+        let desktop_x = desktop.get("x").and_then(Value::as_i64).unwrap_or_default();
+        let desktop_y = desktop.get("y").and_then(Value::as_i64).unwrap_or_default();
+        let desktop_width = desktop
+            .get("width")
+            .and_then(Value::as_i64)
+            .unwrap_or_default();
+        let desktop_height = desktop
+            .get("height")
+            .and_then(Value::as_i64)
+            .unwrap_or_default();
+
+        let source_width = map
+            .get("source_width")
+            .and_then(Value::as_i64)
+            .ok_or_else(|| {
+                anyhow::anyhow!("coordinate_space.source_width must be a positive integer")
+            })?;
+        let source_height = map
+            .get("source_height")
+            .and_then(Value::as_i64)
+            .ok_or_else(|| {
+                anyhow::anyhow!("coordinate_space.source_height must be a positive integer")
+            })?;
+        if source_width <= 0 || source_height <= 0 {
+            anyhow::bail!("coordinate_space source dimensions must be > 0");
+        }
+        if requested_x < 0
+            || requested_y < 0
+            || requested_x >= source_width
+            || requested_y >= source_height
+        {
+            anyhow::bail!(
+                "Coordinates ({requested_x}, {requested_y}) are outside coordinate_space bounds {source_width}x{source_height}"
+            );
+        }
+
+        let target_width = map
+            .get("target_width")
+            .and_then(Value::as_i64)
+            .unwrap_or(desktop_width);
+        let target_height = map
+            .get("target_height")
+            .and_then(Value::as_i64)
+            .unwrap_or(desktop_height);
+        if target_width <= 0 || target_height <= 0 {
+            anyhow::bail!("coordinate_space target dimensions must be > 0");
+        }
+
+        let custom_target = map.contains_key("target_width") || map.contains_key("target_height");
+        let offset_x = map
+            .get("offset_x")
+            .and_then(Value::as_i64)
+            .unwrap_or(if custom_target { 0 } else { desktop_x });
+        let offset_y = map
+            .get("offset_y")
+            .and_then(Value::as_i64)
+            .unwrap_or(if custom_target { 0 } else { desktop_y });
+
+        Ok(ResolvedCoordinates {
+            requested_x,
+            requested_y,
+            resolved_x: offset_x + Self::scale_axis(requested_x, source_width, target_width),
+            resolved_y: offset_y + Self::scale_axis(requested_y, source_height, target_height),
+            coordinate_space: Some(CoordinateSpace {
+                source_width,
+                source_height,
+                target_width,
+                target_height,
+                offset_x,
+                offset_y,
+            }),
+        })
+    }
+
+    fn is_applescript_ui_lookup_failure(message: &str) -> bool {
+        let lower = message.to_ascii_lowercase();
+        let has_ax_target = lower.contains("button")
+            || lower.contains("click")
+            || lower.contains("ui element")
+            || lower.contains("menu item")
+            || lower.contains("checkbox")
+            || lower.contains("pop up button")
+            || lower.contains("scroll area");
+        let has_ax_error = lower.contains("can't get")
+            || lower.contains("cannot get")
+            || lower.contains("doesn't understand")
+            || lower.contains("invalid index")
+            || lower.contains("not accessible")
+            || lower.contains("axerror")
+            || lower.contains("nselement");
+        has_ax_target && has_ax_error
+    }
+
+    fn add_applescript_failure_hint(mut result: ToolResult) -> ToolResult {
+        if result.success {
+            return result;
+        }
+
+        let Some(reason) = result.error.as_deref() else {
+            return result;
+        };
+
+        if !Self::is_applescript_ui_lookup_failure(reason) {
+            return result;
+        }
+
+        let hint = "AppleScript could not find the target UI element. Many macOS apps use custom controls that are invisible to button and element queries. Take a screenshot, locate the control visually, then retry with mac_automation action=click_at using screen coordinates.";
+
+        if !reason.contains(hint) {
+            result.error = Some(format!("{reason}\nHint: {hint}"));
+        }
+
+        result
+    }
+
     fn truncate_output(raw: &str) -> String {
         let trimmed = raw.trim();
         if trimmed.is_empty() {
@@ -191,6 +551,245 @@ impl MacAutomationTool {
         }
     }
 
+    async fn virtual_screen_bounds() -> anyhow::Result<Value> {
+        let script = r#"
+ObjC.import('AppKit');
+var screens = $.NSScreen.screens;
+var count = Number(screens.count);
+if (!count || count <= 0) {
+    JSON.stringify({"x": 0, "y": 0, "width": 0, "height": 0});
+} else {
+    var minX = Infinity;
+    var minY = Infinity;
+    var maxX = -Infinity;
+    var maxY = -Infinity;
+    for (var i = 0; i < count; i++) {
+        var frame = screens.objectAtIndex(i).frame;
+        var x = Math.round(Number(frame.origin.x));
+        var y = Math.round(Number(frame.origin.y));
+        var width = Math.round(Number(frame.size.width));
+        var height = Math.round(Number(frame.size.height));
+        minX = Math.min(minX, x);
+        minY = Math.min(minY, y);
+        maxX = Math.max(maxX, x + width);
+        maxY = Math.max(maxY, y + height);
+    }
+    JSON.stringify({
+        "x": minX,
+        "y": minY,
+        "width": Math.max(0, maxX - minX),
+        "height": Math.max(0, maxY - minY)
+    });
+}
+"#;
+        let result = Self::run_macos_command(
+            "osascript",
+            &[
+                "-l".to_string(),
+                "JavaScript".to_string(),
+                "-e".to_string(),
+                script.trim().to_string(),
+            ],
+        )
+        .await?;
+        if !result.success {
+            anyhow::bail!(result.error.unwrap_or_else(|| "osascript failed".into()));
+        }
+
+        serde_json::from_str(result.output.trim())
+            .map_err(|error| anyhow::anyhow!("Failed to parse virtual screen bounds: {error}"))
+    }
+
+    fn resolved_coordinates_json(coords: &ResolvedCoordinates) -> Value {
+        json!({
+            "requested": {
+                "x": coords.requested_x,
+                "y": coords.requested_y,
+            },
+            "resolved": {
+                "x": coords.resolved_x,
+                "y": coords.resolved_y,
+            },
+            "coordinate_space": coords.coordinate_space.as_ref().map(|space| {
+                json!({
+                    "source_width": space.source_width,
+                    "source_height": space.source_height,
+                    "target_width": space.target_width,
+                    "target_height": space.target_height,
+                    "offset_x": space.offset_x,
+                    "offset_y": space.offset_y,
+                })
+            }),
+        })
+    }
+
+    fn front_window_query_script(query: &FrontWindowElementQuery, sample_limit: usize) -> String {
+        let role = Self::escape_applescript_literal(query.role.as_deref().unwrap_or_default());
+        let title =
+            Self::escape_applescript_literal(query.title_contains.as_deref().unwrap_or_default());
+        let description = Self::escape_applescript_literal(
+            query.description_contains.as_deref().unwrap_or_default(),
+        );
+        let value =
+            Self::escape_applescript_literal(query.value_contains.as_deref().unwrap_or_default());
+        let sample_limit = sample_limit.max(1);
+
+        format!(
+            r#"
+set fieldSep to character id {field_sep}
+set rowSep to character id {row_sep}
+set roleFilter to "{role}"
+set titleFilter to "{title}"
+set descriptionFilter to "{description}"
+set valueFilter to "{value}"
+set sampleLimit to {sample_limit}
+
+on replace_text(find_text, replace_text, source_text)
+    set AppleScript's text item delimiters to find_text
+    set text_items to every text item of source_text
+    set AppleScript's text item delimiters to replace_text
+    set replaced_text to text_items as text
+    set AppleScript's text item delimiters to ""
+    return replaced_text
+end replace_text
+
+on sanitize_text(raw_text, fieldSep, rowSep)
+    set text_value to raw_text as text
+    set text_value to my replace_text(return, " ", text_value)
+    set text_value to my replace_text(linefeed, " ", text_value)
+    set text_value to my replace_text(fieldSep, " ", text_value)
+    set text_value to my replace_text(rowSep, " ", text_value)
+    return text_value
+end sanitize_text
+
+on matches_filter(actual_value, filter_value)
+    if filter_value is "" then return true
+    ignoring case
+        return actual_value contains filter_value
+    end ignoring
+end matches_filter
+
+tell application "System Events"
+    tell (first process whose frontmost is true)
+        set totalMatches to 0
+        set sampleRows to {{}}
+        try
+            set uiItems to entire contents of front window
+        on error
+            set uiItems to {{}}
+        end try
+
+        repeat with uiElem in uiItems
+            set roleText to ""
+            set titleText to ""
+            set descriptionText to ""
+            set valueText to ""
+            try
+                set roleText to my sanitize_text((role of uiElem) as text, fieldSep, rowSep)
+            end try
+            try
+                set titleText to my sanitize_text((title of uiElem) as text, fieldSep, rowSep)
+            end try
+            try
+                set descriptionText to my sanitize_text((description of uiElem) as text, fieldSep, rowSep)
+            end try
+            try
+                set valueText to my sanitize_text((value of uiElem) as text, fieldSep, rowSep)
+            end try
+
+            if my matches_filter(roleText, roleFilter) and my matches_filter(titleText, titleFilter) and my matches_filter(descriptionText, descriptionFilter) and my matches_filter(valueText, valueFilter) then
+                set totalMatches to totalMatches + 1
+                if (count of sampleRows) < sampleLimit then
+                    set end of sampleRows to (roleText & fieldSep & titleText & fieldSep & descriptionText & fieldSep & valueText)
+                end if
+            end if
+        end repeat
+
+        set outputRows to {{totalMatches as text}}
+        repeat with rowText in sampleRows
+            set end of outputRows to contents of rowText
+        end repeat
+        set AppleScript's text item delimiters to rowSep
+        set joinedOutput to outputRows as text
+        set AppleScript's text item delimiters to ""
+        return joinedOutput
+    end tell
+end tell
+"#,
+            field_sep = FRONT_WINDOW_FIELD_SEPARATOR as u32,
+            row_sep = FRONT_WINDOW_ROW_SEPARATOR as u32,
+            role = role,
+            title = title,
+            description = description,
+            value = value,
+            sample_limit = sample_limit,
+        )
+    }
+
+    async fn front_window_element_match_report(
+        &self,
+        query: &FrontWindowElementQuery,
+        sample_limit: usize,
+    ) -> anyhow::Result<Value> {
+        let script = Self::front_window_query_script(query, sample_limit);
+        let result = Self::run_macos_command("osascript", &["-e".to_string(), script]).await?;
+        if !result.success {
+            anyhow::bail!(result.error.unwrap_or_else(|| "osascript failed".into()));
+        }
+
+        let mut rows = result.output.split(FRONT_WINDOW_ROW_SEPARATOR);
+        let count = rows
+            .next()
+            .and_then(|value| value.trim().parse::<u64>().ok())
+            .unwrap_or_default();
+        let samples = rows
+            .filter(|row| !row.trim().is_empty())
+            .map(|row| {
+                let mut fields = row.split(FRONT_WINDOW_FIELD_SEPARATOR);
+                json!({
+                    "role": fields.next().unwrap_or_default(),
+                    "title": fields.next().unwrap_or_default(),
+                    "description": fields.next().unwrap_or_default(),
+                    "value": fields.next().unwrap_or_default(),
+                })
+            })
+            .collect::<Vec<_>>();
+
+        Ok(json!({
+            "query": Self::front_window_query_json(query),
+            "count": count,
+            "samples": samples,
+        }))
+    }
+
+    async fn apply_unverified_wait(&self, wait_strategy: &WaitStrategy) -> anyhow::Result<()> {
+        match wait_strategy {
+            WaitStrategy::None => {
+                tokio::time::sleep(Duration::from_millis(DEFAULT_CLICK_SETTLE_MS)).await;
+                Ok(())
+            }
+            WaitStrategy::FixedMs { ms } => {
+                tokio::time::sleep(Duration::from_millis(*ms)).await;
+                Ok(())
+            }
+            WaitStrategy::AccessibilityEvent {
+                notification,
+                timeout_ms,
+            } => {
+                self.apply_accessibility_event_wait(notification, *timeout_ms)
+                    .await
+            }
+            WaitStrategy::PollUntilVerified { .. } => {
+                anyhow::bail!(
+                    "wait.strategy=poll_until_verified requires 'expect' on mac_automation"
+                )
+            }
+            WaitStrategy::DomEvent { .. } | WaitStrategy::SelectorPresent { .. } => {
+                anyhow::bail!("Unsupported wait strategy for mac_automation")
+            }
+        }
+    }
+
     async fn collect_gui_evidence(&self, keys: &[String]) -> anyhow::Result<Value> {
         let mut evidence = json!({});
 
@@ -204,6 +803,60 @@ impl MacAutomationTool {
             merge_json_objects(&mut evidence, &json!({ "dialog_present": present }));
         }
 
+        if keys.iter().any(|key| key == "focused_element") {
+            if let Ok(info) = self.focused_element_info().await {
+                merge_json_objects(&mut evidence, &json!({ "focused_element": info }));
+            }
+        }
+
+        // Handle hit_test_result for coordinate-based element probing
+        if keys.iter().any(|key| key == "hit_test_result") {
+            // hit_test coordinates must be passed via evidence context; skip if not available
+        }
+
+        // Handle ax_attributes.* keys
+        let ax_keys: Vec<&str> = keys
+            .iter()
+            .filter_map(|k| k.strip_prefix("ax_attributes."))
+            .collect();
+        if !ax_keys.is_empty() {
+            let mut attrs = json!({});
+            for attr_name in ax_keys {
+                if let Ok(val) = self.ax_attribute_of_focused(attr_name).await {
+                    if let Value::Object(ref mut map) = attrs {
+                        map.insert(attr_name.to_string(), json!(val));
+                    }
+                }
+            }
+            merge_json_objects(&mut evidence, &json!({ "ax_attributes": attrs }));
+        }
+
+        let window_match_keys: Vec<&String> = keys
+            .iter()
+            .filter(|key| key.starts_with("front_window_match_count::"))
+            .collect();
+        if !window_match_keys.is_empty() {
+            let mut counts = json!({});
+            for key in window_match_keys {
+                let query = match Self::front_window_query_from_key(key) {
+                    Ok(query) => query,
+                    Err(_) => continue,
+                };
+                if let Ok(report) = self
+                    .front_window_element_match_report(&query, DEFAULT_WINDOW_QUERY_SAMPLE_LIMIT)
+                    .await
+                {
+                    if let Value::Object(ref mut map) = counts {
+                        map.insert(key.clone(), report);
+                    }
+                }
+            }
+            merge_json_objects(
+                &mut evidence,
+                &json!({ "front_window_match_counts": counts }),
+            );
+        }
+
         Ok(evidence)
     }
 
@@ -213,7 +866,13 @@ impl MacAutomationTool {
         expectations: &[GuiExpectation],
     ) -> Option<GuiObservation> {
         let keys = match strategy {
-            PreObservationStrategy::None => Vec::new(),
+            PreObservationStrategy::None => {
+                if gui_verify::expectations_require_pre_observation(expectations) {
+                    gui_verify::infer_evidence_keys(expectations)
+                } else {
+                    Vec::new()
+                }
+            }
             PreObservationStrategy::Auto => gui_verify::infer_evidence_keys(expectations),
             PreObservationStrategy::Explicit { keys } => keys.clone(),
         };
@@ -260,12 +919,8 @@ impl MacAutomationTool {
         const POLL_INTERVAL_MS: u64 = 200;
 
         let baseline = match notification {
-            "AXTitleChanged" | "AXValueChanged" => {
-                self.frontmost_window_title().await.ok()
-            }
-            "AXFocusedUIElementChanged" => {
-                self.frontmost_app_name().await.ok()
-            }
+            "AXTitleChanged" | "AXValueChanged" => self.frontmost_window_title().await.ok(),
+            "AXFocusedUIElementChanged" => self.frontmost_app_name().await.ok(),
             "AXSheetCreated" | "AXWindowCreated" => {
                 let present = self.frontmost_dialog_present().await.unwrap_or(false);
                 Some(present.to_string())
@@ -283,12 +938,8 @@ impl MacAutomationTool {
             tokio::time::sleep(Duration::from_millis(POLL_INTERVAL_MS)).await;
 
             let current = match notification {
-                "AXTitleChanged" | "AXValueChanged" => {
-                    self.frontmost_window_title().await.ok()
-                }
-                "AXFocusedUIElementChanged" => {
-                    self.frontmost_app_name().await.ok()
-                }
+                "AXTitleChanged" | "AXValueChanged" => self.frontmost_window_title().await.ok(),
+                "AXFocusedUIElementChanged" => self.frontmost_app_name().await.ok(),
                 "AXSheetCreated" | "AXWindowCreated" => {
                     let present = self.frontmost_dialog_present().await.unwrap_or(false);
                     Some(present.to_string())
@@ -423,6 +1074,242 @@ impl MacAutomationTool {
         Ok(result.output)
     }
 
+    /// Query the focused UI element's role, title, and description via AX.
+    async fn focused_element_info(&self) -> anyhow::Result<serde_json::Value> {
+        let script = r#"
+tell application "System Events"
+    tell (first process whose frontmost is true)
+        try
+            set fe to focused UI element
+            set r to role of fe
+            set t to ""
+            set d to ""
+            try
+                set t to title of fe
+            end try
+            try
+                set d to description of fe
+            end try
+            try
+                set v to value of fe
+            on error
+                set v to ""
+            end try
+            return r & "|||" & t & "|||" & d & "|||" & v
+        on error
+            return "unknown|||||||"
+        end try
+    end tell
+end tell
+"#;
+        let args = vec!["-e".to_string(), script.trim().to_string()];
+        let result = Self::run_macos_command("osascript", &args).await?;
+        if !result.success {
+            anyhow::bail!(result.error.unwrap_or_else(|| "osascript failed".into()));
+        }
+        let parts: Vec<&str> = result.output.trim().splitn(4, "|||").collect();
+        Ok(json!({
+            "role": parts.first().unwrap_or(&""),
+            "title": parts.get(1).unwrap_or(&""),
+            "description": parts.get(2).unwrap_or(&""),
+            "value": parts.get(3).unwrap_or(&""),
+        }))
+    }
+
+    /// Query the AX element at a screen coordinate via System Events.
+    async fn ax_element_at_point(&self, x: i64, y: i64) -> anyhow::Result<serde_json::Value> {
+        // Use AppleScript + System Events to probe the element at a coordinate.
+        // macOS accessibility does not expose a direct "element at point" via osascript,
+        // so we use the focused-app's UI element tree with position/size matching.
+        // For best fidelity, we use `cliclick` to move the mouse, then read focused element.
+        // However, as a non-destructive probe, we use a JXA script that walks the AX tree.
+        let script = format!(
+            r#"
+ObjC.import('ApplicationServices');
+var pt = $.CGPointMake({x}, {y});
+var el = $.AXUIElementCreateSystemWide();
+var ref = Ref();
+var err = $.AXUIElementCopyElementAtPosition(el, pt.x, pt.y, ref);
+if (err !== 0) {{
+    JSON.stringify({{"error": "AXUIElementCopyElementAtPosition failed", "code": err}});
+}} else {{
+    var elem = ref[0];
+    function getAttr(e, attr) {{
+        var v = Ref();
+        var r = $.AXUIElementCopyAttributeValue(e, attr, v);
+        if (r === 0 && v[0] != null) return String(v[0]);
+        return "";
+    }}
+    JSON.stringify({{
+        "role": getAttr(elem, "AXRole"),
+        "label": getAttr(elem, "AXTitle"),
+        "description": getAttr(elem, "AXDescription"),
+        "value": getAttr(elem, "AXValue"),
+    }});
+}}
+"#
+        );
+        let args = vec![
+            "-l".to_string(),
+            "JavaScript".to_string(),
+            "-e".to_string(),
+            script.trim().to_string(),
+        ];
+        let result = Self::run_macos_command("osascript", &args).await?;
+        if !result.success {
+            anyhow::bail!(result.error.unwrap_or_else(|| "osascript failed".into()));
+        }
+        let parsed: serde_json::Value = serde_json::from_str(result.output.trim())
+            .unwrap_or_else(|_| json!({"raw_output": result.output.trim()}));
+        Ok(parsed)
+    }
+
+    /// Read a specific AX attribute of the frontmost focused element.
+    async fn ax_attribute_of_focused(&self, attribute: &str) -> anyhow::Result<String> {
+        let escaped = Self::escape_applescript_literal(attribute);
+        let script = format!(
+            r#"
+tell application "System Events"
+    tell (first process whose frontmost is true)
+        try
+            set fe to focused UI element
+            return value of attribute "{escaped}" of fe
+        on error
+            return ""
+        end try
+    end tell
+end tell
+"#
+        );
+        let args = vec!["-e".to_string(), script.trim().to_string()];
+        let result = Self::run_macos_command("osascript", &args).await?;
+        if !result.success {
+            anyhow::bail!(result.error.unwrap_or_else(|| "osascript failed".into()));
+        }
+        Ok(result.output.trim().to_string())
+    }
+
+    /// Click at screen coordinates using osascript + CoreGraphics events.
+    /// This is a real pixel-level click, not dependent on AX button lookup.
+    async fn click_at_coordinate(
+        x: i64,
+        y: i64,
+        button: &str,
+        modifier_keys: &[String],
+    ) -> anyhow::Result<ToolResult> {
+        let (mouse_down, mouse_up, mouse_button, label) = match button {
+            "right" => (
+                "$.kCGEventRightMouseDown",
+                "$.kCGEventRightMouseUp",
+                "$.kCGMouseButtonRight",
+                "right-clicked",
+            ),
+            _ => (
+                "$.kCGEventLeftMouseDown",
+                "$.kCGEventLeftMouseUp",
+                "$.kCGMouseButtonLeft",
+                "clicked",
+            ),
+        };
+        let flags = Self::modifier_flag_expression(modifier_keys);
+        let script = format!(
+            r#"
+ObjC.import('CoreGraphics');
+var point = $.CGPointMake({x}, {y});
+var flags = {flags};
+$.CGWarpMouseCursorPosition(point);
+var mouseDown = $.CGEventCreateMouseEvent(null, {mouse_down}, point, {mouse_button});
+var mouseUp = $.CGEventCreateMouseEvent(null, {mouse_up}, point, {mouse_button});
+if (flags !== 0) {{
+    $.CGEventSetFlags(mouseDown, flags);
+    $.CGEventSetFlags(mouseUp, flags);
+}}
+$.CGEventPost($.kCGHIDEventTap, mouseDown);
+delay(0.05);
+$.CGEventPost($.kCGHIDEventTap, mouseUp);
+"{label}"
+"#,
+            flags = flags,
+            mouse_down = mouse_down,
+            mouse_up = mouse_up,
+            mouse_button = mouse_button,
+            label = label
+        );
+        let args = vec![
+            "-l".to_string(),
+            "JavaScript".to_string(),
+            "-e".to_string(),
+            script.trim().to_string(),
+        ];
+        Self::run_macos_command("osascript", &args).await
+    }
+
+    /// Move the real mouse cursor to screen coordinates and emit a hover event.
+    async fn move_mouse_to_coordinate(x: i64, y: i64) -> anyhow::Result<ToolResult> {
+        let script = format!(
+            r#"
+ObjC.import('CoreGraphics');
+var point = $.CGPointMake({x}, {y});
+$.CGWarpMouseCursorPosition(point);
+var move = $.CGEventCreateMouseEvent(null, $.kCGEventMouseMoved, point, $.kCGMouseButtonLeft);
+$.CGEventPost($.kCGHIDEventTap, move);
+"moved"
+"#
+        );
+        let args = vec![
+            "-l".to_string(),
+            "JavaScript".to_string(),
+            "-e".to_string(),
+            script.trim().to_string(),
+        ];
+        Self::run_macos_command("osascript", &args).await
+    }
+
+    /// Determine if a run_applescript invocation contains mutating UI operations.
+    fn is_mutating_applescript(args: &serde_json::Value) -> bool {
+        let script = args
+            .get("script")
+            .and_then(serde_json::Value::as_str)
+            .map(ToOwned::to_owned)
+            .or_else(|| {
+                args.get("script_lines")
+                    .and_then(serde_json::Value::as_array)
+                    .map(|lines| {
+                        lines
+                            .iter()
+                            .filter_map(serde_json::Value::as_str)
+                            .collect::<Vec<_>>()
+                            .join("\n")
+                    })
+            })
+            .unwrap_or_default()
+            .to_ascii_lowercase();
+
+        if script.is_empty() {
+            return false;
+        }
+
+        // Patterns that indicate the script modifies UI state
+        [
+            "click",
+            "keystroke",
+            "key code",
+            "perform action",
+            "set value",
+            "set focused",
+            "press",
+            "pick",
+            "select",
+            "drag",
+            "increment",
+            "decrement",
+            "confirm",
+            "dismiss",
+        ]
+        .iter()
+        .any(|needle| script.contains(needle))
+    }
+
     async fn frontmost_dialog_present(&self) -> anyhow::Result<bool> {
         let args = vec![
             "-e".to_string(),
@@ -458,7 +1345,7 @@ impl Tool for MacAutomationTool {
     }
 
     fn description(&self) -> &str {
-        "macOS desktop automation: launch or activate applications and run AppleScript for UI workflows. Success means the automation command ran, not that the UI state is verified. After state-changing actions, follow with an AppleScript read-back or screenshot check before concluding the task is complete."
+        "macOS desktop automation: launch/activate apps, run AppleScript, move the pointer, click at screen coordinates, and inspect accessibility state. Use this tool (not screenshot) when the user asks to interact with an app, for example to hover a custom control, click a shutter/capture button in Photo Booth, press record in QuickTime, or inspect front-window elements before verifying a native app action. click_at supports modifier keys and coordinate-space scaling for screenshot-derived points. For mutating actions (move_mouse, click_at, run_applescript with click/keystroke), provide 'expect' to verify the action succeeded. Without 'expect', mutating actions return ambiguous verification status instead of claiming proof."
     }
 
     fn parameters_schema(&self) -> serde_json::Value {
@@ -467,8 +1354,8 @@ impl Tool for MacAutomationTool {
             "properties": {
                 "action": {
                     "type": "string",
-                    "enum": ["launch_app", "activate_app", "run_applescript"],
-                    "description": "Automation action to execute"
+                    "enum": ["launch_app", "activate_app", "run_applescript", "move_mouse", "click_at", "read_focused_element", "hit_test", "inspect_window_elements"],
+                    "description": "Automation action to execute. move_mouse: move the real mouse pointer to screen coordinates and emit a hover event. click_at: pixel-level click at screen coordinates with optional modifier keys and coordinate-space scaling. read_focused_element: query the focused AX element's role/title/description/value. hit_test: probe the AX element at a screen coordinate without clicking. inspect_window_elements: inspect and filter front-window accessibility elements for verification planning."
                 },
                 "app_name": {
                     "type": "string",
@@ -483,8 +1370,64 @@ impl Tool for MacAutomationTool {
                     "items": { "type": "string" },
                     "description": "AppleScript passed as multiple lines (-e per line)"
                 },
+                "x": {
+                    "type": "integer",
+                    "description": "Screen X coordinate for move_mouse, click_at, and hit_test actions"
+                },
+                "y": {
+                    "type": "integer",
+                    "description": "Screen Y coordinate for move_mouse, click_at, and hit_test actions"
+                },
+                "button": {
+                    "type": "string",
+                    "enum": ["left", "right"],
+                    "description": "Mouse button for click_at (default: left)"
+                },
+                "keys": {
+                    "type": "array",
+                    "items": {
+                        "type": "string",
+                        "enum": ["option", "alt", "shift", "command", "cmd", "control", "ctrl", "fn", "function"]
+                    },
+                    "description": "Optional modifier keys to hold during click_at, such as [\"option\"] for Photo Booth capture without countdown or [\"option\", \"shift\"] to disable countdown and flash."
+                },
+                "coordinate_space": {
+                    "type": "object",
+                    "description": "Optional coordinate normalization metadata for screenshot-derived coordinates. x/y are interpreted within source_width/source_height, then scaled into the current desktop or the specified target rectangle.",
+                    "properties": {
+                        "source_width": { "type": "integer", "minimum": 1 },
+                        "source_height": { "type": "integer", "minimum": 1 },
+                        "target_width": { "type": "integer", "minimum": 1 },
+                        "target_height": { "type": "integer", "minimum": 1 },
+                        "offset_x": { "type": "integer" },
+                        "offset_y": { "type": "integer" }
+                    },
+                    "required": ["source_width", "source_height"]
+                },
+                "role": {
+                    "type": "string",
+                    "description": "Optional front-window accessibility role filter for inspect_window_elements or front_window_element_count_changed verification."
+                },
+                "title_contains": {
+                    "type": "string",
+                    "description": "Optional front-window title substring filter for inspect_window_elements or front_window_element_count_changed verification."
+                },
+                "description_contains": {
+                    "type": "string",
+                    "description": "Optional front-window description substring filter for inspect_window_elements or front_window_element_count_changed verification."
+                },
+                "value_contains": {
+                    "type": "string",
+                    "description": "Optional front-window value substring filter for inspect_window_elements or front_window_element_count_changed verification."
+                },
+                "max_results": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": MAX_WINDOW_QUERY_RESULTS,
+                    "description": "Maximum number of sample elements returned by inspect_window_elements."
+                },
                 "expect": {
-                    "description": "Verification expectation(s) for mutating actions. When provided, success means the expected UI state was verified, not just that the command exited 0. Accepts a single object or array. Each object must have a 'kind' field: field_value_equals, focused_element_is, checkbox_checked, window_title_contains, dialog_present, url_is, url_host_is, file_exists, download_completed, element_at_coordinate.",
+                    "description": "Verification expectation(s) for mutating actions. When provided, success means the expected UI state was verified, not just that the command exited 0. Accepts a single object or array. Supported kinds: field_value_equals, focused_element_is, checkbox_checked, window_title_contains, dialog_present, url_is, url_host_is, file_exists, download_completed, front_window_element_count_changed, element_at_coordinate, ax_attribute_equals.",
                     "oneOf": [
                         { "type": "object", "properties": { "kind": { "type": "string" } }, "required": ["kind"] },
                         { "type": "array", "items": { "type": "object", "properties": { "kind": { "type": "string" } }, "required": ["kind"] } }
@@ -507,20 +1450,40 @@ impl Tool for MacAutomationTool {
     }
 
     async fn execute(&self, args: serde_json::Value) -> anyhow::Result<ToolResult> {
-        if !self.security.can_act() {
-            return Ok(ToolResult {
-                success: false,
-                output: String::new(),
-                error: Some("Action blocked: autonomy is read-only".into()),
-            });
-        }
+        // Parse action first so we can gate read vs mutating operations correctly.
+        let action = match Self::parse_action(&args) {
+            Ok(action) => action,
+            Err(error) => {
+                return Ok(ToolResult {
+                    success: false,
+                    output: String::new(),
+                    error: Some(error.to_string()),
+                })
+            }
+        };
 
-        if !self.security.record_action() {
-            return Ok(ToolResult {
-                success: false,
-                output: String::new(),
-                error: Some("Action blocked: rate limit exceeded".into()),
-            });
+        let is_read_action = matches!(
+            action,
+            "read_focused_element" | "hit_test" | "inspect_window_elements"
+        );
+
+        // Read-only actions bypass autonomy and rate-limit gates (no side effects).
+        if !is_read_action {
+            if !self.security.can_act() {
+                return Ok(ToolResult {
+                    success: false,
+                    output: String::new(),
+                    error: Some("Action blocked: autonomy is read-only".into()),
+                });
+            }
+
+            if !self.security.record_action() {
+                return Ok(ToolResult {
+                    success: false,
+                    output: String::new(),
+                    error: Some("Action blocked: rate limit exceeded".into()),
+                });
+            }
         }
 
         // Parse verification expectations (if any) before executing
@@ -564,17 +1527,6 @@ impl Tool for MacAutomationTool {
                 error: Some(error.to_string()),
             });
         }
-
-        let action = match Self::parse_action(&args) {
-            Ok(action) => action,
-            Err(error) => {
-                return Ok(ToolResult {
-                    success: false,
-                    output: String::new(),
-                    error: Some(error.to_string()),
-                })
-            }
-        };
 
         let expectations = match expectations {
             Some(exps) => exps,
@@ -692,21 +1644,251 @@ impl Tool for MacAutomationTool {
                     .flat_map(|line| ["-e".to_string(), line])
                     .collect();
 
-                Self::run_macos_command("osascript", &script_args).await?
+                let result = Self::run_macos_command("osascript", &script_args).await?;
+                Self::add_applescript_failure_hint(result)
+            }
+            "move_mouse" => {
+                let coords = match self.resolve_coordinates(&args, "move_mouse").await {
+                    Ok(coords) => coords,
+                    Err(error) => {
+                        return Ok(ToolResult {
+                            success: false,
+                            output: String::new(),
+                            error: Some(error.to_string()),
+                        });
+                    }
+                };
+                if let Some(result) = self
+                    .maybe_request_gui_approval(
+                        action,
+                        &args,
+                        &expectations,
+                        pre_observation.as_ref(),
+                    )
+                    .await?
+                {
+                    return Ok(result);
+                }
+
+                let move_result =
+                    Self::move_mouse_to_coordinate(coords.resolved_x, coords.resolved_y).await?;
+                if move_result.success {
+                    if expectations.is_empty() {
+                        if let Err(error) = self.apply_unverified_wait(&wait_strategy).await {
+                            return Ok(ToolResult {
+                                success: false,
+                                output: String::new(),
+                                error: Some(error.to_string()),
+                            });
+                        }
+                    }
+
+                    let hover_target = self
+                        .ax_element_at_point(coords.resolved_x, coords.resolved_y)
+                        .await
+                        .unwrap_or(json!({}));
+                    ToolResult {
+                        success: true,
+                        output: serde_json::to_string_pretty(&json!({
+                            "moved": Self::resolved_coordinates_json(&coords),
+                            "hover_target": hover_target,
+                        }))
+                        .unwrap_or_default(),
+                        error: None,
+                    }
+                } else {
+                    move_result
+                }
+            }
+            "click_at" => {
+                let coords = match self.resolve_coordinates(&args, "click_at").await {
+                    Ok(coords) => coords,
+                    Err(error) => {
+                        return Ok(ToolResult {
+                            success: false,
+                            output: String::new(),
+                            error: Some(error.to_string()),
+                        });
+                    }
+                };
+                let modifier_keys = match Self::parse_modifier_keys(&args) {
+                    Ok(keys) => keys,
+                    Err(error) => {
+                        return Ok(ToolResult {
+                            success: false,
+                            output: String::new(),
+                            error: Some(error.to_string()),
+                        });
+                    }
+                };
+                if let Some(result) = self
+                    .maybe_request_gui_approval(
+                        action,
+                        &args,
+                        &expectations,
+                        pre_observation.as_ref(),
+                    )
+                    .await?
+                {
+                    return Ok(result);
+                }
+
+                let button = args
+                    .get("button")
+                    .and_then(serde_json::Value::as_str)
+                    .unwrap_or("left");
+                let click_result = Self::click_at_coordinate(
+                    coords.resolved_x,
+                    coords.resolved_y,
+                    button,
+                    &modifier_keys,
+                )
+                .await?;
+
+                if click_result.success {
+                    if expectations.is_empty() {
+                        if let Err(error) = self.apply_unverified_wait(&wait_strategy).await {
+                            return Ok(ToolResult {
+                                success: false,
+                                output: String::new(),
+                                error: Some(error.to_string()),
+                            });
+                        }
+                    }
+
+                    // Auto-collect focused element as evidence of what the click hit
+                    let focused = self.focused_element_info().await.unwrap_or(json!({}));
+                    ToolResult {
+                        success: true,
+                        output: serde_json::to_string_pretty(&json!({
+                            "clicked": Self::resolved_coordinates_json(&coords),
+                            "button": button,
+                            "modifier_keys": modifier_keys,
+                            "focused_after_click": focused,
+                        }))
+                        .unwrap_or_default(),
+                        error: None,
+                    }
+                } else {
+                    click_result
+                }
+            }
+            "read_focused_element" => {
+                // Pure read action — no approval needed, no mutation
+                match self.focused_element_info().await {
+                    Ok(info) => ToolResult {
+                        success: true,
+                        output: serde_json::to_string_pretty(&info).unwrap_or_default(),
+                        error: None,
+                    },
+                    Err(e) => ToolResult {
+                        success: false,
+                        output: String::new(),
+                        error: Some(format!("Failed to read focused element: {e}")),
+                    },
+                }
+            }
+            "hit_test" => {
+                let coords = match self.resolve_coordinates(&args, "hit_test").await {
+                    Ok(coords) => coords,
+                    Err(error) => {
+                        return Ok(ToolResult {
+                            success: false,
+                            output: String::new(),
+                            error: Some(error.to_string()),
+                        });
+                    }
+                };
+                // Pure read action — no approval needed
+                match self
+                    .ax_element_at_point(coords.resolved_x, coords.resolved_y)
+                    .await
+                {
+                    Ok(info) => ToolResult {
+                        success: true,
+                        output: serde_json::to_string_pretty(&json!({
+                            "point": Self::resolved_coordinates_json(&coords),
+                            "element": info,
+                        }))
+                        .unwrap_or_default(),
+                        error: None,
+                    },
+                    Err(e) => ToolResult {
+                        success: false,
+                        output: String::new(),
+                        error: Some(format!(
+                            "Hit test failed at ({}, {}): {e}",
+                            coords.resolved_x, coords.resolved_y
+                        )),
+                    },
+                }
+            }
+            "inspect_window_elements" => {
+                let query = match Self::parse_front_window_query(&args) {
+                    Ok(query) => query,
+                    Err(error) => {
+                        return Ok(ToolResult {
+                            success: false,
+                            output: String::new(),
+                            error: Some(error.to_string()),
+                        });
+                    }
+                };
+                let max_results = match Self::parse_max_results_arg(&args) {
+                    Ok(value) => value,
+                    Err(error) => {
+                        return Ok(ToolResult {
+                            success: false,
+                            output: String::new(),
+                            error: Some(error.to_string()),
+                        });
+                    }
+                };
+                match self.front_window_element_match_report(&query, max_results).await {
+                    Ok(report) => ToolResult {
+                        success: true,
+                        output: serde_json::to_string_pretty(&report).unwrap_or_default(),
+                        error: None,
+                    },
+                    Err(error) => ToolResult {
+                        success: false,
+                        output: String::new(),
+                        error: Some(format!("Failed to inspect front window elements: {error}")),
+                    },
+                }
             }
             other => {
                 return Ok(ToolResult {
                     success: false,
                     output: String::new(),
                     error: Some(format!(
-                        "Unsupported action '{other}'. Allowed: launch_app, activate_app, run_applescript"
+                        "Unsupported action '{other}'. Allowed: launch_app, activate_app, run_applescript, move_mouse, click_at, read_focused_element, hit_test, inspect_window_elements"
                     )),
                 })
             }
         };
 
-        // If no expectations, return the raw result (unverified/raw mode)
+        // ── Determine if this was a mutating action ──
+        let is_mutating = matches!(action, "move_mouse" | "click_at")
+            || (action == "run_applescript" && Self::is_mutating_applescript(&args));
+
+        // If no expectations: mutating actions soft-fail with ambiguous status,
+        // read-only actions return raw result as before.
         if expectations.is_empty() {
+            if is_mutating && raw_result.success {
+                return Ok(ToolResult {
+                    success: true,
+                    output: serde_json::to_string_pretty(&json!({
+                        "execution": parse_tool_output(&raw_result.output),
+                        "verification_status": "ambiguous",
+                        "message": format!(
+                            "No 'expect' was provided for mutating action '{action}'. The input event was dispatched, but resulting UI state was not verified."
+                        ),
+                    }))
+                    .unwrap_or_default(),
+                    error: None,
+                });
+            }
             return Ok(raw_result);
         }
 
@@ -816,6 +1998,36 @@ fn summarize_mac_action(action: &str, args: &Value) -> String {
             .map(|app_name| format!("{action} '{app_name}'"))
             .unwrap_or_else(|| action.to_string()),
         "run_applescript" => "run AppleScript".into(),
+        "move_mouse" => {
+            let x = args.get("x").and_then(Value::as_i64).unwrap_or(0);
+            let y = args.get("y").and_then(Value::as_i64).unwrap_or(0);
+            format!("move mouse to ({x}, {y})")
+        }
+        "click_at" => {
+            let x = args.get("x").and_then(Value::as_i64).unwrap_or(0);
+            let y = args.get("y").and_then(Value::as_i64).unwrap_or(0);
+            let modifiers = args
+                .get("keys")
+                .and_then(Value::as_array)
+                .map(|keys| {
+                    keys.iter()
+                        .filter_map(Value::as_str)
+                        .collect::<Vec<_>>()
+                        .join("+")
+                })
+                .filter(|joined| !joined.is_empty());
+            match modifiers {
+                Some(keys) => format!("click at ({x}, {y}) with {keys}"),
+                None => format!("click at ({x}, {y})"),
+            }
+        }
+        "read_focused_element" => "read focused element".into(),
+        "hit_test" => {
+            let x = args.get("x").and_then(Value::as_i64).unwrap_or(0);
+            let y = args.get("y").and_then(Value::as_i64).unwrap_or(0);
+            format!("hit test at ({x}, {y})")
+        }
+        "inspect_window_elements" => "inspect front window accessibility elements".into(),
         _ => action.to_string(),
     }
 }
@@ -871,5 +2083,193 @@ mod tests {
             .error
             .unwrap_or_default()
             .contains("Provide either 'script' or 'script_lines'"));
+    }
+
+    #[tokio::test]
+    async fn mac_automation_click_at_requires_coordinates() {
+        let tool = MacAutomationTool::new(test_security(AutonomyLevel::Supervised));
+        let result = tool
+            .execute(json!({"action":"click_at"}))
+            .await
+            .expect("missing coords should return a structured tool result");
+        assert!(!result.success);
+        assert!(result
+            .error
+            .unwrap_or_default()
+            .contains("Missing 'x' coordinate"));
+    }
+
+    #[tokio::test]
+    async fn mac_automation_move_mouse_requires_coordinates() {
+        let tool = MacAutomationTool::new(test_security(AutonomyLevel::Supervised));
+        let result = tool
+            .execute(json!({"action":"move_mouse"}))
+            .await
+            .expect("missing coords should return a structured tool result");
+        assert!(!result.success);
+        assert!(result
+            .error
+            .unwrap_or_default()
+            .contains("Missing 'x' coordinate"));
+    }
+
+    #[tokio::test]
+    async fn mac_automation_hit_test_requires_coordinates() {
+        let tool = MacAutomationTool::new(test_security(AutonomyLevel::Supervised));
+        let result = tool
+            .execute(json!({"action":"hit_test"}))
+            .await
+            .expect("missing coords should return a structured tool result");
+        assert!(!result.success);
+        assert!(result
+            .error
+            .unwrap_or_default()
+            .contains("Missing 'x' coordinate"));
+    }
+
+    #[test]
+    fn mac_automation_schema_includes_new_actions() {
+        let tool = MacAutomationTool::new(test_security(AutonomyLevel::Supervised));
+        let schema = tool.parameters_schema();
+        let actions = schema["properties"]["action"]["enum"]
+            .as_array()
+            .expect("action enum should be an array");
+        let action_strs: Vec<&str> = actions.iter().filter_map(|v| v.as_str()).collect();
+        assert!(action_strs.contains(&"move_mouse"));
+        assert!(action_strs.contains(&"click_at"));
+        assert!(action_strs.contains(&"read_focused_element"));
+        assert!(action_strs.contains(&"hit_test"));
+        assert!(action_strs.contains(&"inspect_window_elements"));
+        assert!(schema["properties"]["x"].is_object());
+        assert!(schema["properties"]["y"].is_object());
+        assert!(schema["properties"]["keys"].is_object());
+        assert!(schema["properties"]["coordinate_space"].is_object());
+    }
+
+    #[test]
+    fn parse_modifier_keys_normalizes_aliases() {
+        let keys =
+            MacAutomationTool::parse_modifier_keys(&json!({"keys": ["alt", "shift", "cmd"]}))
+                .unwrap();
+        assert_eq!(keys, vec!["option", "shift", "command"]);
+    }
+
+    #[test]
+    fn front_window_query_roundtrips_through_key_encoding() {
+        let key = gui_verify::encode_front_window_match_count_key(
+            Some("AXImage"),
+            Some("Recent"),
+            Some("thumbnail"),
+            None,
+        );
+        let query = MacAutomationTool::front_window_query_from_key(&key).unwrap();
+        assert_eq!(query.role.as_deref(), Some("AXImage"));
+        assert_eq!(query.title_contains.as_deref(), Some("Recent"));
+        assert_eq!(query.description_contains.as_deref(), Some("thumbnail"));
+        assert!(query.value_contains.is_none());
+    }
+
+    #[test]
+    fn front_window_query_script_serializes_row_contents() {
+        let script = MacAutomationTool::front_window_query_script(
+            &FrontWindowElementQuery {
+                role: Some("AXImage".into()),
+                title_contains: None,
+                description_contains: Some("thumbnail".into()),
+                value_contains: None,
+            },
+            3,
+        );
+
+        assert!(script.contains("set end of outputRows to contents of rowText"));
+    }
+
+    #[tokio::test]
+    async fn resolve_coordinates_without_coordinate_space_passthrough() {
+        let tool = MacAutomationTool::new(test_security(AutonomyLevel::Supervised));
+        let resolved = tool
+            .resolve_coordinates(&json!({"x": 100, "y": 200}), "click_at")
+            .await
+            .unwrap();
+        assert_eq!(resolved.requested_x, 100);
+        assert_eq!(resolved.requested_y, 200);
+        assert_eq!(resolved.resolved_x, 100);
+        assert_eq!(resolved.resolved_y, 200);
+        assert!(resolved.coordinate_space.is_none());
+    }
+
+    #[test]
+    fn is_mutating_applescript_detects_click() {
+        assert!(MacAutomationTool::is_mutating_applescript(
+            &json!({"script": "tell application \"System Events\" to click button 1"})
+        ));
+    }
+
+    #[test]
+    fn is_mutating_applescript_detects_keystroke() {
+        assert!(MacAutomationTool::is_mutating_applescript(
+            &json!({"script_lines": ["tell application \"System Events\"", "keystroke return"]})
+        ));
+    }
+
+    #[test]
+    fn is_mutating_applescript_ignores_read_only() {
+        assert!(!MacAutomationTool::is_mutating_applescript(
+            &json!({"script": "tell application \"System Events\" to return name of first process whose frontmost is true"})
+        ));
+    }
+
+    #[test]
+    fn adds_hint_for_applescript_ui_lookup_failures() {
+        let result = MacAutomationTool::add_applescript_failure_hint(ToolResult {
+            success: false,
+            output: String::new(),
+            error: Some("System Events got an error: Can't get button 1 of window 1".into()),
+        });
+
+        let error = result.error.unwrap_or_default();
+        assert!(error.contains("Can't get button 1 of window 1"));
+        assert!(error.contains("retry with mac_automation action=click_at"));
+    }
+
+    #[test]
+    fn does_not_add_hint_for_non_ui_applescript_failures() {
+        let result = MacAutomationTool::add_applescript_failure_hint(ToolResult {
+            success: false,
+            output: String::new(),
+            error: Some("Expected end of line but found identifier".into()),
+        });
+
+        assert_eq!(
+            result.error.as_deref(),
+            Some("Expected end of line but found identifier")
+        );
+    }
+
+    #[test]
+    fn summarize_click_at_includes_coords() {
+        let summary = summarize_mac_action("click_at", &json!({"x": 100, "y": 200}));
+        assert_eq!(summary, "click at (100, 200)");
+    }
+
+    #[test]
+    fn summarize_click_at_includes_modifier_keys() {
+        let summary = summarize_mac_action(
+            "click_at",
+            &json!({"x": 100, "y": 200, "keys": ["option", "shift"]}),
+        );
+        assert_eq!(summary, "click at (100, 200) with option+shift");
+    }
+
+    #[test]
+    fn summarize_move_mouse_includes_coords() {
+        let summary = summarize_mac_action("move_mouse", &json!({"x": 100, "y": 200}));
+        assert_eq!(summary, "move mouse to (100, 200)");
+    }
+
+    #[test]
+    fn summarize_hit_test_includes_coords() {
+        let summary = summarize_mac_action("hit_test", &json!({"x": 50, "y": 75}));
+        assert_eq!(summary, "hit test at (50, 75)");
     }
 }

@@ -868,6 +868,30 @@ impl Agent {
 
             let formatted = self.tool_dispatcher.format_results(&results);
             self.history.push(formatted);
+
+            // When using native tool calling, tool results go as `tool` role
+            // messages which providers skip for multimodal processing. If any
+            // tool result contains [IMAGE:] markers (e.g. screenshots), inject
+            // them as a user message so the LLM can actually see the images.
+            if self.tool_dispatcher.should_send_tool_specs() {
+                let image_refs: Vec<String> = results
+                    .iter()
+                    .filter(|r| r.success)
+                    .flat_map(|r| crate::multimodal::parse_image_markers(&r.output).1)
+                    .collect();
+                if !image_refs.is_empty() {
+                    let markers: String = image_refs
+                        .iter()
+                        .map(|r| format!("[IMAGE:{r}]"))
+                        .collect::<Vec<_>>()
+                        .join("\n");
+                    self.history
+                        .push(ConversationMessage::Chat(ChatMessage::user(format!(
+                            "[Tool screenshot attached]\n{markers}"
+                        ))));
+                }
+            }
+
             self.trim_history();
 
             self.persist_task_checkpoint(

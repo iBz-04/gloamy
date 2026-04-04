@@ -182,10 +182,19 @@ pub fn verify_expectations(
     expectations: &[GuiExpectation],
     post_evidence: &Value,
 ) -> (VerificationStatus, Vec<ExpectationResult>) {
+    verify_expectations_with_context(expectations, None, post_evidence)
+}
+
+/// Evaluate expectations with optional access to pre-action evidence.
+pub fn verify_expectations_with_context(
+    expectations: &[GuiExpectation],
+    pre_evidence: Option<&Value>,
+    post_evidence: &Value,
+) -> (VerificationStatus, Vec<ExpectationResult>) {
     let mut results = Vec::with_capacity(expectations.len());
 
     for exp in expectations {
-        let result = verify_single(&exp.kind, post_evidence);
+        let result = verify_single(&exp.kind, pre_evidence, post_evidence);
         results.push(result);
     }
 
@@ -202,7 +211,12 @@ pub fn build_report(
     post_evidence: &Value,
 ) -> GuiActionReport {
     let expectation_results = if execution_ok {
-        verify_expectations(expectations, post_evidence).1
+        verify_expectations_with_context(
+            expectations,
+            pre_observation.as_ref().map(|obs| &obs.evidence),
+            post_evidence,
+        )
+        .1
     } else {
         Vec::new()
     };
@@ -283,6 +297,24 @@ pub fn infer_evidence_keys(expectations: &[GuiExpectation]) -> Vec<String> {
             GuiExpectationKind::ElementAtCoordinate { .. } => {
                 push_unique_key(&mut keys, "hit_test_result".into());
             }
+            GuiExpectationKind::AXAttributeEquals { attribute, .. } => {
+                push_unique_key(&mut keys, format!("ax_attributes.{attribute}"));
+            }
+            GuiExpectationKind::FrontWindowElementCountChanged {
+                role,
+                title_contains,
+                description_contains,
+                value_contains,
+                ..
+            } => push_unique_key(
+                &mut keys,
+                encode_front_window_match_count_key(
+                    role.as_deref(),
+                    title_contains.as_deref(),
+                    description_contains.as_deref(),
+                    value_contains.as_deref(),
+                ),
+            ),
             GuiExpectationKind::FileExists { .. }
             | GuiExpectationKind::DownloadCompleted { .. } => {}
         }
@@ -293,6 +325,16 @@ pub fn infer_evidence_keys(expectations: &[GuiExpectation]) -> Vec<String> {
 /// Backward-compatible alias kept for existing call sites.
 pub fn infer_pre_observation_keys(expectations: &[GuiExpectation]) -> Vec<String> {
     infer_evidence_keys(expectations)
+}
+
+/// Whether any expectation depends on pre-action state to verify a state delta.
+pub fn expectations_require_pre_observation(expectations: &[GuiExpectation]) -> bool {
+    expectations.iter().any(|exp| {
+        matches!(
+            exp.kind,
+            GuiExpectationKind::FrontWindowElementCountChanged { .. }
+        )
+    })
 }
 
 /// Apply a wait strategy before collecting post-observation evidence.
@@ -376,6 +418,9 @@ pub fn classify_reversibility(
         "mac_automation" => match action {
             "launch_app" | "activate_app" => ReversibilityLevel::Reversible,
             "run_applescript" => classify_applescript_reversibility(args),
+            "move_mouse" => ReversibilityLevel::Reversible,
+            "click_at" => ReversibilityLevel::PartiallyReversible,
+            "read_focused_element" | "hit_test" => ReversibilityLevel::Reversible,
             _ => ReversibilityLevel::Unknown,
         },
         _ => ReversibilityLevel::Unknown,
@@ -406,6 +451,21 @@ pub fn describe_expectation(expectation: &GuiExpectation) -> String {
         GuiExpectationKind::DownloadCompleted { path } => {
             format!("download completes at '{path}'")
         }
+        GuiExpectationKind::FrontWindowElementCountChanged {
+            role,
+            title_contains,
+            description_contains,
+            value_contains,
+            min_increase,
+        } => {
+            let matcher = describe_front_window_matcher(
+                role.as_deref(),
+                title_contains.as_deref(),
+                description_contains.as_deref(),
+                value_contains.as_deref(),
+            );
+            format!("front window elements matching {matcher} increase by at least {min_increase}")
+        }
         GuiExpectationKind::ElementAtCoordinate {
             x,
             y,
@@ -414,6 +474,9 @@ pub fn describe_expectation(expectation: &GuiExpectation) -> String {
         } => format!(
             "element '{expected_element}' is present near ({x}, {y}) with tolerance {tolerance_px}px"
         ),
+        GuiExpectationKind::AXAttributeEquals { attribute, value } => {
+            format!("AX attribute '{attribute}' equals '{value}'")
+        }
     }
 }
 
@@ -452,31 +515,55 @@ fn reversibility_meets_threshold(
 
 // ── Per-expectation verification ────────────────────────────────
 
-fn verify_single(kind: &GuiExpectationKind, evidence: &Value) -> ExpectationResult {
+fn verify_single(
+    kind: &GuiExpectationKind,
+    pre_evidence: Option<&Value>,
+    post_evidence: &Value,
+) -> ExpectationResult {
     let mut result = match kind {
         GuiExpectationKind::FieldValueEquals { selector, value } => {
-            verify_field_value(selector, value, evidence)
+            verify_field_value(selector, value, post_evidence)
         }
         GuiExpectationKind::FocusedElementIs { selector } => {
-            verify_focused_element(selector, evidence)
+            verify_focused_element(selector, post_evidence)
         }
         GuiExpectationKind::CheckboxChecked { selector, checked } => {
-            verify_checkbox(selector, *checked, evidence)
+            verify_checkbox(selector, *checked, post_evidence)
         }
         GuiExpectationKind::WindowTitleContains { substring } => {
-            verify_window_title(substring, evidence)
+            verify_window_title(substring, post_evidence)
         }
-        GuiExpectationKind::DialogPresent { present } => verify_dialog_present(*present, evidence),
-        GuiExpectationKind::UrlIs { url } => verify_url_is(url, evidence),
-        GuiExpectationKind::UrlHostIs { host } => verify_url_host(host, evidence),
+        GuiExpectationKind::DialogPresent { present } => {
+            verify_dialog_present(*present, post_evidence)
+        }
+        GuiExpectationKind::UrlIs { url } => verify_url_is(url, post_evidence),
+        GuiExpectationKind::UrlHostIs { host } => verify_url_host(host, post_evidence),
         GuiExpectationKind::FileExists { path } => verify_file_exists(path),
         GuiExpectationKind::DownloadCompleted { path } => verify_file_exists(path),
+        GuiExpectationKind::FrontWindowElementCountChanged {
+            role,
+            title_contains,
+            description_contains,
+            value_contains,
+            min_increase,
+        } => verify_front_window_element_count_changed(
+            role.as_deref(),
+            title_contains.as_deref(),
+            description_contains.as_deref(),
+            value_contains.as_deref(),
+            *min_increase,
+            pre_evidence,
+            post_evidence,
+        ),
         GuiExpectationKind::ElementAtCoordinate {
             x,
             y,
             expected_element,
             tolerance_px,
-        } => verify_element_at_coordinate(*x, *y, expected_element, *tolerance_px, evidence),
+        } => verify_element_at_coordinate(*x, *y, expected_element, *tolerance_px, post_evidence),
+        GuiExpectationKind::AXAttributeEquals { attribute, value } => {
+            verify_ax_attribute(attribute, value, post_evidence)
+        }
     };
     result.confidence = Some(confidence_for(kind, result.status));
     result
@@ -712,6 +799,134 @@ fn verify_file_exists(path: &str) -> ExpectationResult {
     }
 }
 
+pub fn encode_front_window_match_count_key(
+    role: Option<&str>,
+    title_contains: Option<&str>,
+    description_contains: Option<&str>,
+    value_contains: Option<&str>,
+) -> String {
+    let payload = json!({
+        "role": role.unwrap_or_default(),
+        "title_contains": title_contains.unwrap_or_default(),
+        "description_contains": description_contains.unwrap_or_default(),
+        "value_contains": value_contains.unwrap_or_default(),
+    });
+    format!(
+        "front_window_match_count::{}",
+        serde_json::to_string(&payload).unwrap_or_else(|_| "{}".into())
+    )
+}
+
+fn describe_front_window_matcher(
+    role: Option<&str>,
+    title_contains: Option<&str>,
+    description_contains: Option<&str>,
+    value_contains: Option<&str>,
+) -> String {
+    let mut parts = Vec::new();
+    if let Some(role) = role.filter(|value| !value.is_empty()) {
+        parts.push(format!("role '{role}'"));
+    }
+    if let Some(value) = title_contains.filter(|value| !value.is_empty()) {
+        parts.push(format!("title containing '{value}'"));
+    }
+    if let Some(value) = description_contains.filter(|value| !value.is_empty()) {
+        parts.push(format!("description containing '{value}'"));
+    }
+    if let Some(value) = value_contains.filter(|value| !value.is_empty()) {
+        parts.push(format!("value containing '{value}'"));
+    }
+
+    if parts.is_empty() {
+        "any accessible element".into()
+    } else {
+        parts.join(", ")
+    }
+}
+
+fn verify_front_window_element_count_changed(
+    role: Option<&str>,
+    title_contains: Option<&str>,
+    description_contains: Option<&str>,
+    value_contains: Option<&str>,
+    min_increase: u32,
+    pre_evidence: Option<&Value>,
+    post_evidence: &Value,
+) -> ExpectationResult {
+    let key = encode_front_window_match_count_key(
+        role,
+        title_contains,
+        description_contains,
+        value_contains,
+    );
+    let expected = json!({
+        "matcher": {
+            "role": role,
+            "title_contains": title_contains,
+            "description_contains": description_contains,
+            "value_contains": value_contains,
+        },
+        "min_increase": min_increase,
+    });
+
+    let Some(pre_count) = front_window_match_count(pre_evidence, &key) else {
+        return expectation_result(
+            VerificationStatus::Ambiguous,
+            expected,
+            Value::Null,
+            Some(
+                "Could not read the pre-action front window match count. Use pre_observe:auto or explicit keys."
+                    .into(),
+            ),
+        );
+    };
+
+    let Some(post_snapshot) = front_window_match_snapshot(Some(post_evidence), &key) else {
+        return expectation_result(
+            VerificationStatus::Ambiguous,
+            expected,
+            Value::Null,
+            Some("Could not read the post-action front window match count".into()),
+        );
+    };
+
+    let post_count = post_snapshot
+        .get("count")
+        .and_then(Value::as_u64)
+        .unwrap_or_default();
+    let actual = json!({
+        "pre_count": pre_count,
+        "post_count": post_count,
+        "increase": post_count.saturating_sub(pre_count),
+        "samples": post_snapshot.get("samples").cloned().unwrap_or(Value::Array(vec![])),
+    });
+
+    if post_count >= pre_count.saturating_add(u64::from(min_increase)) {
+        expectation_result(VerificationStatus::Verified, expected, actual, None)
+    } else {
+        expectation_result(
+            VerificationStatus::Failed,
+            expected,
+            actual,
+            Some(format!(
+                "Front window match count did not increase by at least {min_increase} (pre={pre_count}, post={post_count})"
+            )),
+        )
+    }
+}
+
+fn front_window_match_count(evidence: Option<&Value>, key: &str) -> Option<u64> {
+    front_window_match_snapshot(evidence, key)?
+        .get("count")
+        .and_then(Value::as_u64)
+}
+
+fn front_window_match_snapshot<'a>(evidence: Option<&'a Value>, key: &str) -> Option<&'a Value> {
+    evidence?
+        .get("front_window_match_counts")
+        .and_then(|counts| counts.get(key))
+}
+
 fn verify_element_at_coordinate(
     x: i64,
     y: i64,
@@ -768,6 +983,38 @@ fn verify_element_at_coordinate(
             json!({"x": x, "y": y, "expected_element": expected, "tolerance_px": tolerance}),
             Value::Null,
             Some("Could not determine element at coordinate from post-action evidence".into()),
+        ),
+    }
+}
+
+fn verify_ax_attribute(attribute: &str, expected: &str, evidence: &Value) -> ExpectationResult {
+    let actual = evidence
+        .get("ax_attributes")
+        .and_then(|attrs| attrs.get(attribute))
+        .and_then(Value::as_str);
+
+    match actual {
+        Some(actual_val) if actual_val == expected => expectation_result(
+            VerificationStatus::Verified,
+            json!({"attribute": attribute, "value": expected}),
+            json!(actual_val),
+            None,
+        ),
+        Some(actual_val) => expectation_result(
+            VerificationStatus::Failed,
+            json!({"attribute": attribute, "value": expected}),
+            json!(actual_val),
+            Some(format!(
+                "AX attribute '{attribute}' is '{actual_val}', expected '{expected}'"
+            )),
+        ),
+        None => expectation_result(
+            VerificationStatus::Ambiguous,
+            json!({"attribute": attribute, "value": expected}),
+            Value::Null,
+            Some(format!(
+                "Could not read AX attribute '{attribute}' from post-action evidence"
+            )),
         ),
     }
 }
@@ -845,7 +1092,9 @@ fn confidence_for(kind: &GuiExpectationKind, status: VerificationStatus) -> f64 
             GuiExpectationKind::UrlHostIs { .. } | GuiExpectationKind::DialogPresent { .. } => 0.9,
             GuiExpectationKind::FileExists { .. }
             | GuiExpectationKind::DownloadCompleted { .. } => 0.85,
+            GuiExpectationKind::FrontWindowElementCountChanged { .. } => 0.9,
             GuiExpectationKind::ElementAtCoordinate { .. } => 0.8,
+            GuiExpectationKind::AXAttributeEquals { .. } => 0.9,
         },
     }
 }
@@ -1065,6 +1314,26 @@ mod tests {
     }
 
     #[test]
+    fn parse_expectations_window_title_contains_accepts_title_contains_alias() {
+        let args = json!({
+            "action": "click",
+            "expect": {
+                "kind": "window_title_contains",
+                "title_contains": "Photo Booth"
+            }
+        });
+
+        let exps = parse_expectations(&args).unwrap().unwrap();
+        assert_eq!(exps.len(), 1);
+        match &exps[0].kind {
+            GuiExpectationKind::WindowTitleContains { substring } => {
+                assert_eq!(substring, "Photo Booth");
+            }
+            other => panic!("expected window_title_contains expectation, got {other:?}"),
+        }
+    }
+
+    #[test]
     fn parse_expectations_empty_array_returns_none() {
         let args = json!({"action": "click", "expect": []});
         assert!(parse_expectations(&args).unwrap().is_none());
@@ -1221,6 +1490,58 @@ mod tests {
         }];
         let (status, _) = verify_expectations(&exps, &json!({}));
         assert_eq!(status, VerificationStatus::Failed);
+    }
+
+    #[test]
+    fn verify_front_window_element_count_changed_verified() {
+        let key =
+            encode_front_window_match_count_key(Some("AXImage"), None, Some("thumbnail"), None);
+        let exps = vec![GuiExpectation {
+            kind: GuiExpectationKind::FrontWindowElementCountChanged {
+                role: Some("AXImage".into()),
+                title_contains: None,
+                description_contains: Some("thumbnail".into()),
+                value_contains: None,
+                min_increase: 1,
+            },
+            required: true,
+        }];
+        let pre = json!({
+            "front_window_match_counts": {
+                key.clone(): {
+                    "count": 2,
+                    "samples": []
+                }
+            }
+        });
+        let post = json!({
+            "front_window_match_counts": {
+                key: {
+                    "count": 3,
+                    "samples": [{"role": "AXImage", "description": "thumbnail"}]
+                }
+            }
+        });
+        let (status, results) = verify_expectations_with_context(&exps, Some(&pre), &post);
+        assert_eq!(status, VerificationStatus::Verified);
+        assert_eq!(results[0].confidence, Some(0.9));
+    }
+
+    #[test]
+    fn verify_front_window_element_count_changed_is_ambiguous_without_pre_state() {
+        let exps = vec![GuiExpectation {
+            kind: GuiExpectationKind::FrontWindowElementCountChanged {
+                role: Some("AXImage".into()),
+                title_contains: None,
+                description_contains: Some("thumbnail".into()),
+                value_contains: None,
+                min_increase: 1,
+            },
+            required: true,
+        }];
+        let (status, _) = verify_expectations_with_context(&exps, None, &json!({}));
+        assert_eq!(status, VerificationStatus::Ambiguous);
+        assert!(expectations_require_pre_observation(&exps));
     }
 
     #[test]
@@ -1571,5 +1892,150 @@ mod tests {
         }];
         let (status, _) = verify_expectations(&exps, &evidence);
         assert_eq!(status, VerificationStatus::Ambiguous);
+    }
+
+    #[test]
+    fn verify_ax_attribute_equals_verified() {
+        let evidence = json!({"ax_attributes": {"AXRole": "AXButton"}});
+        let exps = vec![GuiExpectation {
+            kind: GuiExpectationKind::AXAttributeEquals {
+                attribute: "AXRole".into(),
+                value: "AXButton".into(),
+            },
+            required: true,
+        }];
+        let (status, results) = verify_expectations(&exps, &evidence);
+        assert_eq!(status, VerificationStatus::Verified);
+        assert_eq!(results[0].confidence, Some(0.9));
+    }
+
+    #[test]
+    fn verify_ax_attribute_equals_failed() {
+        let evidence = json!({"ax_attributes": {"AXRole": "AXStaticText"}});
+        let exps = vec![GuiExpectation {
+            kind: GuiExpectationKind::AXAttributeEquals {
+                attribute: "AXRole".into(),
+                value: "AXButton".into(),
+            },
+            required: true,
+        }];
+        let (status, _) = verify_expectations(&exps, &evidence);
+        assert_eq!(status, VerificationStatus::Failed);
+    }
+
+    #[test]
+    fn verify_ax_attribute_equals_missing_is_ambiguous() {
+        let evidence = json!({});
+        let exps = vec![GuiExpectation {
+            kind: GuiExpectationKind::AXAttributeEquals {
+                attribute: "AXRole".into(),
+                value: "AXButton".into(),
+            },
+            required: true,
+        }];
+        let (status, _) = verify_expectations(&exps, &evidence);
+        assert_eq!(status, VerificationStatus::Ambiguous);
+    }
+
+    #[test]
+    fn describe_ax_attribute_equals() {
+        let expectation = GuiExpectation {
+            kind: GuiExpectationKind::AXAttributeEquals {
+                attribute: "AXTitle".into(),
+                value: "Take Photo".into(),
+            },
+            required: true,
+        };
+        assert_eq!(
+            describe_expectation(&expectation),
+            "AX attribute 'AXTitle' equals 'Take Photo'"
+        );
+    }
+
+    #[test]
+    fn describe_front_window_element_count_changed() {
+        let expectation = GuiExpectation {
+            kind: GuiExpectationKind::FrontWindowElementCountChanged {
+                role: Some("AXImage".into()),
+                title_contains: None,
+                description_contains: Some("thumbnail".into()),
+                value_contains: None,
+                min_increase: 1,
+            },
+            required: true,
+        };
+        assert_eq!(
+            describe_expectation(&expectation),
+            "front window elements matching role 'AXImage', description containing 'thumbnail' increase by at least 1"
+        );
+    }
+
+    #[test]
+    fn classify_reversibility_click_at_partially_reversible() {
+        let args = json!({"x": 100, "y": 200});
+        assert_eq!(
+            classify_reversibility("mac_automation", "click_at", &args, &[]),
+            ReversibilityLevel::PartiallyReversible
+        );
+    }
+
+    #[test]
+    fn classify_reversibility_move_mouse_reversible() {
+        let args = json!({"x": 100, "y": 200});
+        assert_eq!(
+            classify_reversibility("mac_automation", "move_mouse", &args, &[]),
+            ReversibilityLevel::Reversible
+        );
+    }
+
+    #[test]
+    fn classify_reversibility_read_actions_reversible() {
+        let args = json!({});
+        assert_eq!(
+            classify_reversibility("mac_automation", "read_focused_element", &args, &[]),
+            ReversibilityLevel::Reversible
+        );
+        assert_eq!(
+            classify_reversibility("mac_automation", "hit_test", &args, &[]),
+            ReversibilityLevel::Reversible
+        );
+    }
+
+    #[test]
+    fn infer_evidence_keys_for_ax_attribute() {
+        let exps = vec![GuiExpectation {
+            kind: GuiExpectationKind::AXAttributeEquals {
+                attribute: "AXRole".into(),
+                value: "AXButton".into(),
+            },
+            required: true,
+        }];
+        assert_eq!(
+            infer_evidence_keys(&exps),
+            vec!["ax_attributes.AXRole".to_string()]
+        );
+    }
+
+    #[test]
+    fn infer_evidence_keys_for_front_window_count_change() {
+        let exps = vec![GuiExpectation {
+            kind: GuiExpectationKind::FrontWindowElementCountChanged {
+                role: Some("AXImage".into()),
+                title_contains: None,
+                description_contains: Some("thumbnail".into()),
+                value_contains: None,
+                min_increase: 1,
+            },
+            required: true,
+        }];
+        assert_eq!(
+            infer_evidence_keys(&exps),
+            vec![encode_front_window_match_count_key(
+                Some("AXImage"),
+                None,
+                Some("thumbnail"),
+                None
+            )]
+        );
     }
 }

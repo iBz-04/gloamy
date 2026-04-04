@@ -32,6 +32,37 @@ impl ToolResult {
             error,
         }
     }
+
+    /// Return the most actionable text representation of this result.
+    ///
+    /// For failures, prefer the explicit error reason and keep output as
+    /// supplemental context when it adds distinct information.
+    pub fn diagnostic_output(&self) -> String {
+        if self.success {
+            return self.output.clone();
+        }
+
+        let error = self
+            .error
+            .as_deref()
+            .map(str::trim)
+            .filter(|s| !s.is_empty());
+        let output = self.output.trim();
+        let output = (!output.is_empty()).then_some(output);
+
+        match (error, output) {
+            (Some(error), Some(output))
+                if output != error
+                    && output != format!("Error: {error}")
+                    && !output.ends_with(error) =>
+            {
+                format!("Error: {error}\n{output}")
+            }
+            (Some(error), _) => format!("Error: {error}"),
+            (None, Some(output)) => output.to_string(),
+            (None, None) => "Error: tool returned no detail".to_string(),
+        }
+    }
 }
 
 // ── GUI verification contract ───────────────────────────────────
@@ -107,6 +138,7 @@ pub enum GuiExpectationKind {
         checked: bool,
     },
     WindowTitleContains {
+        #[serde(alias = "title_contains")]
         substring: String,
     },
     DialogPresent {
@@ -124,12 +156,31 @@ pub enum GuiExpectationKind {
     DownloadCompleted {
         path: String,
     },
+    FrontWindowElementCountChanged {
+        #[serde(default)]
+        role: Option<String>,
+        #[serde(default)]
+        title_contains: Option<String>,
+        #[serde(default)]
+        description_contains: Option<String>,
+        #[serde(default)]
+        value_contains: Option<String>,
+        #[serde(default = "default_min_increase")]
+        min_increase: u32,
+    },
     ElementAtCoordinate {
         x: i64,
         y: i64,
         expected_element: String,
         #[serde(default)]
         tolerance_px: u32,
+    },
+    /// Verify a macOS accessibility attribute on the focused or targeted element.
+    AXAttributeEquals {
+        /// AX attribute name (e.g. "AXRole", "AXTitle", "AXValue", "AXDescription").
+        attribute: String,
+        /// Expected string value of the attribute.
+        value: String,
     },
 }
 
@@ -147,6 +198,10 @@ pub struct GuiExpectation {
 
 fn default_required() -> bool {
     true
+}
+
+fn default_min_increase() -> u32 {
+    1
 }
 
 /// A point-in-time observation of GUI state used for pre/post comparison.
@@ -301,5 +356,44 @@ mod tests {
 
         assert!(!parsed.success);
         assert_eq!(parsed.error.as_deref(), Some("boom"));
+    }
+
+    #[test]
+    fn diagnostic_output_prefers_error_for_failures() {
+        let result = ToolResult {
+            success: false,
+            output: String::new(),
+            error: Some("Missing 'action' parameter".into()),
+        };
+
+        assert_eq!(
+            result.diagnostic_output(),
+            "Error: Missing 'action' parameter"
+        );
+    }
+
+    #[test]
+    fn diagnostic_output_keeps_distinct_output_context() {
+        let result = ToolResult {
+            success: false,
+            output: "stdout details".into(),
+            error: Some("osascript failed".into()),
+        };
+
+        assert_eq!(
+            result.diagnostic_output(),
+            "Error: osascript failed\nstdout details"
+        );
+    }
+
+    #[test]
+    fn diagnostic_output_avoids_duplicate_error_text() {
+        let result = ToolResult {
+            success: false,
+            output: "Error: osascript failed".into(),
+            error: Some("osascript failed".into()),
+        };
+
+        assert_eq!(result.diagnostic_output(), "Error: osascript failed");
     }
 }

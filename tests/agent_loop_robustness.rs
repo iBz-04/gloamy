@@ -11,7 +11,7 @@ use anyhow::Result;
 use async_trait::async_trait;
 use gloamy::agent::agent::Agent;
 use gloamy::agent::dispatcher::NativeToolDispatcher;
-use gloamy::config::MemoryConfig;
+use gloamy::config::{AgentConfig, MemoryConfig};
 use gloamy::memory;
 use gloamy::memory::Memory;
 use gloamy::observability::{NoopObserver, Observer};
@@ -315,14 +315,15 @@ async fn agent_handles_mixed_tool_success_and_failure() {
 // TG4.3: Iteration limit enforcement (#777)
 // ═════════════════════════════════════════════════════════════════════════════
 
-/// Agent should not exceed max_tool_iterations (default=10) even with
+/// Agent should not exceed max_tool_iterations (default from AgentConfig) even with
 /// a provider that keeps returning tool calls
 #[tokio::test]
 async fn agent_respects_max_tool_iterations() {
     let (counting_tool, count) = CountingTool::new();
+    let max_iterations = AgentConfig::default().max_tool_iterations;
 
-    // Create 20 tool call responses - more than the default limit of 10
-    let mut responses: Vec<ChatResponse> = (0..20)
+    // Create more tool call responses than the default iteration limit.
+    let mut responses: Vec<ChatResponse> = (0..(max_iterations + 10))
         .map(|i| {
             tool_response(vec![ToolCall {
                 id: format!("tc_{i}"),
@@ -344,8 +345,8 @@ async fn agent_respects_max_tool_iterations() {
 
     let invocations = *count.lock().unwrap();
     assert!(
-        invocations <= 10,
-        "tool invocations ({invocations}) should not exceed default max_tool_iterations (10)"
+        invocations <= max_iterations,
+        "tool invocations ({invocations}) should not exceed default max_tool_iterations ({max_iterations})"
     );
 }
 

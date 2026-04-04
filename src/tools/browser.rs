@@ -1044,7 +1044,10 @@ impl BrowserTool {
         wait_strategy: &WaitStrategy,
     ) -> anyhow::Result<()> {
         match wait_strategy {
-            WaitStrategy::SelectorPresent { selector, timeout_ms } => match backend {
+            WaitStrategy::SelectorPresent {
+                selector,
+                timeout_ms,
+            } => match backend {
                 ResolvedBackend::ComputerUse => {
                     let _ = self
                         .execute_computer_use_aux_action(
@@ -1072,8 +1075,7 @@ impl BrowserTool {
                 }
             },
             WaitStrategy::DomEvent { event, timeout_ms } => {
-                self.apply_dom_event_wait(backend, event, *timeout_ms)
-                    .await
+                self.apply_dom_event_wait(backend, event, *timeout_ms).await
             }
             _ => Ok(()),
         }
@@ -1139,9 +1141,7 @@ impl BrowserTool {
         #[cfg(not(feature = "browser-native"))]
         {
             let _ = (event, timeout_ms);
-            anyhow::bail!(
-                "dom_event wait requires the browser-native feature"
-            )
+            anyhow::bail!("dom_event wait requires the browser-native feature")
         }
     }
 
@@ -1169,7 +1169,13 @@ impl BrowserTool {
         expectations: &[GuiExpectation],
     ) -> Option<GuiObservation> {
         let keys = match strategy {
-            PreObservationStrategy::None => Vec::new(),
+            PreObservationStrategy::None => {
+                if gui_verify::expectations_require_pre_observation(expectations) {
+                    gui_verify::infer_evidence_keys(expectations)
+                } else {
+                    Vec::new()
+                }
+            }
             PreObservationStrategy::Auto => gui_verify::infer_evidence_keys(expectations),
             PreObservationStrategy::Explicit { keys } => keys.clone(),
         };
@@ -1487,7 +1493,7 @@ impl Tool for BrowserTool {
                     "description": "For find with fill action: value to fill"
                 },
                 "expect": {
-                    "description": "Verification expectation(s) for mutating actions. When provided, success means the expected UI state was verified, not just that the event was dispatched. Accepts a single object or array of objects. Each object must have a 'kind' field: field_value_equals, focused_element_is, checkbox_checked, window_title_contains, dialog_present, url_is, url_host_is, file_exists, download_completed, element_at_coordinate. Set 'required': false on optional checks.",
+                    "description": "Verification expectation(s) for mutating actions. When provided, success means the expected UI state was verified, not just that the event was dispatched. Accepts a single object or array of objects. Each object must have a 'kind' field: field_value_equals, focused_element_is, checkbox_checked, window_title_contains, dialog_present, url_is, url_host_is, file_exists, download_completed, front_window_element_count_changed, element_at_coordinate. Set 'required': false on optional checks.",
                     "oneOf": [
                         {
                             "type": "object",
@@ -2272,9 +2278,7 @@ mod native_backend {
                 .context("dom_event wait: execute_async failed")?;
             let result_str = result.as_str().unwrap_or("");
             if result_str.contains("\"error\"") {
-                anyhow::bail!(
-                    "dom_event wait for '{event}' timed out after {timeout_ms}ms"
-                );
+                anyhow::bail!("dom_event wait for '{event}' timed out after {timeout_ms}ms");
             }
             Ok(())
         }

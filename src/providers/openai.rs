@@ -892,7 +892,9 @@ mod tests {
         assert_eq!(native.len(), 1);
 
         let content = native[0].content.as_ref().unwrap();
-        let parts = content.as_array().expect("content should be an array for image messages");
+        let parts = content
+            .as_array()
+            .expect("content should be an array for image messages");
         assert_eq!(parts.len(), 2);
         assert_eq!(parts[0]["type"], "text");
         assert_eq!(parts[0]["text"], "Describe this");
@@ -909,7 +911,10 @@ mod tests {
         assert_eq!(native.len(), 1);
 
         let content = native[0].content.as_ref().unwrap();
-        assert!(content.is_string(), "content should remain a plain string when no images");
+        assert!(
+            content.is_string(),
+            "content should remain a plain string when no images"
+        );
         assert_eq!(content.as_str().unwrap(), "Hello world");
     }
 
