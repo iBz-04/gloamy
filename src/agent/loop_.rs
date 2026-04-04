@@ -1,8 +1,13 @@
+use crate::agent::host::HostAgent;
+use crate::agent::worker::{ConversationToolLoopWorker, ToolLoopWorker};
 use crate::approval::{ApprovalManager, ApprovalRequest, ApprovalResponse};
 use crate::config::Config;
+use crate::memory::episode::EpisodeManager;
 use crate::memory::{self, Memory, MemoryCategory};
 use crate::multimodal;
 use crate::observability::{self, runtime_trace, Observer, ObserverEvent};
+use crate::perception::traits::{PerceptionProvider, ScreenState};
+use crate::perception::MacOsPerceptionProvider;
 use crate::providers::{
     self, ChatMessage, ChatRequest, Provider, ProviderCapabilityError, ToolCall,
 };
@@ -10,11 +15,13 @@ use crate::runtime;
 use crate::security::SecurityPolicy;
 use crate::tools::{self, Tool};
 use crate::util::truncate_with_ellipsis;
-use anyhow::Result;
+use anyhow::{Context, Result};
 use regex::{Regex, RegexSet};
+use sha2::{Digest, Sha256};
 use std::collections::HashSet;
 use std::fmt::Write;
 use std::io::Write as _;
+use std::path::Path;
 use std::sync::{Arc, LazyLock};
 use std::time::{Duration, Instant};
 use tokio_util::sync::CancellationToken;
@@ -774,6 +781,69 @@ fn tool_call_signature(name: &str, arguments: &serde_json::Value) -> (String, St
 
 fn is_perception_capture_call(name: &str) -> bool {
     name.trim().eq_ignore_ascii_case("perception_capture")
+}
+
+fn perception_capture_requests_required_modalities(arguments: &serde_json::Value) -> bool {
+    let include_widget_tree = arguments
+        .get("include_widget_tree")
+        .and_then(serde_json::Value::as_bool)
+        .unwrap_or(true);
+    let include_ocr = arguments
+        .get("include_ocr")
+        .and_then(serde_json::Value::as_bool)
+        .unwrap_or(false);
+    include_widget_tree && include_ocr
+}
+
+fn parse_perception_capture_payload(output: &str) -> Option<serde_json::Value> {
+    let json_start = output.find('{')?;
+    serde_json::from_str(output[json_start..].trim()).ok()
+}
+
+fn perception_capture_completed_required_modalities(output: &str) -> bool {
+    let Some(payload) = parse_perception_capture_payload(output) else {
+        return false;
+    };
+
+    let widget_completed = payload
+        .pointer("/diagnostics/modalities/widget_tree/completed")
+        .and_then(serde_json::Value::as_bool);
+    let ocr_completed = payload
+        .pointer("/diagnostics/modalities/ocr/completed")
+        .and_then(serde_json::Value::as_bool);
+
+    if let (Some(widget_completed), Some(ocr_completed)) = (widget_completed, ocr_completed) {
+        return widget_completed && ocr_completed;
+    }
+
+    let widget_present = payload
+        .pointer("/screen_state/widget_tree")
+        .is_some_and(serde_json::Value::is_object);
+
+    let has_required_modality_error = payload
+        .pointer("/diagnostics/errors")
+        .and_then(serde_json::Value::as_array)
+        .is_some_and(|errors| {
+            errors
+                .iter()
+                .filter_map(serde_json::Value::as_str)
+                .any(|error| {
+                    error.contains("Widget tree capture failed")
+                        || error.contains("Widget tree capture returned no active window tree")
+                        || error.contains("OCR extraction failed")
+                        || error.contains("OCR requested but screenshot capture failed")
+                })
+        });
+
+    widget_present && !has_required_modality_error
+}
+
+fn perception_capture_satisfies_preflight_requirements(
+    arguments: &serde_json::Value,
+    output: &str,
+) -> bool {
+    perception_capture_requests_required_modalities(arguments)
+        && perception_capture_completed_required_modalities(output)
 }
 
 fn is_mac_automation_click_at_call(name: &str, arguments: &serde_json::Value) -> bool {
@@ -3019,13 +3089,12 @@ pub(crate) async fn run_tool_call_loop(
             }
 
             if is_perception_capture_call(&tool_name) {
-                perception_preflight_available = true;
                 allow_parallel_execution = false;
             }
 
             if is_mac_automation_click_at_call(&tool_name, &tool_args) {
                 if !perception_preflight_available {
-                    let denied = "Blocked by runtime policy: call perception_capture with include_widget_tree=true and include_ocr=true before mac_automation click_at.".to_string();
+                    let denied = "Blocked by runtime policy: call perception_capture with include_widget_tree=true and include_ocr=true, and complete both modalities successfully, before mac_automation click_at.".to_string();
                     runtime_trace::record_event(
                         "tool_call_result",
                         Some(channel_name),
@@ -3266,8 +3335,12 @@ pub(crate) async fn run_tool_call_loop(
         }
 
         for item in &checkpoint_items {
-            if is_perception_capture_call(&item.tool_name) && item.success {
-                has_recent_perception_capture = true;
+            if is_perception_capture_call(&item.tool_name) {
+                has_recent_perception_capture = item.success
+                    && perception_capture_satisfies_preflight_requirements(
+                        &item.arguments,
+                        &item.output,
+                    );
             }
             if is_mac_automation_click_at_call(&item.tool_name, &item.arguments) && item.success {
                 has_recent_perception_capture = false;
@@ -3419,6 +3492,158 @@ pub(crate) fn build_tool_instructions(tools_registry: &[Box<dyn Tool>]) -> Strin
     instructions
 }
 
+fn hashed_session_suffix(seed: &str) -> String {
+    let digest = Sha256::digest(seed.as_bytes());
+    hex::encode(digest)[..16].to_string()
+}
+
+fn workspace_scoped_session_id(prefix: &str, workspace_dir: &Path) -> String {
+    let workspace_seed = workspace_dir.to_string_lossy();
+    format!("{prefix}_{}", hashed_session_suffix(&workspace_seed))
+}
+
+fn message_scoped_session_id(prefix: &str, workspace_dir: &Path, message: &str) -> String {
+    let seed = format!("{}:{message}", workspace_dir.to_string_lossy());
+    format!("{prefix}_{}", hashed_session_suffix(&seed))
+}
+
+#[derive(Default)]
+struct RuntimePerceptionProvider;
+
+impl RuntimePerceptionProvider {
+    fn empty_state() -> ScreenState {
+        ScreenState {
+            screenshot_path: None,
+            widget_tree: None,
+            extracted_text: Vec::new(),
+        }
+    }
+}
+
+#[async_trait::async_trait]
+impl PerceptionProvider for RuntimePerceptionProvider {
+    fn name(&self) -> &str {
+        "runtime_perception"
+    }
+
+    async fn capture_state(&self) -> anyhow::Result<ScreenState> {
+        if cfg!(target_os = "macos") {
+            let provider = MacOsPerceptionProvider::new();
+            provider
+                .capture_state()
+                .await
+                .context("HostAgent runtime perception failed")
+        } else {
+            Ok(Self::empty_state())
+        }
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+async fn run_host_agent_single_step(
+    session_id: String,
+    user_goal: &str,
+    system_prompt: String,
+    provider: Arc<dyn Provider>,
+    tools_registry: Arc<Vec<Box<dyn Tool>>>,
+    observer: Arc<dyn Observer>,
+    memory: Arc<dyn Memory>,
+    provider_name: &str,
+    model_name: &str,
+    temperature: f64,
+    silent: bool,
+    approval_manager: Option<Arc<ApprovalManager>>,
+    channel_name: &str,
+    multimodal_config: crate::config::MultimodalConfig,
+    max_tool_iterations: usize,
+    self_learning: bool,
+) -> Result<String> {
+    let episode_manager =
+        EpisodeManager::load_or_new(memory.clone(), session_id, user_goal.to_string()).await?;
+    let worker = if channel_name == "cli" {
+        ToolLoopWorker::for_terminal_host(
+            provider,
+            tools_registry,
+            observer,
+            provider_name.to_string(),
+            model_name.to_string(),
+            temperature,
+            silent,
+            channel_name.to_string(),
+            multimodal_config,
+            max_tool_iterations,
+            system_prompt,
+            approval_manager,
+            self_learning,
+            memory,
+        )
+    } else {
+        ToolLoopWorker::new(
+            provider,
+            tools_registry,
+            observer,
+            provider_name.to_string(),
+            model_name.to_string(),
+            temperature,
+            silent,
+            channel_name.to_string(),
+            multimodal_config,
+            max_tool_iterations,
+            system_prompt,
+            approval_manager,
+            self_learning,
+            memory,
+        )
+    };
+    let mut host_agent = HostAgent::new(Arc::new(RuntimePerceptionProvider), episode_manager);
+    host_agent.register_worker(Arc::new(worker));
+    let result = host_agent.run_task_with_result(user_goal).await?;
+    Ok(result.output)
+}
+
+#[allow(clippy::too_many_arguments)]
+async fn run_conversation_host_agent_single_step(
+    session_id: String,
+    user_goal: &str,
+    shared_history: Arc<tokio::sync::Mutex<Vec<ChatMessage>>>,
+    provider: Arc<dyn Provider>,
+    tools_registry: Arc<Vec<Box<dyn Tool>>>,
+    observer: Arc<dyn Observer>,
+    memory: Arc<dyn Memory>,
+    provider_name: &str,
+    model_name: &str,
+    temperature: f64,
+    silent: bool,
+    approval_manager: Option<Arc<ApprovalManager>>,
+    channel_name: &str,
+    multimodal_config: crate::config::MultimodalConfig,
+    max_tool_iterations: usize,
+    self_learning: bool,
+) -> Result<String> {
+    let episode_manager =
+        EpisodeManager::load_or_new(memory.clone(), session_id, user_goal.to_string()).await?;
+    let worker = ConversationToolLoopWorker::for_terminal_host(
+        shared_history,
+        provider,
+        tools_registry,
+        observer,
+        provider_name.to_string(),
+        model_name.to_string(),
+        temperature,
+        silent,
+        approval_manager,
+        channel_name.to_string(),
+        multimodal_config,
+        max_tool_iterations,
+        self_learning,
+        memory,
+    );
+    let mut host_agent = HostAgent::new(Arc::new(RuntimePerceptionProvider), episode_manager);
+    host_agent.register_worker(Arc::new(worker));
+    let result = host_agent.run_task_with_result(user_goal).await?;
+    Ok(result.output)
+}
+
 // ── CLI Entrypoint ───────────────────────────────────────────────────────
 // Wires up all subsystems (observer, runtime, security, memory, tools,
 // provider, hardware RAG, peripherals) and enters either single-shot or
@@ -3523,7 +3748,7 @@ pub async fn run(
         reasoning_enabled: config.runtime.reasoning_enabled,
     };
 
-    let provider: Box<dyn Provider> = providers::create_routed_provider_with_options(
+    let provider: Arc<dyn Provider> = Arc::from(providers::create_routed_provider_with_options(
         provider_name,
         config.api_key.as_deref(),
         config.api_url.as_deref(),
@@ -3531,7 +3756,7 @@ pub async fn run(
         &config.model_routes,
         model_name,
         &provider_runtime_options,
-    )?;
+    )?);
 
     observer.record_event(&ObserverEvent::AgentStart {
         provider: provider_name.to_string(),
@@ -3698,7 +3923,7 @@ pub async fn run(
 
     // ── Approval manager (supervised mode) ───────────────────────
     let approval_manager = if interactive {
-        Some(ApprovalManager::from_config(&config.autonomy))
+        Some(Arc::new(ApprovalManager::from_config(&config.autonomy)))
     } else {
         None
     };
@@ -3744,48 +3969,26 @@ pub async fn run(
             format!("{context}[{now}] {msg}")
         };
 
-        let mut history = vec![
-            ChatMessage::system(&system_prompt),
-            ChatMessage::user(&enriched),
-        ];
-
-        let mut tool_outcomes: Vec<crate::agent::lesson::ToolOutcome> = Vec::new();
-        let response = run_tool_call_loop(
-            provider.as_ref(),
-            &mut history,
-            &tools_registry,
-            observer.as_ref(),
+        let session_id = message_scoped_session_id("cli_single_host", &config.workspace_dir, &msg);
+        let response = run_host_agent_single_step(
+            session_id,
+            &enriched,
+            system_prompt.clone(),
+            Arc::clone(&provider),
+            Arc::new(std::mem::take(&mut tools_registry)),
+            Arc::clone(&observer),
+            Arc::clone(&mem),
             provider_name,
             model_name,
             temperature,
             false,
-            approval_manager.as_ref(),
+            approval_manager.clone(),
             channel_name,
-            &config.multimodal,
+            config.multimodal.clone(),
             config.agent.max_tool_iterations,
-            None,
-            None,
-            None,
-            &[],
-            None,
-            if config.agent.self_learning {
-                Some(&mut tool_outcomes)
-            } else {
-                None
-            },
+            config.agent.self_learning,
         )
         .await?;
-
-        // Persist lessons learned from tool-call errors
-        if config.agent.self_learning && !tool_outcomes.is_empty() {
-            let lessons = crate::agent::lesson::extract_lessons(&tool_outcomes, &msg);
-            if !lessons.is_empty() {
-                let stored = crate::agent::lesson::persist_lessons(mem.as_ref(), &lessons).await;
-                if stored > 0 {
-                    tracing::info!(count = stored, "Self-learning: persisted new lessons");
-                }
-            }
-        }
 
         final_output = response.clone();
         println!("{response}");
@@ -3795,8 +3998,14 @@ pub async fn run(
         println!("Type /help for commands.\n");
         let cli = crate::channels::CliChannel::new();
 
-        // Persistent conversation history across turns
-        let mut history = vec![ChatMessage::system(&system_prompt)];
+        let shared_history = Arc::new(tokio::sync::Mutex::new(vec![ChatMessage::system(
+            &system_prompt,
+        )]));
+        let shared_tools_registry = Arc::new(tools_registry);
+        let base_cli_session_id =
+            workspace_scoped_session_id("cli_interactive_host", &config.workspace_dir);
+        let mut cli_session_id = base_cli_session_id.clone();
+        let mut cli_session_resets = 0usize;
 
         loop {
             print!("> ");
@@ -3842,8 +4051,14 @@ pub async fn run(
                         continue;
                     }
 
-                    history.clear();
-                    history.push(ChatMessage::system(&system_prompt));
+                    {
+                        let mut history = shared_history.lock().await;
+                        history.clear();
+                        history.push(ChatMessage::system(&system_prompt));
+                    }
+                    cli_session_resets += 1;
+                    cli_session_id = format!("{base_cli_session_id}_reset_{cli_session_resets}");
+
                     // Clear conversation and daily memory
                     let mut cleared = 0;
                     for category in [MemoryCategory::Conversation, MemoryCategory::Daily] {
@@ -3898,32 +4113,28 @@ pub async fn run(
                 format!("{context}[{now}] {user_input}")
             };
 
-            history.push(ChatMessage::user(&enriched));
+            {
+                let mut history = shared_history.lock().await;
+                history.push(ChatMessage::user(&enriched));
+            }
 
-            let mut tool_outcomes: Vec<crate::agent::lesson::ToolOutcome> = Vec::new();
-            let response = match run_tool_call_loop(
-                provider.as_ref(),
-                &mut history,
-                &tools_registry,
-                observer.as_ref(),
+            let response = match run_conversation_host_agent_single_step(
+                cli_session_id.clone(),
+                &enriched,
+                Arc::clone(&shared_history),
+                Arc::clone(&provider),
+                Arc::clone(&shared_tools_registry),
+                Arc::clone(&observer),
+                Arc::clone(&mem),
                 provider_name,
                 model_name,
                 temperature,
                 false,
-                approval_manager.as_ref(),
+                approval_manager.clone(),
                 channel_name,
-                &config.multimodal,
+                config.multimodal.clone(),
                 config.agent.max_tool_iterations,
-                None,
-                None,
-                None,
-                &[],
-                None,
-                if config.agent.self_learning {
-                    Some(&mut tool_outcomes)
-                } else {
-                    None
-                },
+                config.agent.self_learning,
             )
             .await
             {
@@ -3934,17 +4145,6 @@ pub async fn run(
                 }
             };
 
-            // Persist lessons learned from tool-call errors
-            if config.agent.self_learning && !tool_outcomes.is_empty() {
-                let lessons = crate::agent::lesson::extract_lessons(&tool_outcomes, &user_input);
-                if !lessons.is_empty() {
-                    let stored =
-                        crate::agent::lesson::persist_lessons(mem.as_ref(), &lessons).await;
-                    if stored > 0 {
-                        tracing::info!(count = stored, "Self-learning: persisted new lessons");
-                    }
-                }
-            }
             final_output = response.clone();
             if let Err(e) = crate::channels::Channel::send(
                 &cli,
@@ -3957,20 +4157,24 @@ pub async fn run(
             observer.record_event(&ObserverEvent::TurnComplete);
 
             // Auto-compaction before hard trimming to preserve long-context signal.
-            if let Ok(compacted) = auto_compact_history(
-                &mut history,
-                provider.as_ref(),
-                model_name,
-                config.agent.max_history_messages,
-            )
-            .await
-            {
+            let compacted = {
+                let mut history = shared_history.lock().await;
+                auto_compact_history(
+                    &mut history,
+                    provider.as_ref(),
+                    model_name,
+                    config.agent.max_history_messages,
+                )
+                .await
+            };
+            if let Ok(compacted) = compacted {
                 if compacted {
                     println!("🧹 Auto-compaction complete");
                 }
             }
 
             // Hard cap as a safety net.
+            let mut history = shared_history.lock().await;
             trim_history(&mut history, config.agent.max_history_messages);
         }
     }
@@ -4054,7 +4258,7 @@ pub async fn process_message(config: Config, message: &str) -> Result<String> {
         secrets_encrypt: config.secrets.encrypt,
         reasoning_enabled: config.runtime.reasoning_enabled,
     };
-    let provider: Box<dyn Provider> = providers::create_routed_provider_with_options(
+    let provider: Arc<dyn Provider> = Arc::from(providers::create_routed_provider_with_options(
         provider_name,
         config.api_key.as_deref(),
         config.api_url.as_deref(),
@@ -4062,7 +4266,7 @@ pub async fn process_message(config: Config, message: &str) -> Result<String> {
         &config.model_routes,
         &model_name,
         &provider_runtime_options,
-    )?;
+    )?);
 
     let hardware_rag: Option<crate::rag::HardwareRag> = config
         .peripherals
@@ -4177,48 +4381,27 @@ pub async fn process_message(config: Config, message: &str) -> Result<String> {
         format!("{context}[{now}] {message}")
     };
 
-    let mut history = vec![
-        ChatMessage::system(&system_prompt),
-        ChatMessage::user(&enriched),
-    ];
-
-    let mut tool_outcomes: Vec<crate::agent::lesson::ToolOutcome> = Vec::new();
-    let response = run_tool_call_loop(
-        provider.as_ref(),
-        &mut history,
-        &tools_registry,
-        observer.as_ref(),
+    let session_id =
+        message_scoped_session_id("channel_process_host", &config.workspace_dir, message);
+    let response = run_host_agent_single_step(
+        session_id,
+        &enriched,
+        system_prompt.clone(),
+        provider,
+        Arc::new(tools_registry),
+        observer,
+        mem,
         provider_name,
         &model_name,
         config.default_temperature,
         true,
         None,
         "channel",
-        &config.multimodal,
+        config.multimodal.clone(),
         config.agent.max_tool_iterations,
-        None,
-        None,
-        None,
-        &[],
-        None,
-        if config.agent.self_learning {
-            Some(&mut tool_outcomes)
-        } else {
-            None
-        },
+        config.agent.self_learning,
     )
     .await?;
-
-    // Persist lessons learned from tool-call errors
-    if config.agent.self_learning && !tool_outcomes.is_empty() {
-        let lessons = crate::agent::lesson::extract_lessons(&tool_outcomes, message);
-        if !lessons.is_empty() {
-            let stored = crate::agent::lesson::persist_lessons(mem.as_ref(), &lessons).await;
-            if stored > 0 {
-                tracing::info!(count = stored, "Self-learning: persisted new lessons");
-            }
-        }
-    }
 
     Ok(response)
 }
@@ -4445,6 +4628,102 @@ mod tests {
                 name: name.to_string(),
                 invocations,
             }
+        }
+    }
+
+    struct DeterministicPerceptionTool {
+        invocations: Arc<AtomicUsize>,
+        ocr_completed: bool,
+        widget_completed: bool,
+    }
+
+    impl DeterministicPerceptionTool {
+        fn new(invocations: Arc<AtomicUsize>, widget_completed: bool, ocr_completed: bool) -> Self {
+            Self {
+                invocations,
+                widget_completed,
+                ocr_completed,
+            }
+        }
+    }
+
+    #[async_trait]
+    impl Tool for DeterministicPerceptionTool {
+        fn name(&self) -> &str {
+            "perception_capture"
+        }
+
+        fn description(&self) -> &str {
+            "Returns deterministic perception payload for preflight tests"
+        }
+
+        fn parameters_schema(&self) -> serde_json::Value {
+            serde_json::json!({
+                "type": "object",
+                "properties": {
+                    "include_widget_tree": { "type": "boolean" },
+                    "include_ocr": { "type": "boolean" }
+                }
+            })
+        }
+
+        async fn execute(
+            &self,
+            _args: serde_json::Value,
+        ) -> anyhow::Result<crate::tools::ToolResult> {
+            self.invocations.fetch_add(1, Ordering::SeqCst);
+            let payload = serde_json::json!({
+                "screen_state": {
+                    "screenshot_path": "/tmp/perception_test.png",
+                    "widget_tree": if self.widget_completed {
+                        serde_json::json!({
+                            "id": "window_main",
+                            "role": "window",
+                            "name": "TestApp",
+                            "value": serde_json::Value::Null,
+                            "bounds": serde_json::Value::Null,
+                            "children": [],
+                        })
+                    } else {
+                        serde_json::Value::Null
+                    },
+                    "extracted_text": [],
+                },
+                "diagnostics": {
+                    "requested_modalities": 3,
+                    "completed_modalities": usize::from(self.widget_completed) + 1 + usize::from(self.ocr_completed),
+                    "modalities": {
+                        "widget_tree": {
+                            "requested": true,
+                            "completed": self.widget_completed,
+                        },
+                        "screenshot": {
+                            "requested": true,
+                            "completed": true,
+                        },
+                        "ocr": {
+                            "requested": true,
+                            "completed": self.ocr_completed,
+                            "config": {
+                                "language": "eng",
+                                "psm": 11,
+                                "oem": 1,
+                                "tessdata_dir": serde_json::Value::Null,
+                            }
+                        }
+                    },
+                    "errors": if self.widget_completed && self.ocr_completed {
+                        Vec::<String>::new()
+                    } else {
+                        vec!["OCR extraction failed: simulated".to_string()]
+                    }
+                }
+            });
+            Ok(crate::tools::ToolResult {
+                success: true,
+                output: serde_json::to_string_pretty(&payload)?,
+                error: None,
+            })
         }
     }
 
@@ -5071,6 +5350,9 @@ mod tests {
 <tool_call>
 {"name":"mac_automation","arguments":{"action":"click_at","x":10,"y":20}}
 </tool_call>"#,
+            r#"<tool_call>
+{"name":"mac_automation","arguments":{"action":"click_at","x":10,"y":20}}
+</tool_call>"#,
             "done",
         ]);
 
@@ -5081,9 +5363,10 @@ mod tests {
                 "mac_automation",
                 Arc::clone(&mac_invocations),
             )),
-            Box::new(CountingTool::new(
-                "perception_capture",
+            Box::new(DeterministicPerceptionTool::new(
                 Arc::clone(&perception_invocations),
+                true,
+                true,
             )),
         ];
 
@@ -5131,6 +5414,140 @@ mod tests {
         assert!(tool_results
             .content
             .contains("Blocked by runtime policy: call perception_capture"));
+    }
+
+    #[tokio::test]
+    async fn run_tool_call_loop_requires_perception_preflight_args() {
+        let provider = ScriptedProvider::from_text_responses(vec![
+            r#"<tool_call>
+{"name":"perception_capture","arguments":{"include_widget_tree":true,"include_ocr":false}}
+</tool_call>"#,
+            r#"<tool_call>
+{"name":"mac_automation","arguments":{"action":"click_at","x":10,"y":20}}
+</tool_call>"#,
+            r#"<tool_call>
+{"name":"perception_capture","arguments":{"include_widget_tree":true,"include_ocr":true}}
+</tool_call>"#,
+            "done",
+        ]);
+
+        let mac_invocations = Arc::new(AtomicUsize::new(0));
+        let perception_invocations = Arc::new(AtomicUsize::new(0));
+        let tools_registry: Vec<Box<dyn Tool>> = vec![
+            Box::new(CountingTool::new(
+                "mac_automation",
+                Arc::clone(&mac_invocations),
+            )),
+            Box::new(DeterministicPerceptionTool::new(
+                Arc::clone(&perception_invocations),
+                true,
+                true,
+            )),
+        ];
+
+        let mut history = vec![
+            ChatMessage::system("test-system"),
+            ChatMessage::user("click after grounding"),
+        ];
+        let observer = NoopObserver;
+
+        let result = run_tool_call_loop(
+            &provider,
+            &mut history,
+            &tools_registry,
+            &observer,
+            "mock-provider",
+            "mock-model",
+            0.0,
+            true,
+            None,
+            "cli",
+            &crate::config::MultimodalConfig::default(),
+            8,
+            None,
+            None,
+            None,
+            &[],
+            None,
+            None,
+        )
+        .await
+        .expect("loop should complete");
+
+        assert_eq!(result, "done");
+        assert_eq!(
+            mac_invocations.load(Ordering::SeqCst),
+            0,
+            "click_at should remain blocked when include_ocr is not enabled in preflight"
+        );
+        assert_eq!(perception_invocations.load(Ordering::SeqCst), 2);
+    }
+
+    #[tokio::test]
+    async fn run_tool_call_loop_requires_successful_perception_modalities() {
+        let provider = ScriptedProvider::from_text_responses(vec![
+            r#"<tool_call>
+{"name":"perception_capture","arguments":{"include_widget_tree":true,"include_ocr":true}}
+</tool_call>"#,
+            r#"<tool_call>
+{"name":"mac_automation","arguments":{"action":"click_at","x":10,"y":20}}
+</tool_call>"#,
+            r#"<tool_call>
+{"name":"perception_capture","arguments":{"include_widget_tree":true,"include_ocr":true}}
+</tool_call>"#,
+            "done",
+        ]);
+
+        let mac_invocations = Arc::new(AtomicUsize::new(0));
+        let perception_invocations = Arc::new(AtomicUsize::new(0));
+        let tools_registry: Vec<Box<dyn Tool>> = vec![
+            Box::new(CountingTool::new(
+                "mac_automation",
+                Arc::clone(&mac_invocations),
+            )),
+            Box::new(DeterministicPerceptionTool::new(
+                Arc::clone(&perception_invocations),
+                true,
+                false,
+            )),
+        ];
+
+        let mut history = vec![
+            ChatMessage::system("test-system"),
+            ChatMessage::user("click after grounding"),
+        ];
+        let observer = NoopObserver;
+
+        let result = run_tool_call_loop(
+            &provider,
+            &mut history,
+            &tools_registry,
+            &observer,
+            "mock-provider",
+            "mock-model",
+            0.0,
+            true,
+            None,
+            "cli",
+            &crate::config::MultimodalConfig::default(),
+            8,
+            None,
+            None,
+            None,
+            &[],
+            None,
+            None,
+        )
+        .await
+        .expect("loop should complete");
+
+        assert_eq!(result, "done");
+        assert_eq!(
+            mac_invocations.load(Ordering::SeqCst),
+            0,
+            "click_at should remain blocked when perception modalities are incomplete"
+        );
+        assert_eq!(perception_invocations.load(Ordering::SeqCst), 1);
     }
 
     #[test]

@@ -284,6 +284,9 @@ Notes:
 - Remote URL only when `allow_remote_fetch = true`
 - Allowed MIME types: `image/png`, `image/jpeg`, `image/webp`, `image/gif`, `image/bmp`.
 - When the active provider does not support vision, requests fail with a structured capability error (`capability=vision`) instead of silently dropping images.
+- OCR tuning for `perception_capture` is runtime-scoped through the tool arguments (`ocr.language`, `ocr.psm`, `ocr.oem`, `ocr.tessdata_dir`). There is no persistent `[ocr]` config section.
+- On macOS, HostAgent runtime perception fails fast when accessibility or screen capture cannot be collected.
+- `mac_automation click_at` is runtime-gated by a successful `perception_capture` call with both widget-tree and OCR modalities enabled.
 
 ## `[browser]`
 

@@ -1,13 +1,19 @@
 use super::traits::{Tool, ToolResult};
+use crate::agent::host::HostAgent;
 use crate::agent::loop_::run_tool_call_loop;
+use crate::agent::worker::AppWorker;
 use crate::approval::ApprovalManager;
 use crate::config::DelegateAgentConfig;
+use crate::memory::episode::EpisodeManager;
+use crate::memory::{Memory, NoneMemory};
 use crate::observability::traits::{Observer, ObserverEvent, ObserverMetric};
-use crate::providers::{self, ChatMessage, Provider};
+use crate::perception::traits::{PerceptionProvider, ScreenState};
+use crate::providers::{self, Provider};
 use crate::security::policy::ToolOperation;
 use crate::security::SecurityPolicy;
 use async_trait::async_trait;
 use serde_json::json;
+use sha2::{Digest, Sha256};
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
@@ -16,6 +22,12 @@ use std::time::Duration;
 const DELEGATE_TIMEOUT_SECS: u64 = 600;
 /// Default timeout for agentic sub-agent runs.
 const DELEGATE_AGENTIC_TIMEOUT_SECS: u64 = 3600;
+
+fn delegate_session_id(agent_name: &str, execution_channel: &str, prompt: &str) -> String {
+    let seed = format!("{execution_channel}:{agent_name}:{prompt}");
+    let digest = Sha256::digest(seed.as_bytes());
+    format!("delegate_agentic_{}", &hex::encode(digest)[..16])
+}
 
 /// Tool that delegates a subtask to a named agent with a different
 /// provider/model configuration. Enables multi-agent workflows where
@@ -38,6 +50,8 @@ pub struct DelegateTool {
     approval: Option<Arc<ApprovalManager>>,
     /// Channel label used for delegated approval audit entries.
     execution_channel: String,
+    /// Memory backend used to persist delegate HostAgent episodes.
+    episode_memory: Arc<dyn Memory>,
 }
 
 impl DelegateTool {
@@ -70,6 +84,7 @@ impl DelegateTool {
             multimodal_config: crate::config::MultimodalConfig::default(),
             approval: None,
             execution_channel: "delegate".to_string(),
+            episode_memory: Arc::new(NoneMemory::new()),
         }
     }
 
@@ -108,6 +123,7 @@ impl DelegateTool {
             multimodal_config: crate::config::MultimodalConfig::default(),
             approval: None,
             execution_channel: "delegate".to_string(),
+            episode_memory: Arc::new(NoneMemory::new()),
         }
     }
 
@@ -132,6 +148,11 @@ impl DelegateTool {
     /// Override execution channel label used in approval logs.
     pub fn with_execution_channel(mut self, channel: impl Into<String>) -> Self {
         self.execution_channel = channel.into();
+        self
+    }
+
+    pub fn with_episode_memory(mut self, episode_memory: Arc<dyn Memory>) -> Self {
+        self.episode_memory = episode_memory;
         self
     }
 }
@@ -269,12 +290,12 @@ impl Tool for DelegateTool {
         #[allow(clippy::option_as_ref_deref)]
         let provider_credential = provider_credential_owned.as_ref().map(String::as_str);
 
-        let provider: Box<dyn Provider> = match providers::create_provider_with_options(
+        let provider: Arc<dyn Provider> = match providers::create_provider_with_options(
             &agent_config.provider,
             provider_credential,
             &self.provider_runtime_options,
         ) {
-            Ok(p) => p,
+            Ok(p) => Arc::from(p),
             Err(e) => {
                 return Ok(ToolResult {
                     success: false,
@@ -302,7 +323,7 @@ impl Tool for DelegateTool {
                 .execute_agentic(
                     agent_name,
                     agent_config,
-                    &*provider,
+                    Arc::clone(&provider),
                     &full_prompt,
                     temperature,
                 )
@@ -312,7 +333,7 @@ impl Tool for DelegateTool {
         // Wrap the provider call in a timeout to prevent indefinite blocking
         let result = tokio::time::timeout(
             Duration::from_secs(DELEGATE_TIMEOUT_SECS),
-            provider.chat_with_system(
+            provider.as_ref().chat_with_system(
                 agent_config.system_prompt.as_deref(),
                 &full_prompt,
                 &agent_config.model,
@@ -365,7 +386,7 @@ impl DelegateTool {
         &self,
         agent_name: &str,
         agent_config: &DelegateAgentConfig,
-        provider: &dyn Provider,
+        provider: Arc<dyn Provider>,
         full_prompt: &str,
         temperature: f64,
     ) -> anyhow::Result<ToolResult> {
@@ -409,12 +430,9 @@ impl DelegateTool {
 
         let sub_tool_specs: Vec<_> = sub_tools.iter().map(|tool| tool.spec()).collect();
 
-        let mut history = Vec::new();
-        if let Some(system_prompt) = agent_config.system_prompt.as_ref() {
-            history.push(ChatMessage::system(system_prompt.clone()));
-        }
+        let mut combined_system_prompt = agent_config.system_prompt.clone().unwrap_or_default();
         if !provider.supports_native_tools() {
-            let instructions = match provider.convert_tools(&sub_tool_specs) {
+            let instructions = match provider.as_ref().convert_tools(&sub_tool_specs) {
                 providers::traits::ToolsPayload::PromptGuided { instructions } => instructions,
                 payload => {
                     anyhow::bail!(
@@ -422,43 +440,53 @@ impl DelegateTool {
                     )
                 }
             };
-            history.push(ChatMessage::system(instructions));
-        }
-        history.push(ChatMessage::user(full_prompt.to_string()));
 
-        let noop_observer = NoopObserver;
+            if !combined_system_prompt.trim().is_empty() {
+                combined_system_prompt.push_str("\n\n");
+            }
+            combined_system_prompt.push_str(&instructions);
+        }
+        let system_prompt = if combined_system_prompt.trim().is_empty() {
+            None
+        } else {
+            Some(combined_system_prompt)
+        };
+        let observer: Arc<dyn Observer> = Arc::new(NoopObserver);
+
+        let episode_manager = EpisodeManager::load_or_new(
+            Arc::clone(&self.episode_memory),
+            delegate_session_id(agent_name, &self.execution_channel, full_prompt),
+            full_prompt.to_string(),
+        )
+        .await?;
+        let mut host = HostAgent::new(Arc::new(DelegateRuntimePerceptionProvider), episode_manager);
+        host.register_worker(Arc::new(DelegateAgenticWorker {
+            provider,
+            tools_registry: sub_tools,
+            observer,
+            provider_name: agent_config.provider.clone(),
+            model_name: agent_config.model.clone(),
+            temperature,
+            silent: true,
+            channel_name: self.execution_channel.clone(),
+            multimodal_config: self.multimodal_config.clone(),
+            max_tool_iterations: agent_config.max_iterations,
+            system_prompt,
+            approval: self.approval.clone(),
+        }));
 
         let result = tokio::time::timeout(
             Duration::from_secs(DELEGATE_AGENTIC_TIMEOUT_SECS),
-            run_tool_call_loop(
-                provider,
-                &mut history,
-                &sub_tools,
-                &noop_observer,
-                &agent_config.provider,
-                &agent_config.model,
-                temperature,
-                true,
-                self.approval.as_deref(),
-                &self.execution_channel,
-                &self.multimodal_config,
-                agent_config.max_iterations,
-                None,
-                None,
-                None,
-                &[],
-                None,
-                None, // Delegate tool doesn't track outcomes for self-learning
-            ),
+            host.run_task_with_result(full_prompt),
         )
         .await;
 
         match result {
-            Ok(Ok(response)) => {
-                let rendered = if response.trim().is_empty() {
+            Ok(Ok(tool_result)) => {
+                let rendered = if tool_result.output.trim().is_empty() {
                     "[Empty response]".to_string()
                 } else {
-                    response
+                    tool_result.output
                 };
 
                 Ok(ToolResult {
@@ -474,7 +502,7 @@ impl DelegateTool {
             Ok(Err(e)) => Ok(ToolResult {
                 success: false,
                 output: String::new(),
-                error: Some(format!("Agent '{agent_name}' failed: {e}")),
+                error: Some(format!("Agent '{agent_name}' failed: {}", e.root_cause())),
             }),
             Err(_) => Ok(ToolResult {
                 success: false,
@@ -483,6 +511,95 @@ impl DelegateTool {
                     "Agent '{agent_name}' timed out after {DELEGATE_AGENTIC_TIMEOUT_SECS}s"
                 )),
             }),
+        }
+    }
+}
+
+#[derive(Default)]
+struct DelegateRuntimePerceptionProvider;
+
+#[async_trait]
+impl PerceptionProvider for DelegateRuntimePerceptionProvider {
+    fn name(&self) -> &str {
+        "delegate_runtime_perception"
+    }
+
+    async fn capture_state(&self) -> anyhow::Result<ScreenState> {
+        Ok(ScreenState {
+            screenshot_path: None,
+            widget_tree: None,
+            extracted_text: Vec::new(),
+        })
+    }
+}
+
+struct DelegateAgenticWorker {
+    provider: Arc<dyn Provider>,
+    tools_registry: Vec<Box<dyn Tool>>,
+    observer: Arc<dyn Observer>,
+    provider_name: String,
+    model_name: String,
+    temperature: f64,
+    silent: bool,
+    channel_name: String,
+    multimodal_config: crate::config::MultimodalConfig,
+    max_tool_iterations: usize,
+    system_prompt: Option<String>,
+    approval: Option<Arc<ApprovalManager>>,
+}
+
+#[async_trait]
+impl AppWorker for DelegateAgenticWorker {
+    fn name(&self) -> &str {
+        "delegate_agentic_worker"
+    }
+
+    fn can_handle(&self, _application_context: &str) -> bool {
+        true
+    }
+
+    async fn execute_step(
+        &self,
+        task_instruction: &str,
+        _current_state: &ScreenState,
+    ) -> anyhow::Result<ToolResult> {
+        let mut history = Vec::new();
+        if let Some(system_prompt) = self.system_prompt.as_ref() {
+            history.push(crate::providers::ChatMessage::system(system_prompt.clone()));
+        }
+        history.push(crate::providers::ChatMessage::user(
+            task_instruction.to_string(),
+        ));
+
+        let response = run_tool_call_loop(
+            self.provider.as_ref(),
+            &mut history,
+            &self.tools_registry,
+            self.observer.as_ref(),
+            &self.provider_name,
+            &self.model_name,
+            self.temperature,
+            self.silent,
+            self.approval.as_deref(),
+            &self.channel_name,
+            &self.multimodal_config,
+            self.max_tool_iterations,
+            None,
+            None,
+            None,
+            &[],
+            None,
+            None, // Delegate worker doesn't track outcomes for self-learning
+        )
+        .await;
+
+        match response {
+            Ok(output) => Ok(ToolResult {
+                success: true,
+                output,
+                error: None,
+            }),
+            Err(err) => Err(err),
         }
     }
 }
@@ -1086,7 +1203,7 @@ mod tests {
             .with_parent_tools(Arc::new(vec![Arc::new(EchoTool)]));
         let provider = OneToolThenFinalProvider;
         let result = tool
-            .execute_agentic("agentic", &config, &provider, "run", 0.2)
+            .execute_agentic("agentic", &config, Arc::new(provider), "run", 0.2)
             .await
             .unwrap();
 
@@ -1129,7 +1246,7 @@ mod tests {
 
         let provider = OneToolThenFinalProvider;
         let result = tool
-            .execute_agentic("agentic", &config, &provider, "run", 0.2)
+            .execute_agentic("agentic", &config, Arc::new(provider), "run", 0.2)
             .await
             .unwrap();
 
@@ -1146,7 +1263,7 @@ mod tests {
 
         let provider = CustomPromptGuidedProvider;
         let result = tool
-            .execute_agentic("agentic", &config, &provider, "run", 0.2)
+            .execute_agentic("agentic", &config, Arc::new(provider), "run", 0.2)
             .await
             .unwrap();
 
@@ -1169,7 +1286,7 @@ mod tests {
 
         let provider = OneToolThenFinalProvider;
         let result = tool
-            .execute_agentic("agentic", &config, &provider, "run", 0.2)
+            .execute_agentic("agentic", &config, Arc::new(provider), "run", 0.2)
             .await
             .unwrap();
 
@@ -1193,7 +1310,7 @@ mod tests {
 
         let provider = OneToolThenFinalProvider;
         let result = tool
-            .execute_agentic("agentic", &config, &provider, "run", 0.2)
+            .execute_agentic("agentic", &config, Arc::new(provider), "run", 0.2)
             .await
             .unwrap();
 
@@ -1213,7 +1330,7 @@ mod tests {
 
         let provider = InfiniteToolCallProvider;
         let result = tool
-            .execute_agentic("agentic", &config, &provider, "run", 0.2)
+            .execute_agentic("agentic", &config, Arc::new(provider), "run", 0.2)
             .await
             .unwrap();
 
@@ -1233,7 +1350,7 @@ mod tests {
 
         let provider = FailingProvider;
         let result = tool
-            .execute_agentic("agentic", &config, &provider, "run", 0.2)
+            .execute_agentic("agentic", &config, Arc::new(provider), "run", 0.2)
             .await
             .unwrap();
 

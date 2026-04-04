@@ -243,7 +243,7 @@ pub fn all_tools_with_runtime(
         Arc::new(CronRunsTool::new(config.clone())),
         Arc::new(MemoryStoreTool::new(memory.clone(), security.clone())),
         Arc::new(MemoryRecallTool::new(memory.clone())),
-        Arc::new(MemoryForgetTool::new(memory, security.clone())),
+        Arc::new(MemoryForgetTool::new(memory.clone(), security.clone())),
         Arc::new(ScheduleTool::new(security.clone(), root_config.clone())),
         Arc::new(ModelRoutingConfigTool::new(
             config.clone(),
@@ -377,6 +377,7 @@ pub fn all_tools_with_runtime(
         .with_parent_tools(parent_tools)
         .with_multimodal_config(root_config.multimodal.clone())
         .with_approval_manager(gui_approval_manager.clone())
+        .with_episode_memory(memory.clone())
         .with_execution_channel("delegate");
         tool_arcs.push(Arc::new(delegate_tool));
     }

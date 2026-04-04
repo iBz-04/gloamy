@@ -3,4 +3,4 @@ pub mod ocr;
 pub mod traits;
 
 pub use macos::MacOsPerceptionProvider;
-pub use ocr::TesseractOcrProvider;
+pub use ocr::{OcrConfig, TesseractOcrProvider};

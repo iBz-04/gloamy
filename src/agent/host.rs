@@ -1,6 +1,7 @@
 use crate::agent::worker::AppWorker;
 use crate::memory::episode::{EpisodeManager, EpisodeStep};
 use crate::perception::traits::{PerceptionProvider, ScreenState};
+use crate::tools::traits::ToolResult;
 use anyhow::{anyhow, Result};
 use std::sync::Arc;
 
@@ -27,6 +28,12 @@ impl HostAgent {
 
     /// Plans and routes a single tactical step based on global awareness.
     pub async fn run_task(&mut self, user_goal: &str) -> Result<()> {
+        self.run_task_with_result(user_goal).await.map(|_| ())
+    }
+
+    /// Plans and routes a single tactical step based on global awareness and returns
+    /// the worker result for callers that need direct response content.
+    pub async fn run_task_with_result(&mut self, user_goal: &str) -> Result<ToolResult> {
         if user_goal.trim().is_empty() {
             return Err(anyhow!("user goal cannot be empty"));
         }
@@ -49,26 +56,58 @@ impl HostAgent {
         let execution = worker.execute_step(user_goal, &state_before).await;
         let state_after = self.perception.capture_state().await.ok();
 
-        let step = match execution {
-            Ok(result) => EpisodeStep {
-                step_index,
-                action_taken: user_goal.to_string(),
-                action_result: result.output.clone(),
-                screen_state_before: Some(state_before),
-                screen_state_after: state_after,
-                execution_error: result.error.clone(),
-            },
-            Err(err) => EpisodeStep {
-                step_index,
-                action_taken: user_goal.to_string(),
-                action_result: String::new(),
-                screen_state_before: Some(state_before),
-                screen_state_after: state_after,
-                execution_error: Some(err.to_string()),
-            },
+        let (step, worker_result, worker_error) = match execution {
+            Ok(result) => {
+                let failure_reason = if result.success {
+                    None
+                } else {
+                    result
+                        .error
+                        .as_deref()
+                        .map(str::trim)
+                        .filter(|msg| !msg.is_empty())
+                        .map(ToString::to_string)
+                        .or_else(|| {
+                            let output = result.output.trim();
+                            (!output.is_empty()).then_some(output.to_string())
+                        })
+                        .or_else(|| Some("worker reported unsuccessful execution".to_string()))
+                };
+                let error = failure_reason
+                    .as_ref()
+                    .map(|reason| anyhow!(reason.clone()));
+
+                (
+                    EpisodeStep {
+                        step_index,
+                        action_taken: user_goal.to_string(),
+                        action_result: result.output.clone(),
+                        screen_state_before: Some(state_before),
+                        screen_state_after: state_after,
+                        execution_error: failure_reason.clone(),
+                    },
+                    Some(result),
+                    error,
+                )
+            }
+            Err(err) => {
+                let error_string = err.to_string();
+                (
+                    EpisodeStep {
+                        step_index,
+                        action_taken: user_goal.to_string(),
+                        action_result: String::new(),
+                        screen_state_before: Some(state_before),
+                        screen_state_after: state_after,
+                        execution_error: Some(error_string),
+                    },
+                    None,
+                    Some(err),
+                )
+            }
         };
 
-        let completed_without_error = step.execution_error.is_none();
+        let completed_without_error = worker_error.is_none();
         self.episode_manager.record_step(step);
         self.episode_manager.flush().await?;
 
@@ -76,7 +115,19 @@ impl HostAgent {
             self.episode_manager
                 .promote_to_trajectory(&active_app)
                 .await?;
-            return Ok(());
+            return Ok(worker_result.unwrap_or(ToolResult {
+                success: true,
+                output: String::new(),
+                error: None,
+            }));
+        }
+
+        if let Some(err) = worker_error {
+            return Err(err.context(format!(
+                "worker '{}' failed while executing task for '{}'",
+                worker.name(),
+                active_app
+            )));
         }
 
         Err(anyhow!(
@@ -131,7 +182,7 @@ mod tests {
     struct StubWorker {
         name: String,
         handles: String,
-        succeeds: bool,
+        result: ToolResult,
     }
 
     #[async_trait]
@@ -149,18 +200,7 @@ mod tests {
             _task_instruction: &str,
             _current_state: &ScreenState,
         ) -> anyhow::Result<ToolResult> {
-            if self.succeeds {
-                return Ok(ToolResult {
-                    success: true,
-                    output: "ok".to_string(),
-                    error: None,
-                });
-            }
-            Ok(ToolResult {
-                success: false,
-                output: String::new(),
-                error: Some("worker failed".to_string()),
-            })
+            Ok(self.result.clone())
         }
     }
 
@@ -195,11 +235,35 @@ mod tests {
         host.register_worker(Arc::new(StubWorker {
             name: "terminal_worker".to_string(),
             handles: "Terminal".to_string(),
-            succeeds: true,
+            result: ToolResult {
+                success: true,
+                output: "ok".to_string(),
+                error: None,
+            },
         }));
 
         let result = host.run_task("type command").await;
         assert!(result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn host_agent_run_task_with_result_returns_worker_output() {
+        let mut host = HostAgent::new(perception_for("Terminal"), episode_manager());
+        host.register_worker(Arc::new(StubWorker {
+            name: "terminal_worker".to_string(),
+            handles: "Terminal".to_string(),
+            result: ToolResult {
+                success: true,
+                output: "ok".to_string(),
+                error: None,
+            },
+        }));
+
+        let result = host
+            .run_task_with_result("type command")
+            .await
+            .expect("host execution should succeed");
+        assert_eq!(result.output, "ok");
     }
 
     #[tokio::test]
@@ -208,10 +272,33 @@ mod tests {
         host.register_worker(Arc::new(StubWorker {
             name: "browser_worker".to_string(),
             handles: "Browser".to_string(),
-            succeeds: true,
+            result: ToolResult {
+                success: true,
+                output: "ok".to_string(),
+                error: None,
+            },
         }));
 
         let err = host.run_task("type command").await.unwrap_err();
         assert!(err.to_string().contains("no registered worker can handle"));
+    }
+
+    #[tokio::test]
+    async fn host_agent_run_task_fails_when_worker_returns_unsuccessful_without_error() {
+        let mut host = HostAgent::new(perception_for("Terminal"), episode_manager());
+        host.register_worker(Arc::new(StubWorker {
+            name: "terminal_worker".to_string(),
+            handles: "Terminal".to_string(),
+            result: ToolResult {
+                success: false,
+                output: "worker returned unsuccessful".to_string(),
+                error: None,
+            },
+        }));
+
+        let err = host.run_task("type command").await.unwrap_err();
+        assert!(err
+            .to_string()
+            .contains("worker 'terminal_worker' failed while executing task"));
     }
 }

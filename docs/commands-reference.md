@@ -2,7 +2,7 @@
 
 This reference is derived from the current CLI surface (`gloamy --help`).
 
-Last verified: **March 28, 2026**.
+Last verified: **April 4, 2026**.
 
 ## Top-Level Commands
 
@@ -58,6 +58,14 @@ Last verified: **March 28, 2026**.
 Tip:
 
 - In interactive chat, you can ask for route changes in natural language (for example “conversation uses kimi, coding uses gpt-5.3-codex”); the assistant can persist this via tool `model_routing_config`.
+
+Runtime notes:
+
+- Interactive CLI and single-message CLI both execute through the HostAgent worker path.
+- Interactive CLI keeps a stable host episode per workspace until you reset the session with `/clear` or `/new`.
+- On macOS, HostAgent runtime perception is strict. If accessibility or screen capture fails, the turn fails instead of silently degrading to an empty screen state.
+- Before `mac_automation click_at`, the runtime requires a successful `perception_capture` preflight with `include_widget_tree=true` and `include_ocr=true`.
+- `perception_capture` accepts optional OCR overrides under `ocr`: `language`, `psm`, `oem`, and `tessdata_dir`. These are per-call runtime arguments, not persistent config keys.
 
 ### `gateway` / `daemon`
 

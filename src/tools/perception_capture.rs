@@ -1,6 +1,6 @@
 use crate::perception::traits::PerceptionProvider;
 use crate::perception::traits::{OcrTextItem, ScreenState, WidgetNode};
-use crate::perception::{MacOsPerceptionProvider, TesseractOcrProvider};
+use crate::perception::{MacOsPerceptionProvider, OcrConfig, TesseractOcrProvider};
 use crate::security::SecurityPolicy;
 use crate::tools::screenshot::ScreenshotTool;
 use crate::tools::traits::{Tool, ToolResult};
@@ -21,6 +21,31 @@ impl PerceptionCaptureTool {
             screenshot_tool: ScreenshotTool::new(security.clone()),
             security,
         }
+    }
+
+    fn parse_ocr_config(args: &Value) -> anyhow::Result<OcrConfig> {
+        let ocr_args = args.get("ocr").and_then(Value::as_object);
+        let mut config = OcrConfig::default();
+
+        if let Some(ocr_args) = ocr_args {
+            if let Some(language) = ocr_args.get("language").and_then(Value::as_str) {
+                config.language = language.to_string();
+            }
+            if let Some(psm) = ocr_args.get("psm").and_then(Value::as_u64) {
+                config.psm = u8::try_from(psm)
+                    .map_err(|_| anyhow::anyhow!("OCR psm must be in range 0..=13"))?;
+            }
+            if let Some(oem) = ocr_args.get("oem").and_then(Value::as_u64) {
+                config.oem = u8::try_from(oem)
+                    .map_err(|_| anyhow::anyhow!("OCR oem must be in range 0..=3"))?;
+            }
+            if let Some(tessdata_dir) = ocr_args.get("tessdata_dir").and_then(Value::as_str) {
+                config.tessdata_dir = Some(tessdata_dir.to_string());
+            }
+        }
+
+        config.validate()?;
+        Ok(config)
     }
 }
 
@@ -49,6 +74,32 @@ impl Tool for PerceptionCaptureTool {
                 "include_ocr": {
                     "type": "boolean",
                     "description": "If true, extracts text bounding boxes from the screenshot via Tesseract OCR. Default is false."
+                },
+                "ocr": {
+                    "type": "object",
+                    "description": "Optional OCR config for deterministic Tesseract behavior when include_ocr=true.",
+                    "properties": {
+                        "language": {
+                            "type": "string",
+                            "description": "Tesseract language code(s). Default: 'eng'."
+                        },
+                        "psm": {
+                            "type": "integer",
+                            "minimum": 0,
+                            "maximum": 13,
+                            "description": "Tesseract page segmentation mode. Default: 11 (sparse text)."
+                        },
+                        "oem": {
+                            "type": "integer",
+                            "minimum": 0,
+                            "maximum": 3,
+                            "description": "Tesseract OCR engine mode. Default: 1 (LSTM)."
+                        },
+                        "tessdata_dir": {
+                            "type": "string",
+                            "description": "Optional tessdata directory to pin traineddata source."
+                        }
+                    }
                 }
             }
         })
@@ -77,12 +128,16 @@ impl Tool for PerceptionCaptureTool {
             .get("include_ocr")
             .and_then(|v| v.as_bool())
             .unwrap_or(false);
+        let ocr_config = Self::parse_ocr_config(&args)?;
 
         let mut widget_tree: Option<WidgetNode> = None;
         let mut ocr_items: Vec<OcrTextItem> = Vec::new();
         let mut screenshot_path: Option<String> = None;
         let mut errors = Vec::new();
         let mut completed_modalities = 0usize;
+        let mut widget_tree_completed = false;
+        let mut screenshot_completed = false;
+        let mut ocr_completed = false;
         let requested_modalities = usize::from(include_widget_tree)
             + usize::from(include_screenshot || include_ocr)
             + usize::from(include_ocr);
@@ -94,6 +149,7 @@ impl Tool for PerceptionCaptureTool {
                     Ok(state) => {
                         if let Some(tree) = state.widget_tree {
                             widget_tree = Some(tree);
+                            widget_tree_completed = true;
                             completed_modalities += 1;
                         } else {
                             errors.push(
@@ -126,6 +182,7 @@ impl Tool for PerceptionCaptureTool {
                                 .to_string_lossy()
                                 .to_string(),
                         );
+                        screenshot_completed = true;
                         completed_modalities += 1;
                     } else {
                         errors.push(
@@ -142,9 +199,15 @@ impl Tool for PerceptionCaptureTool {
 
         if include_ocr {
             if let Some(path) = screenshot_path.as_deref() {
-                match TesseractOcrProvider::extract_text(std::path::Path::new(path)).await {
+                match TesseractOcrProvider::extract_text_with_config(
+                    std::path::Path::new(path),
+                    &ocr_config,
+                )
+                .await
+                {
                     Ok(items) => {
                         ocr_items = items;
+                        ocr_completed = true;
                         completed_modalities += 1;
                     }
                     Err(e) => {
@@ -166,6 +229,26 @@ impl Tool for PerceptionCaptureTool {
             "diagnostics": {
                 "requested_modalities": requested_modalities,
                 "completed_modalities": completed_modalities,
+                "modalities": {
+                    "widget_tree": {
+                        "requested": include_widget_tree,
+                        "completed": widget_tree_completed,
+                    },
+                    "screenshot": {
+                        "requested": include_screenshot || include_ocr,
+                        "completed": screenshot_completed,
+                    },
+                    "ocr": {
+                        "requested": include_ocr,
+                        "completed": ocr_completed,
+                        "config": {
+                            "language": ocr_config.language,
+                            "psm": ocr_config.psm,
+                            "oem": ocr_config.oem,
+                            "tessdata_dir": ocr_config.tessdata_dir,
+                        }
+                    }
+                },
                 "errors": errors.clone(),
             }
         });
@@ -214,6 +297,9 @@ mod tests {
         assert!(schema["properties"]["include_screenshot"].is_object());
         assert!(schema["properties"]["include_widget_tree"].is_object());
         assert!(schema["properties"]["include_ocr"].is_object());
+        assert!(schema["properties"]["ocr"]["properties"]["language"].is_object());
+        assert!(schema["properties"]["ocr"]["properties"]["psm"].is_object());
+        assert!(schema["properties"]["ocr"]["properties"]["oem"].is_object());
     }
 
     #[tokio::test]

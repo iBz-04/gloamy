@@ -68,17 +68,22 @@ pub use whatsapp::WhatsAppChannel;
 #[cfg(feature = "whatsapp-web")]
 pub use whatsapp_web::WhatsAppWebChannel;
 
+use crate::agent::host::HostAgent;
 use crate::agent::loop_::{
     build_tool_instructions, run_tool_call_loop, scrub_credentials, TaskPersistenceContext,
 };
 use crate::agent::task_store::{self, TaskSnapshot, TaskStatus, TaskStore};
+use crate::agent::worker::AppWorker;
 use crate::config::Config;
 use crate::identity;
+use crate::memory::episode::EpisodeManager;
 use crate::memory::{self, Memory};
 use crate::observability::{self, runtime_trace, Observer};
+use crate::perception::traits::{PerceptionProvider, ScreenState};
 use crate::providers::{self, ChatMessage, Provider};
 use crate::runtime;
 use crate::security::SecurityPolicy;
+use crate::tools::traits::ToolResult;
 use crate::tools::{self, Tool};
 use crate::util::truncate_with_ellipsis;
 use anyhow::{Context, Result};
@@ -271,6 +276,161 @@ struct ChannelRuntimeContext {
     hooks: Option<Arc<crate::hooks::HookRunner>>,
     non_cli_excluded_tools: Arc<Vec<String>>,
     task_store: Arc<dyn TaskStore>,
+}
+
+#[derive(Clone)]
+struct ChannelTaskPersistenceOwned {
+    store: Arc<dyn TaskStore>,
+    task_id: String,
+    thread_id: String,
+    channel: String,
+    provider: String,
+    model: String,
+}
+
+#[derive(Default)]
+struct ChannelRuntimePerceptionProvider;
+
+#[async_trait::async_trait]
+impl PerceptionProvider for ChannelRuntimePerceptionProvider {
+    fn name(&self) -> &str {
+        "channel_runtime_perception"
+    }
+
+    async fn capture_state(&self) -> anyhow::Result<ScreenState> {
+        Ok(ScreenState {
+            screenshot_path: None,
+            widget_tree: None,
+            extracted_text: Vec::new(),
+        })
+    }
+}
+
+struct ChannelToolLoopWorker {
+    provider: Arc<dyn Provider>,
+    history: Arc<tokio::sync::Mutex<Vec<ChatMessage>>>,
+    tools_registry: Arc<Vec<Box<dyn Tool>>>,
+    observer: Arc<dyn Observer>,
+    provider_name: String,
+    model_name: String,
+    temperature: f64,
+    channel_name: String,
+    multimodal_config: crate::config::MultimodalConfig,
+    max_tool_iterations: usize,
+    cancellation_token: Option<CancellationToken>,
+    on_delta: Option<tokio::sync::mpsc::Sender<String>>,
+    hooks: Option<Arc<crate::hooks::HookRunner>>,
+    excluded_tools: Vec<String>,
+    task_persistence: Option<ChannelTaskPersistenceOwned>,
+}
+
+impl ChannelToolLoopWorker {
+    #[allow(clippy::too_many_arguments)]
+    fn new(
+        provider: Arc<dyn Provider>,
+        history: Arc<tokio::sync::Mutex<Vec<ChatMessage>>>,
+        tools_registry: Arc<Vec<Box<dyn Tool>>>,
+        observer: Arc<dyn Observer>,
+        provider_name: String,
+        model_name: String,
+        temperature: f64,
+        channel_name: String,
+        multimodal_config: crate::config::MultimodalConfig,
+        max_tool_iterations: usize,
+        cancellation_token: Option<CancellationToken>,
+        on_delta: Option<tokio::sync::mpsc::Sender<String>>,
+        hooks: Option<Arc<crate::hooks::HookRunner>>,
+        excluded_tools: Vec<String>,
+        task_persistence: Option<ChannelTaskPersistenceOwned>,
+    ) -> Self {
+        Self {
+            provider,
+            history,
+            tools_registry,
+            observer,
+            provider_name,
+            model_name,
+            temperature,
+            channel_name,
+            multimodal_config,
+            max_tool_iterations,
+            cancellation_token,
+            on_delta,
+            hooks,
+            excluded_tools,
+            task_persistence,
+        }
+    }
+}
+
+#[async_trait::async_trait]
+impl AppWorker for ChannelToolLoopWorker {
+    fn name(&self) -> &str {
+        "channel_tool_loop_worker"
+    }
+
+    fn can_handle(&self, _application_context: &str) -> bool {
+        true
+    }
+
+    async fn execute_step(
+        &self,
+        _task_instruction: &str,
+        _current_state: &ScreenState,
+    ) -> anyhow::Result<ToolResult> {
+        let mut history = {
+            let mut shared_history = self.history.lock().await;
+            std::mem::take(&mut *shared_history)
+        };
+
+        let task_persistence = self
+            .task_persistence
+            .as_ref()
+            .map(|owned| TaskPersistenceContext {
+                store: owned.store.as_ref(),
+                task_id: owned.task_id.as_str(),
+                thread_id: owned.thread_id.as_str(),
+                channel: owned.channel.as_str(),
+                provider: owned.provider.as_str(),
+                model: owned.model.as_str(),
+            });
+
+        let response = run_tool_call_loop(
+            self.provider.as_ref(),
+            &mut history,
+            self.tools_registry.as_ref(),
+            self.observer.as_ref(),
+            &self.provider_name,
+            &self.model_name,
+            self.temperature,
+            true,
+            None,
+            &self.channel_name,
+            &self.multimodal_config,
+            self.max_tool_iterations,
+            self.cancellation_token.clone(),
+            self.on_delta.clone(),
+            self.hooks.as_deref(),
+            &self.excluded_tools,
+            task_persistence.as_ref(),
+            None, // Channels don't track tool outcomes for self-learning (no access to config/memory)
+        )
+        .await;
+
+        {
+            let mut shared_history = self.history.lock().await;
+            *shared_history = history;
+        }
+
+        match response {
+            Ok(output) => Ok(ToolResult {
+                success: true,
+                output,
+                error: None,
+            }),
+            Err(err) => Err(err),
+        }
+    }
 }
 
 #[derive(Clone)]
@@ -1875,44 +2035,66 @@ async fn process_channel_message(
 
     let timeout_budget_secs =
         channel_message_timeout_budget_secs(ctx.message_timeout_secs, ctx.max_tool_iterations);
-    let task_persistence = TaskPersistenceContext {
-        store: ctx.task_store.as_ref(),
-        task_id: &history_key,
-        thread_id: &history_key,
-        channel: msg.channel.as_str(),
-        provider: route.provider.as_str(),
-        model: route.model.as_str(),
+    let task_persistence = ChannelTaskPersistenceOwned {
+        store: Arc::clone(&ctx.task_store),
+        task_id: history_key.clone(),
+        thread_id: history_key.clone(),
+        channel: msg.channel.clone(),
+        provider: route.provider.clone(),
+        model: route.model.clone(),
     };
+    let excluded_tools = if msg.channel == "cli" {
+        Vec::new()
+    } else {
+        ctx.non_cli_excluded_tools.as_ref().clone()
+    };
+    let shared_history = Arc::new(tokio::sync::Mutex::new(history));
+    let channel_worker = ChannelToolLoopWorker::new(
+        Arc::clone(&active_provider),
+        Arc::clone(&shared_history),
+        Arc::clone(&ctx.tools_registry),
+        Arc::clone(&ctx.observer),
+        route.provider.clone(),
+        route.model.clone(),
+        runtime_defaults.temperature,
+        msg.channel.clone(),
+        ctx.multimodal.clone(),
+        ctx.max_tool_iterations,
+        Some(cancellation_token.clone()),
+        delta_tx,
+        ctx.hooks.clone(),
+        excluded_tools,
+        Some(task_persistence),
+    );
+    let episode_session_id = format!("channel_host_{history_key}");
+    let episode_manager = match EpisodeManager::load_or_new(
+        Arc::clone(&ctx.memory),
+        episode_session_id.clone(),
+        msg.content.clone(),
+    )
+    .await
+    {
+        Ok(manager) => manager,
+        Err(err) => {
+            tracing::warn!(thread_id = %episode_session_id, "Failed to resume channel host episode: {err}");
+            EpisodeManager::new(
+                Arc::clone(&ctx.memory),
+                episode_session_id,
+                msg.content.clone(),
+            )
+        }
+    };
+    let mut host_agent =
+        HostAgent::new(Arc::new(ChannelRuntimePerceptionProvider), episode_manager);
+    host_agent.register_worker(Arc::new(channel_worker));
     let llm_result = tokio::select! {
         () = cancellation_token.cancelled() => LlmExecutionResult::Cancelled,
         result = tokio::time::timeout(
             Duration::from_secs(timeout_budget_secs),
-            run_tool_call_loop(
-                active_provider.as_ref(),
-                &mut history,
-                ctx.tools_registry.as_ref(),
-                ctx.observer.as_ref(),
-                route.provider.as_str(),
-                route.model.as_str(),
-                runtime_defaults.temperature,
-                true,
-                None,
-                msg.channel.as_str(),
-                &ctx.multimodal,
-                ctx.max_tool_iterations,
-                Some(cancellation_token.clone()),
-                delta_tx,
-                ctx.hooks.as_deref(),
-                if msg.channel == "cli" {
-                    &[]
-                } else {
-                    ctx.non_cli_excluded_tools.as_ref()
-                },
-                Some(&task_persistence),
-                None, // Channels don't track tool outcomes for self-learning (no access to config/memory)
-            ),
-        ) => LlmExecutionResult::Completed(result),
+            host_agent.run_task_with_result(&msg.content),
+        ) => LlmExecutionResult::Completed(result.map(|inner| inner.map(|tool_result| tool_result.output))),
     };
+    let history = shared_history.lock().await.clone();
 
     if let Some(handle) = draft_updater {
         let _ = handle.await;
@@ -2262,7 +2444,8 @@ async fn process_channel_message(
                     "  ❌ LLM error after {}ms: {e}",
                     started_at.elapsed().as_millis()
                 );
-                let safe_error = providers::sanitize_api_error(&e.to_string());
+                let root_error = e.root_cause().to_string();
+                let safe_error = providers::sanitize_api_error(&root_error);
                 runtime_trace::record_event(
                     "channel_message_error",
                     Some(msg.channel.as_str()),
@@ -2277,8 +2460,9 @@ async fn process_channel_message(
                     }),
                 );
                 let should_rollback_user_turn = e
-                    .downcast_ref::<providers::ProviderCapabilityError>()
-                    .is_some_and(|capability| capability.capability.eq_ignore_ascii_case("vision"));
+                    .chain()
+                    .filter_map(|err| err.downcast_ref::<providers::ProviderCapabilityError>())
+                    .any(|capability| capability.capability.eq_ignore_ascii_case("vision"));
                 let rolled_back = should_rollback_user_turn
                     && rollback_orphan_user_turn(ctx.as_ref(), &history_key, &msg.content);
 
@@ -2307,13 +2491,20 @@ async fn process_channel_message(
                 if let Some(channel) = target_channel.as_ref() {
                     if let Some(ref draft_id) = draft_message_id {
                         let _ = channel
-                            .finalize_draft(&msg.reply_target, draft_id, &format!("⚠️ Error: {e}"))
+                            .finalize_draft(
+                                &msg.reply_target,
+                                draft_id,
+                                &format!("⚠️ Error: {root_error}"),
+                            )
                             .await;
                     } else {
                         let _ = channel
                             .send(
-                                &SendMessage::new(format!("⚠️ Error: {e}"), &msg.reply_target)
-                                    .in_thread(msg.thread_ts.clone()),
+                                &SendMessage::new(
+                                    format!("⚠️ Error: {root_error}"),
+                                    &msg.reply_target,
+                                )
+                                .in_thread(msg.thread_ts.clone()),
                             )
                             .await;
                     }

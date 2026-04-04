@@ -62,6 +62,34 @@ impl EpisodeManager {
         }
     }
 
+    /// Resumes an existing episode buffer when the session key already exists.
+    /// Falls back to a fresh buffer when no persisted episode is available.
+    pub async fn load_or_new(
+        memory: Arc<dyn Memory>,
+        session_id: String,
+        active_goal: String,
+    ) -> anyhow::Result<Self> {
+        let key = format!("episode_{session_id}");
+        if let Some(existing) = memory.get(&key).await? {
+            match serde_json::from_str::<EpisodeBuffer>(&existing.content) {
+                Ok(mut buffer) => {
+                    if buffer.session_id != session_id {
+                        buffer.session_id = session_id;
+                    }
+                    if buffer.active_goal.trim().is_empty() {
+                        buffer.active_goal = active_goal;
+                    }
+                    return Ok(Self { memory, buffer });
+                }
+                Err(err) => {
+                    tracing::warn!(key = %key, "Failed to resume episode buffer, starting new buffer: {err}");
+                }
+            }
+        }
+
+        Ok(Self::new(memory, session_id, active_goal))
+    }
+
     /// Records a new step into the episode buffer
     pub fn record_step(&mut self, step: EpisodeStep) {
         self.buffer.steps.push(step);
@@ -113,7 +141,7 @@ mod tests {
 
     #[derive(Default)]
     struct RecordingMemory {
-        stores: Mutex<Vec<(String, MemoryCategory, Option<String>)>>,
+        stores: Mutex<Vec<(String, String, MemoryCategory, Option<String>)>>,
     }
 
     #[async_trait]
@@ -132,6 +160,7 @@ mod tests {
             let mut guard = self.stores.lock().expect("lock should work");
             guard.push((
                 key.to_string(),
+                _content.to_string(),
                 category,
                 session_id.map(std::string::ToString::to_string),
             ));
@@ -147,8 +176,25 @@ mod tests {
             Ok(Vec::new())
         }
 
-        async fn get(&self, _key: &str) -> anyhow::Result<Option<crate::memory::MemoryEntry>> {
-            Ok(None)
+        async fn get(&self, key: &str) -> anyhow::Result<Option<crate::memory::MemoryEntry>> {
+            let guard = self.stores.lock().expect("lock should work");
+            let Some((stored_key, content, category, session_id)) = guard
+                .iter()
+                .rev()
+                .find(|(stored_key, _, _, _)| stored_key == key)
+            else {
+                return Ok(None);
+            };
+
+            Ok(Some(crate::memory::MemoryEntry {
+                id: stored_key.clone(),
+                key: stored_key.clone(),
+                content: content.clone(),
+                category: category.clone(),
+                timestamp: "2026-04-04T00:00:00Z".to_string(),
+                session_id: session_id.clone(),
+                score: None,
+            }))
         }
 
         async fn list(
@@ -195,9 +241,47 @@ mod tests {
 
         let stores = memory.stores.lock().expect("lock should work");
         assert_eq!(stores.len(), 2);
-        assert_eq!(stores[0].1, MemoryCategory::Episode);
-        assert_eq!(stores[0].2.as_deref(), Some("session_1"));
-        assert_eq!(stores[1].1, MemoryCategory::Trajectory);
-        assert!(stores[1].2.is_none());
+        assert_eq!(stores[0].2, MemoryCategory::Episode);
+        assert_eq!(stores[0].3.as_deref(), Some("session_1"));
+        assert_eq!(stores[1].2, MemoryCategory::Trajectory);
+        assert!(stores[1].3.is_none());
+    }
+
+    #[tokio::test]
+    async fn episode_manager_load_or_new_resumes_existing_steps() {
+        let memory = Arc::new(RecordingMemory::default());
+        let original = EpisodeBuffer {
+            session_id: "session_resume".to_string(),
+            active_goal: "first goal".to_string(),
+            steps: vec![EpisodeStep {
+                step_index: 0,
+                action_taken: "step".to_string(),
+                action_result: "ok".to_string(),
+                screen_state_before: None,
+                screen_state_after: None,
+                execution_error: None,
+            }],
+        };
+
+        memory
+            .store(
+                "episode_session_resume",
+                &serde_json::to_string(&original).expect("episode serializes"),
+                MemoryCategory::Episode,
+                Some("session_resume"),
+            )
+            .await
+            .expect("seed episode should store");
+
+        let resumed = EpisodeManager::load_or_new(
+            memory,
+            "session_resume".to_string(),
+            "replacement goal".to_string(),
+        )
+        .await
+        .expect("resume should succeed");
+
+        assert_eq!(resumed.next_step_index(), 1);
+        assert_eq!(resumed.buffer.active_goal, "first goal");
     }
 }

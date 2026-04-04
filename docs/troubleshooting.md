@@ -142,6 +142,75 @@ Persist in your shell profile if needed.
 
 ## Runtime / Gateway
 
+### macOS HostAgent perception fails
+
+Symptoms:
+
+- `gloamy agent` fails with `HostAgent runtime perception failed`
+- interactive CLI turns stop before tool execution on macOS
+
+Why this happens:
+
+- the HostAgent runtime now treats macOS perception as a hard dependency
+- missing Accessibility or Screen Recording permission is surfaced as a turn failure instead of silently degrading to an empty screen state
+
+Fix:
+
+1. Grant Accessibility permission to the app hosting the CLI session (for example Terminal, iTerm, Warp, VS Code, or Cursor)
+1. Grant Screen Recording permission if screenshot capture is also blocked
+1. Restart the affected app after changing macOS privacy settings
+1. Re-run the same `gloamy agent` command
+
+### `mac_automation click_at` is blocked by perception policy
+
+Symptoms:
+
+- runtime returns `Blocked by runtime policy: call perception_capture...`
+
+Why this happens:
+
+- coordinate clicks now require a successful `perception_capture` preflight with `include_widget_tree=true` and `include_ocr=true`
+- partial or degraded perception output no longer satisfies the click preflight
+
+Fix:
+
+1. Call `perception_capture` with both `include_widget_tree=true` and `include_ocr=true`
+1. Confirm the tool output reports both modalities as completed
+1. Retry the `mac_automation click_at` action only after the successful preflight
+
+### OCR extraction fails during `perception_capture`
+
+Symptoms:
+
+- runtime returns `OCR extraction failed: ...`
+- `perception_capture` diagnostics show `ocr.completed = false`
+
+Checks:
+
+```bash
+which tesseract
+tesseract --version
+```
+
+Fix:
+
+1. Install Tesseract if it is missing from the host
+1. If the runtime needs a non-default language pack or tessdata path, pass the `ocr` object in the tool call:
+
+```json
+{
+  "include_widget_tree": true,
+  "include_ocr": true,
+  "ocr": {
+    "language": "eng",
+    "psm": 11,
+    "oem": 1
+  }
+}
+```
+
+1. Set `ocr.tessdata_dir` when traineddata files live outside the system default location
+
 ### Gateway unreachable
 
 Checks:
