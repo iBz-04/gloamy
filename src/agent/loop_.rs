@@ -772,6 +772,21 @@ fn tool_call_signature(name: &str, arguments: &serde_json::Value) -> (String, St
     (name.trim().to_ascii_lowercase(), args_json)
 }
 
+fn is_perception_capture_call(name: &str) -> bool {
+    name.trim().eq_ignore_ascii_case("perception_capture")
+}
+
+fn is_mac_automation_click_at_call(name: &str, arguments: &serde_json::Value) -> bool {
+    if !name.trim().eq_ignore_ascii_case("mac_automation") {
+        return false;
+    }
+
+    arguments
+        .get("action")
+        .and_then(serde_json::Value::as_str)
+        .is_some_and(|action| action.eq_ignore_ascii_case("click_at"))
+}
+
 fn parse_tool_call_value(value: &serde_json::Value) -> Option<ParsedToolCall> {
     if let Some(function) = value.get("function") {
         let tool_call_id = parse_tool_call_id(value, Some(function));
@@ -790,7 +805,7 @@ fn parse_tool_call_value(value: &serde_json::Value) -> Option<ParsedToolCall> {
             return Some(ParsedToolCall {
                 name,
                 arguments,
-                tool_call_id: tool_call_id,
+                tool_call_id,
             });
         }
     }
@@ -812,7 +827,7 @@ fn parse_tool_call_value(value: &serde_json::Value) -> Option<ParsedToolCall> {
     Some(ParsedToolCall {
         name,
         arguments,
-        tool_call_id: tool_call_id,
+        tool_call_id,
     })
 }
 
@@ -2508,6 +2523,7 @@ pub(crate) async fn run_tool_call_loop(
     let mut unresolved_failed_steps: Vec<String> = Vec::new();
     let mut had_any_tool_execution = false;
     let mut continuation_retries = 0usize;
+    let mut has_recent_perception_capture = false;
 
     for iteration in 0..max_iterations {
         if cancellation_token
@@ -2891,9 +2907,10 @@ pub(crate) async fn run_tool_call_loop(
             (0..tool_calls.len()).map(|_| None).collect();
         let mut effective_calls: Vec<Option<ParsedToolCall>> =
             (0..tool_calls.len()).map(|_| None).collect();
-        let allow_parallel_execution = should_execute_tools_in_parallel(&tool_calls, approval);
+        let mut allow_parallel_execution = should_execute_tools_in_parallel(&tool_calls, approval);
         let mut executable_indices: Vec<usize> = Vec::new();
         let mut executable_calls: Vec<ParsedToolCall> = Vec::new();
+        let mut perception_preflight_available = has_recent_perception_capture;
 
         for (idx, call) in tool_calls.iter().enumerate() {
             // ── Hook: before_tool_call (modifying) ──────────
@@ -2999,6 +3016,52 @@ pub(crate) async fn run_tool_call_loop(
                         continue;
                     }
                 }
+            }
+
+            if is_perception_capture_call(&tool_name) {
+                perception_preflight_available = true;
+                allow_parallel_execution = false;
+            }
+
+            if is_mac_automation_click_at_call(&tool_name, &tool_args) {
+                if !perception_preflight_available {
+                    let denied = "Blocked by runtime policy: call perception_capture with include_widget_tree=true and include_ocr=true before mac_automation click_at.".to_string();
+                    runtime_trace::record_event(
+                        "tool_call_result",
+                        Some(channel_name),
+                        Some(provider_name),
+                        Some(model),
+                        Some(&turn_id),
+                        Some(false),
+                        Some(&denied),
+                        serde_json::json!({
+                            "iteration": iteration + 1,
+                            "tool": tool_name.clone(),
+                            "arguments": scrub_credentials(&tool_args.to_string()),
+                            "policy_blocked": "missing_perception_preflight",
+                        }),
+                    );
+                    ordered_results[idx] = Some((
+                        tool_name.clone(),
+                        call.tool_call_id.clone(),
+                        ToolExecutionOutcome {
+                            output: denied.clone(),
+                            success: false,
+                            error_reason: Some(denied),
+                            duration: Duration::ZERO,
+                        },
+                    ));
+                    effective_calls[idx] = Some(ParsedToolCall {
+                        name: tool_name,
+                        arguments: tool_args,
+                        tool_call_id: call.tool_call_id.clone(),
+                    });
+                    continue;
+                }
+
+                // Every click_at consumes one preflight snapshot.
+                perception_preflight_available = false;
+                allow_parallel_execution = false;
             }
 
             let signature = tool_call_signature(&tool_name, &tool_args);
@@ -3200,6 +3263,15 @@ pub(crate) async fn run_tool_call_loop(
         unresolved_failed_steps.dedup();
         if unresolved_failed_steps.is_empty() {
             continuation_retries = 0;
+        }
+
+        for item in &checkpoint_items {
+            if is_perception_capture_call(&item.tool_name) && item.success {
+                has_recent_perception_capture = true;
+            }
+            if is_mac_automation_click_at_call(&item.tool_name, &item.arguments) && item.success {
+                has_recent_perception_capture = false;
+            }
         }
 
         // Add assistant message with tool calls + tool results to history.
@@ -4985,6 +5057,80 @@ mod tests {
         assert_eq!(result, "recovered");
         assert_eq!(failing_invocations.load(Ordering::SeqCst), 1);
         assert_eq!(recovery_invocations.load(Ordering::SeqCst), 1);
+    }
+
+    #[tokio::test]
+    async fn run_tool_call_loop_blocks_click_at_without_perception_preflight() {
+        let provider = ScriptedProvider::from_text_responses(vec![
+            r#"<tool_call>
+{"name":"mac_automation","arguments":{"action":"click_at","x":10,"y":20}}
+</tool_call>"#,
+            r#"<tool_call>
+{"name":"perception_capture","arguments":{"include_widget_tree":true,"include_ocr":true}}
+</tool_call>
+<tool_call>
+{"name":"mac_automation","arguments":{"action":"click_at","x":10,"y":20}}
+</tool_call>"#,
+            "done",
+        ]);
+
+        let mac_invocations = Arc::new(AtomicUsize::new(0));
+        let perception_invocations = Arc::new(AtomicUsize::new(0));
+        let tools_registry: Vec<Box<dyn Tool>> = vec![
+            Box::new(CountingTool::new(
+                "mac_automation",
+                Arc::clone(&mac_invocations),
+            )),
+            Box::new(CountingTool::new(
+                "perception_capture",
+                Arc::clone(&perception_invocations),
+            )),
+        ];
+
+        let mut history = vec![
+            ChatMessage::system("test-system"),
+            ChatMessage::user("click after grounding"),
+        ];
+        let observer = NoopObserver;
+
+        let result = run_tool_call_loop(
+            &provider,
+            &mut history,
+            &tools_registry,
+            &observer,
+            "mock-provider",
+            "mock-model",
+            0.0,
+            true,
+            None,
+            "cli",
+            &crate::config::MultimodalConfig::default(),
+            8,
+            None,
+            None,
+            None,
+            &[],
+            None,
+            None,
+        )
+        .await
+        .expect("loop should recover once perception preflight is provided");
+
+        assert_eq!(result, "done");
+        assert_eq!(
+            mac_invocations.load(Ordering::SeqCst),
+            1,
+            "mac_automation click_at should execute only after preflight"
+        );
+        assert_eq!(perception_invocations.load(Ordering::SeqCst), 1);
+
+        let tool_results = history
+            .iter()
+            .find(|msg| msg.role == "user" && msg.content.starts_with("[Tool results]"))
+            .expect("tool results should be present");
+        assert!(tool_results
+            .content
+            .contains("Blocked by runtime policy: call perception_capture"));
     }
 
     #[test]

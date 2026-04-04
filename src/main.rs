@@ -72,6 +72,7 @@ mod migration;
 mod multimodal;
 mod observability;
 mod onboard;
+mod perception;
 mod peripherals;
 mod providers;
 mod runtime;

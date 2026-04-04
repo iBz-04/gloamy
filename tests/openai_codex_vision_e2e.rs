@@ -12,7 +12,7 @@
 //! Run manually: `cargo test provider_vision -- --ignored --nocapture`
 
 use anyhow::Result;
-use gloamy::providers::{ChatMessage, ChatRequest, Provider, ProviderRuntimeOptions};
+use gloamy::providers::{ChatMessage, ChatRequest, ProviderRuntimeOptions};
 
 /// Tests that provider supports vision input.
 ///

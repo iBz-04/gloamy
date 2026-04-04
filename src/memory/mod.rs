@@ -1,7 +1,9 @@
 pub mod backend;
 pub mod chunker;
 pub mod cli;
+
 pub mod embeddings;
+pub mod episode;
 pub mod hygiene;
 pub mod lucid;
 pub mod markdown;
@@ -15,7 +17,8 @@ pub mod sqlite;
 pub mod traits;
 pub mod vector;
 
-#[allow(unused_imports)]
+use crate::config::{EmbeddingRouteConfig, MemoryConfig, StorageProviderConfig};
+use anyhow::Context;
 pub use backend::{
     classify_memory_backend, default_memory_backend_key, memory_backend_profile,
     selectable_memory_backends, MemoryBackendKind, MemoryBackendProfile,
@@ -28,14 +31,10 @@ pub use postgres::PostgresMemory;
 pub use qdrant::QdrantMemory;
 pub use response_cache::ResponseCache;
 pub use sqlite::SqliteMemory;
-pub use traits::Memory;
-#[allow(unused_imports)]
-pub use traits::{MemoryCategory, MemoryEntry};
-
-use crate::config::{EmbeddingRouteConfig, MemoryConfig, StorageProviderConfig};
-use anyhow::Context;
 use std::path::Path;
 use std::sync::Arc;
+pub use traits::Memory;
+pub use traits::{MemoryCategory, MemoryEntry};
 
 fn create_memory_with_builders<F, G>(
     backend_name: &str,

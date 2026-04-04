@@ -1,7 +1,7 @@
 use super::traits::{Memory, MemoryCategory};
 use super::{
     classify_memory_backend, create_memory_for_migration, effective_memory_backend_name,
-    MemoryBackendKind,
+    MemoryBackendKind, MemoryBackendProfile, MemoryEntry,
 };
 use crate::config::Config;
 #[cfg(feature = "memory-postgres")]
@@ -153,7 +153,7 @@ async fn handle_get(config: &Config, key: &str) -> Result<()> {
     Ok(())
 }
 
-fn print_entry(entry: &super::traits::MemoryEntry) {
+fn print_entry(entry: &MemoryEntry) {
     println!("Key:       {}", style(&entry.key).white().bold());
     println!("Category:  {}", entry.category);
     println!("Timestamp: {}", entry.timestamp);
@@ -167,9 +167,11 @@ async fn handle_stats(config: &Config) -> Result<()> {
     let mem = create_cli_memory(config)?;
     let healthy = mem.health_check().await;
     let total = mem.count().await.unwrap_or(0);
+    let profile: MemoryBackendProfile = super::memory_backend_profile(mem.name());
 
     println!("Memory Statistics:\n");
     println!("  Backend:  {}", style(mem.name()).white().bold());
+    println!("  Profile:  {}", profile.label);
     println!(
         "  Health:   {}",
         if healthy {

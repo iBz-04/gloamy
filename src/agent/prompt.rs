@@ -211,13 +211,13 @@ impl PromptSection for ExecutionSection {
              - After every tool call, immediately proceed to the next step. Do not pause to report progress.\n\
              - For GUI tasks, launching or focusing an app is never task completion. After any state-changing desktop action, verify the result with an app read-back or screenshot before concluding the task is done.\n\
              - Tool disambiguation: \"capture/take a picture\" inside a camera app (Photo Booth, FaceTime, etc.) means click the in-app shutter button via mac_automation, NOT take a screenshot. The screenshot tool only captures the current screen pixels — it cannot trigger in-app actions.\n\
-             - GUI click strategy (IMPORTANT): Most app buttons (Photo Booth shutter, media controls, custom UI) lack standard accessibility labels, so AppleScript `click button` will fail. Use this reliable sequence instead:\n\
-               1. Take a screenshot to see the current screen.\n\
-               2. Visually identify the target button's screen coordinates from the screenshot.\n\
+             - GUI click strategy (IMPORTANT): Most app buttons lack standard accessibility labels, so AppleScript `click button` will fail. Use this reliable sequence instead:\n\
+               1. Call the `perception_capture` tool (with include_widget_tree and include_ocr=true) to get structured `screen_state` JSON plus screenshot markers.\n\
+               2. Identify the target button coordinates from `screen_state.widget_tree`, `screen_state.extracted_text`, or the screenshot marker.\n\
                3. If the screenshot may have been resized, pass coordinate_space with source_width/source_height so mac_automation can scale back to real desktop coordinates.\n\
                4. Use mac_automation action=click_at with those x,y coordinates. For Photo Booth capture, prefer keys=[\"option\"] to skip the countdown, or keys=[\"option\", \"shift\"] to skip both countdown and flash.\n\
                5. Verify the result with app state, not just transport success. Prefer expect + wait on native signals, for example front_window_element_count_changed with pre_observe:auto after first probing the UI via inspect_window_elements.\n\
-               Do NOT attempt `run_applescript` with `click button` by label as a first resort. Go straight to the screenshot -> locate -> click_at pattern.\n\
+               Do NOT attempt `run_applescript` with `click button` by label as a first resort. Go straight to the perception_capture -> locate -> click_at pattern.\n\
              - If a tool fails, try alternatives immediately. Do not stop and ask the user.\n\
              - Chain multiple tool calls in sequence to complete the full task.\n\
              - Only respond to the user AFTER all steps are complete or you are truly blocked.\n\

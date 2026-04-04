@@ -49,6 +49,7 @@ pub mod memory_store;
 pub mod model_routing_config;
 pub mod one;
 pub mod pdf_read;
+pub mod perception_capture;
 pub mod proxy_config;
 pub mod pushover;
 pub mod schedule;
@@ -91,6 +92,7 @@ pub use memory_store::MemoryStoreTool;
 pub use model_routing_config::ModelRoutingConfigTool;
 pub use one::OneTool;
 pub use pdf_read::PdfReadTool;
+pub use perception_capture::PerceptionCaptureTool;
 pub use proxy_config::ProxyConfigTool;
 pub use pushover::PushoverTool;
 pub use schedule::ScheduleTool;
@@ -319,8 +321,9 @@ pub fn all_tools_with_runtime(
     // PDF extraction (feature-gated at compile time via rag-pdf)
     tool_arcs.push(Arc::new(PdfReadTool::new(security.clone())));
 
-    // Vision tools are always available
+    // Vision and perception tools are always available
     tool_arcs.push(Arc::new(ScreenshotTool::new(security.clone())));
+    tool_arcs.push(Arc::new(PerceptionCaptureTool::new(security.clone())));
     tool_arcs.push(Arc::new(ImageInfoTool::new(security.clone())));
     #[cfg(target_os = "macos")]
     tool_arcs.push(Arc::new(MacAutomationTool::new_with_gui_approval(

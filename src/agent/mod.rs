@@ -2,11 +2,13 @@
 pub mod agent;
 pub mod classifier;
 pub mod dispatcher;
+pub mod host;
 pub mod lesson;
 pub mod loop_;
 pub mod memory_loader;
 pub mod prompt;
 pub mod task_store;
+pub mod worker;
 
 #[cfg(test)]
 mod tests;

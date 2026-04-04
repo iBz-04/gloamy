@@ -110,6 +110,8 @@ impl PostgresMemory {
             MemoryCategory::Core => "core".to_string(),
             MemoryCategory::Daily => "daily".to_string(),
             MemoryCategory::Conversation => "conversation".to_string(),
+            MemoryCategory::Episode => "episode".to_string(),
+            MemoryCategory::Trajectory => "trajectory".to_string(),
             MemoryCategory::Custom(name) => name.clone(),
         }
     }
@@ -119,6 +121,8 @@ impl PostgresMemory {
             "core" => MemoryCategory::Core,
             "daily" => MemoryCategory::Daily,
             "conversation" => MemoryCategory::Conversation,
+            "episode" => MemoryCategory::Episode,
+            "trajectory" => MemoryCategory::Trajectory,
             other => MemoryCategory::Custom(other.to_string()),
         }
     }
