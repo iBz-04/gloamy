@@ -2,7 +2,7 @@
 
 This guide focuses on common setup/runtime failures and fast resolution paths.
 
-Last verified: **March 28, 2026**.
+Last verified: **April 5, 2026**.
 
 ## Installation / Bootstrap
 
@@ -142,7 +142,7 @@ Persist in your shell profile if needed.
 
 ## Runtime / Gateway
 
-### macOS HostAgent perception fails
+### HostAgent perception fails on macOS
 
 Symptoms:
 
@@ -151,7 +151,7 @@ Symptoms:
 
 Why this happens:
 
-- the HostAgent runtime now treats macOS perception as a hard dependency
+- the HostAgent runtime treats perception as a hard dependency
 - missing Accessibility or Screen Recording permission is surfaced as a turn failure instead of silently degrading to an empty screen state
 
 Fix:
@@ -160,6 +160,26 @@ Fix:
 1. Grant Screen Recording permission if screenshot capture is also blocked
 1. Restart the affected app after changing macOS privacy settings
 1. Re-run the same `gloamy agent` command
+
+### HostAgent perception fails on Linux or Windows
+
+Symptoms:
+
+- `gloamy agent` fails with `HostAgent runtime perception failed`
+- interactive CLI turns stop before tool execution
+
+Why this happens:
+
+- HostAgent runtime perception no longer accepts empty runtime state fallback
+- screenshot capture and widget-tree runtime context must produce at least one usable signal
+- missing screenshot backend binaries or blocked desktop session permissions can leave runtime signals empty
+
+Fix:
+
+1. On Linux, install at least one screenshot backend available in PATH (`gnome-screenshot`, `scrot`, or `import` from ImageMagick)
+1. Ensure the process has desktop session access (for example X11/Wayland permissions in the active user session)
+1. On Windows, run in an interactive desktop session with PowerShell available
+1. Re-run `gloamy agent` after confirming host desktop capture is permitted
 
 ### `mac_automation click_at` is blocked by perception policy
 

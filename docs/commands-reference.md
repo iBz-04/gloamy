@@ -2,7 +2,7 @@
 
 This reference is derived from the current CLI surface (`gloamy --help`).
 
-Last verified: **April 4, 2026**.
+Last verified: **April 5, 2026**.
 
 ## Top-Level Commands
 
@@ -63,7 +63,10 @@ Runtime notes:
 
 - Interactive CLI and single-message CLI both execute through the HostAgent worker path.
 - Interactive CLI keeps a stable host episode per workspace until you reset the session with `/clear` or `/new`.
-- On macOS, HostAgent runtime perception is strict. If accessibility or screen capture fails, the turn fails instead of silently degrading to an empty screen state.
+- HostAgent now routes through app-specialized workers (terminal, browser, editor, fallback), each with explicit tool-policy and capability contracts.
+- HostAgent runs a proactive observe and replan loop after each step (`continue` / `replan` / `escalate`) instead of only executing a fixed static plan.
+- HostAgent runtime perception is strict on all supported host OS targets. Empty runtime perception is rejected instead of silently degrading to an empty screen state.
+- When native accessibility tree capture is unavailable, runtime context fallback still provides a widget-tree application context so cross-app routing remains deterministic.
 - Before `mac_automation click_at`, the runtime requires a successful `perception_capture` preflight with `include_widget_tree=true` and `include_ocr=true`.
 - `perception_capture` accepts optional OCR overrides under `ocr`: `language`, `psm`, `oem`, and `tessdata_dir`. These are per-call runtime arguments, not persistent config keys.
 

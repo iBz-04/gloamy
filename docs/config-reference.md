@@ -2,7 +2,7 @@
 
 This is a high-signal reference for common config sections and defaults.
 
-Last verified: **February 21, 2026**.
+Last verified: **April 5, 2026**.
 
 Config path resolution at startup:
 
@@ -285,7 +285,8 @@ Notes:
 - Allowed MIME types: `image/png`, `image/jpeg`, `image/webp`, `image/gif`, `image/bmp`.
 - When the active provider does not support vision, requests fail with a structured capability error (`capability=vision`) instead of silently dropping images.
 - OCR tuning for `perception_capture` is runtime-scoped through the tool arguments (`ocr.language`, `ocr.psm`, `ocr.oem`, `ocr.tessdata_dir`). There is no persistent `[ocr]` config section.
-- On macOS, HostAgent runtime perception fails fast when accessibility or screen capture cannot be collected.
+- HostAgent runtime perception fails fast on all supported host OS targets when no usable runtime signals are produced.
+- HostAgent requires a non-empty widget-tree application context. Runtime context fallback is used when native accessibility tree capture is unavailable.
 - `mac_automation click_at` is runtime-gated by a successful `perception_capture` call with both widget-tree and OCR modalities enabled.
 
 ## `[browser]`

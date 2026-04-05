@@ -2,12 +2,11 @@ use crate::agent::host::HostAgent;
 use crate::agent::worker::{ConversationToolLoopWorker, ToolLoopWorker};
 use crate::approval::{ApprovalManager, ApprovalRequest, ApprovalResponse};
 use crate::config::Config;
+use crate::grounding::GroundedRuntimePerceptionProvider;
 use crate::memory::episode::EpisodeManager;
 use crate::memory::{self, Memory, MemoryCategory};
 use crate::multimodal;
 use crate::observability::{self, runtime_trace, Observer, ObserverEvent};
-use crate::perception::traits::{PerceptionProvider, ScreenState};
-use crate::perception::MacOsPerceptionProvider;
 use crate::providers::{
     self, ChatMessage, ChatRequest, Provider, ProviderCapabilityError, ToolCall,
 };
@@ -15,7 +14,7 @@ use crate::runtime;
 use crate::security::SecurityPolicy;
 use crate::tools::{self, Tool};
 use crate::util::truncate_with_ellipsis;
-use anyhow::{Context, Result};
+use anyhow::Result;
 use regex::{Regex, RegexSet};
 use sha2::{Digest, Sha256};
 use std::collections::HashSet;
@@ -3507,38 +3506,6 @@ fn message_scoped_session_id(prefix: &str, workspace_dir: &Path, message: &str) 
     format!("{prefix}_{}", hashed_session_suffix(&seed))
 }
 
-#[derive(Default)]
-struct RuntimePerceptionProvider;
-
-impl RuntimePerceptionProvider {
-    fn empty_state() -> ScreenState {
-        ScreenState {
-            screenshot_path: None,
-            widget_tree: None,
-            extracted_text: Vec::new(),
-        }
-    }
-}
-
-#[async_trait::async_trait]
-impl PerceptionProvider for RuntimePerceptionProvider {
-    fn name(&self) -> &str {
-        "runtime_perception"
-    }
-
-    async fn capture_state(&self) -> anyhow::Result<ScreenState> {
-        if cfg!(target_os = "macos") {
-            let provider = MacOsPerceptionProvider::new();
-            provider
-                .capture_state()
-                .await
-                .context("HostAgent runtime perception failed")
-        } else {
-            Ok(Self::empty_state())
-        }
-    }
-}
-
 #[allow(clippy::too_many_arguments)]
 async fn run_host_agent_single_step(
     session_id: String,
@@ -3560,8 +3527,60 @@ async fn run_host_agent_single_step(
 ) -> Result<String> {
     let episode_manager =
         EpisodeManager::load_or_new(memory.clone(), session_id, user_goal.to_string()).await?;
-    let worker = if channel_name == "cli" {
-        ToolLoopWorker::for_terminal_host(
+    let mut host_agent = HostAgent::new(
+        Arc::new(GroundedRuntimePerceptionProvider::for_host_runtime()),
+        episode_manager,
+    );
+    if channel_name == "cli" {
+        host_agent.register_worker(Arc::new(ToolLoopWorker::for_terminal_host(
+            Arc::clone(&provider),
+            Arc::clone(&tools_registry),
+            Arc::clone(&observer),
+            provider_name.to_string(),
+            model_name.to_string(),
+            temperature,
+            silent,
+            channel_name.to_string(),
+            multimodal_config.clone(),
+            max_tool_iterations,
+            system_prompt.clone(),
+            approval_manager.clone(),
+            self_learning,
+            Arc::clone(&memory),
+        )));
+        host_agent.register_worker(Arc::new(ToolLoopWorker::for_browser_host(
+            Arc::clone(&provider),
+            Arc::clone(&tools_registry),
+            Arc::clone(&observer),
+            provider_name.to_string(),
+            model_name.to_string(),
+            temperature,
+            silent,
+            channel_name.to_string(),
+            multimodal_config.clone(),
+            max_tool_iterations,
+            system_prompt.clone(),
+            approval_manager.clone(),
+            self_learning,
+            Arc::clone(&memory),
+        )));
+        host_agent.register_worker(Arc::new(ToolLoopWorker::for_editor_host(
+            Arc::clone(&provider),
+            Arc::clone(&tools_registry),
+            Arc::clone(&observer),
+            provider_name.to_string(),
+            model_name.to_string(),
+            temperature,
+            silent,
+            channel_name.to_string(),
+            multimodal_config.clone(),
+            max_tool_iterations,
+            system_prompt.clone(),
+            approval_manager.clone(),
+            self_learning,
+            Arc::clone(&memory),
+        )));
+        host_agent.register_worker(Arc::new(ToolLoopWorker::for_fallback_host(
             provider,
             tools_registry,
             observer,
@@ -3576,9 +3595,9 @@ async fn run_host_agent_single_step(
             approval_manager,
             self_learning,
             memory,
-        )
+        )));
     } else {
-        ToolLoopWorker::new(
+        host_agent.register_worker(Arc::new(ToolLoopWorker::new(
             provider,
             tools_registry,
             observer,
@@ -3593,10 +3612,8 @@ async fn run_host_agent_single_step(
             approval_manager,
             self_learning,
             memory,
-        )
-    };
-    let mut host_agent = HostAgent::new(Arc::new(RuntimePerceptionProvider), episode_manager);
-    host_agent.register_worker(Arc::new(worker));
+        )));
+    }
     let result = host_agent.run_task_with_result(user_goal).await?;
     Ok(result.output)
 }
@@ -3622,7 +3639,59 @@ async fn run_conversation_host_agent_single_step(
 ) -> Result<String> {
     let episode_manager =
         EpisodeManager::load_or_new(memory.clone(), session_id, user_goal.to_string()).await?;
-    let worker = ConversationToolLoopWorker::for_terminal_host(
+    let mut host_agent = HostAgent::new(
+        Arc::new(GroundedRuntimePerceptionProvider::for_host_runtime()),
+        episode_manager,
+    );
+    host_agent.register_worker(Arc::new(ConversationToolLoopWorker::for_terminal_host(
+        Arc::clone(&shared_history),
+        Arc::clone(&provider),
+        Arc::clone(&tools_registry),
+        Arc::clone(&observer),
+        provider_name.to_string(),
+        model_name.to_string(),
+        temperature,
+        silent,
+        approval_manager.clone(),
+        channel_name.to_string(),
+        multimodal_config.clone(),
+        max_tool_iterations,
+        self_learning,
+        Arc::clone(&memory),
+    )));
+    host_agent.register_worker(Arc::new(ConversationToolLoopWorker::for_browser_host(
+        Arc::clone(&shared_history),
+        Arc::clone(&provider),
+        Arc::clone(&tools_registry),
+        Arc::clone(&observer),
+        provider_name.to_string(),
+        model_name.to_string(),
+        temperature,
+        silent,
+        approval_manager.clone(),
+        channel_name.to_string(),
+        multimodal_config.clone(),
+        max_tool_iterations,
+        self_learning,
+        Arc::clone(&memory),
+    )));
+    host_agent.register_worker(Arc::new(ConversationToolLoopWorker::for_editor_host(
+        Arc::clone(&shared_history),
+        Arc::clone(&provider),
+        Arc::clone(&tools_registry),
+        Arc::clone(&observer),
+        provider_name.to_string(),
+        model_name.to_string(),
+        temperature,
+        silent,
+        approval_manager.clone(),
+        channel_name.to_string(),
+        multimodal_config.clone(),
+        max_tool_iterations,
+        self_learning,
+        Arc::clone(&memory),
+    )));
+    host_agent.register_worker(Arc::new(ConversationToolLoopWorker::for_fallback_host(
         shared_history,
         provider,
         tools_registry,
@@ -3637,9 +3706,7 @@ async fn run_conversation_host_agent_single_step(
         max_tool_iterations,
         self_learning,
         memory,
-    );
-    let mut host_agent = HostAgent::new(Arc::new(RuntimePerceptionProvider), episode_manager);
-    host_agent.register_worker(Arc::new(worker));
+    )));
     let result = host_agent.run_task_with_result(user_goal).await?;
     Ok(result.output)
 }
@@ -4641,8 +4708,8 @@ mod tests {
         fn new(invocations: Arc<AtomicUsize>, widget_completed: bool, ocr_completed: bool) -> Self {
             Self {
                 invocations,
-                widget_completed,
                 ocr_completed,
+                widget_completed,
             }
         }
     }
