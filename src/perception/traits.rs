@@ -11,7 +11,7 @@ pub struct ScreenBounds {
 }
 
 /// A node in the UI accessibility or DOM tree.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct WidgetNode {
     pub id: String,
     pub role: String,

@@ -338,6 +338,21 @@ impl GroundingExpert for VisionRoutingGroundingExpert {
         tokio::fs::create_dir_all(&self.output_dir)
             .await
             .with_context(|| format!("failed to create {}", self.output_dir.display()))?;
+
+        // Cleanup old screenshot artifacts to prevent unbounded disk usage
+        if let Ok(mut entries) = tokio::fs::read_dir(&self.output_dir).await {
+            let threshold = std::time::Duration::from_secs(300); // 5 minutes
+            while let Ok(Some(entry)) = entries.next_entry().await {
+                if let Ok(metadata) = entry.metadata().await {
+                    if let Ok(modified) = metadata.modified() {
+                        if modified.elapsed().unwrap_or(std::time::Duration::from_secs(0)) > threshold {
+                            let _ = tokio::fs::remove_file(entry.path()).await;
+                        }
+                    }
+                }
+            }
+        }
+
         let screenshot_path = self.build_output_path();
 
         if cfg!(target_os = "macos") {

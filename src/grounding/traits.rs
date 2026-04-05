@@ -22,7 +22,7 @@ impl GroundingRequest {
         Self {
             include_vision: true,
             include_widget_tree: true,
-            include_ocr: false,
+            include_ocr: true,
         }
     }
 

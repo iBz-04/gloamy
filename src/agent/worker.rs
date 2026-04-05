@@ -234,6 +234,28 @@ fn fallback_contract() -> WorkerCapabilityContract {
     }
 }
 
+fn format_screen_state(state: &ScreenState) -> String {
+    let mut out = String::from("\n\n[Current Screen State]\n");
+    if let Some(path) = &state.screenshot_path {
+        let _ = write!(out, "Screenshot: ![]({path})\n");
+    }
+    if let Some(tree) = &state.widget_tree {
+        out.push_str("Widget Tree (Accessibility):\n```json\n");
+        if let Ok(json) = serde_json::to_string_pretty(tree) {
+            out.push_str(&json);
+        }
+        out.push_str("\n```\n");
+    }
+    if !state.extracted_text.is_empty() {
+        out.push_str("Extracted Text (OCR):\n```json\n");
+        if let Ok(json) = serde_json::to_string_pretty(&state.extracted_text) {
+            out.push_str(&json);
+        }
+        out.push_str("\n```\n");
+    }
+    out
+}
+
 struct ToolLoopWorkerCore {
     provider: Arc<dyn Provider>,
     tools_registry: Arc<Vec<Box<dyn Tool>>>,
@@ -290,11 +312,12 @@ impl ToolLoopWorkerCore {
     async fn execute_step(
         &self,
         task_instruction: &str,
-        _current_state: &ScreenState,
+        current_state: &ScreenState,
     ) -> anyhow::Result<ToolResult> {
+        let instruction_with_state = format!("{}{}", task_instruction, format_screen_state(current_state));
         let mut history = vec![
             ChatMessage::system(self.system_prompt.clone()),
-            ChatMessage::user(task_instruction.to_string()),
+            ChatMessage::user(instruction_with_state),
         ];
         let mut tool_outcomes = Vec::new();
         let response = run_tool_call_loop(
@@ -394,18 +417,19 @@ impl ConversationToolLoopWorkerCore {
     async fn execute_step(
         &self,
         task_instruction: &str,
-        _current_state: &ScreenState,
+        current_state: &ScreenState,
     ) -> anyhow::Result<ToolResult> {
         let mut history = {
             let mut shared_history = self.history.lock().await;
             std::mem::take(&mut *shared_history)
         };
 
+        let instruction_with_state = format!("{}{}", task_instruction, format_screen_state(current_state));
         let needs_user_turn = !history.last().is_some_and(|message| {
-            message.role == "user" && message.content.trim() == task_instruction.trim()
+            message.role == "user" && message.content.trim() == instruction_with_state.trim()
         });
         if needs_user_turn {
-            history.push(ChatMessage::user(task_instruction.to_string()));
+            history.push(ChatMessage::user(instruction_with_state));
         }
 
         let mut tool_outcomes = Vec::new();

@@ -24,7 +24,6 @@ struct ScreenStateDiff {
     app_before: String,
     app_after: Option<String>,
     app_changed: bool,
-    screenshot_changed: bool,
     widget_tree_changed: bool,
     ocr_count_changed: bool,
     capture_failed: bool,
@@ -33,7 +32,6 @@ struct ScreenStateDiff {
 impl ScreenStateDiff {
     fn has_meaningful_change(&self) -> bool {
         self.app_changed
-            || self.screenshot_changed
             || self.widget_tree_changed
             || self.ocr_count_changed
     }
@@ -512,15 +510,7 @@ impl HostAgent {
                 app_changed: app_after
                     .as_deref()
                     .is_some_and(|after_app| !after_app.eq_ignore_ascii_case(&app_before)),
-                screenshot_changed: before.screenshot_path != after_state.screenshot_path,
-                widget_tree_changed: before
-                    .widget_tree
-                    .as_ref()
-                    .and_then(|node| node.name.as_ref())
-                    != after_state
-                        .widget_tree
-                        .as_ref()
-                        .and_then(|node| node.name.as_ref()),
+                widget_tree_changed: before.widget_tree != after_state.widget_tree,
                 ocr_count_changed: before.extracted_text.len() != after_state.extracted_text.len(),
                 capture_failed: false,
                 app_before,
@@ -530,7 +520,6 @@ impl HostAgent {
                 app_before,
                 app_after,
                 app_changed: false,
-                screenshot_changed: false,
                 widget_tree_changed: false,
                 ocr_count_changed: false,
                 capture_failed: true,
