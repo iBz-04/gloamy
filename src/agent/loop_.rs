@@ -782,16 +782,29 @@ fn is_perception_capture_call(name: &str) -> bool {
     name.trim().eq_ignore_ascii_case("perception_capture")
 }
 
-fn perception_capture_requests_required_modalities(arguments: &serde_json::Value) -> bool {
-    let include_widget_tree = arguments
-        .get("include_widget_tree")
-        .and_then(serde_json::Value::as_bool)
-        .unwrap_or(true);
-    let include_ocr = arguments
-        .get("include_ocr")
-        .and_then(serde_json::Value::as_bool)
-        .unwrap_or(false);
-    include_widget_tree && include_ocr
+fn perception_capture_requests_required_modalities(
+    arguments: &serde_json::Value,
+    mode: crate::config::ClickAtPreflightMode,
+) -> bool {
+    use crate::config::ClickAtPreflightMode;
+    match mode {
+        ClickAtPreflightMode::None => true,
+        ClickAtPreflightMode::WidgetOnly => arguments
+            .get("include_widget_tree")
+            .and_then(serde_json::Value::as_bool)
+            .unwrap_or(true),
+        ClickAtPreflightMode::WidgetAndOcr => {
+            let include_widget_tree = arguments
+                .get("include_widget_tree")
+                .and_then(serde_json::Value::as_bool)
+                .unwrap_or(true);
+            let include_ocr = arguments
+                .get("include_ocr")
+                .and_then(serde_json::Value::as_bool)
+                .unwrap_or(false);
+            include_widget_tree && include_ocr
+        }
+    }
 }
 
 fn parse_perception_capture_payload(output: &str) -> Option<serde_json::Value> {
@@ -799,7 +812,15 @@ fn parse_perception_capture_payload(output: &str) -> Option<serde_json::Value> {
     serde_json::from_str(output[json_start..].trim()).ok()
 }
 
-fn perception_capture_completed_required_modalities(output: &str) -> bool {
+fn perception_capture_completed_required_modalities(
+    output: &str,
+    mode: crate::config::ClickAtPreflightMode,
+) -> bool {
+    use crate::config::ClickAtPreflightMode;
+    if mode == ClickAtPreflightMode::None {
+        return true;
+    }
+
     let Some(payload) = parse_perception_capture_payload(output) else {
         return false;
     };
@@ -807,42 +828,71 @@ fn perception_capture_completed_required_modalities(output: &str) -> bool {
     let widget_completed = payload
         .pointer("/diagnostics/modalities/widget_tree/completed")
         .and_then(serde_json::Value::as_bool);
-    let ocr_completed = payload
-        .pointer("/diagnostics/modalities/ocr/completed")
-        .and_then(serde_json::Value::as_bool);
 
-    if let (Some(widget_completed), Some(ocr_completed)) = (widget_completed, ocr_completed) {
-        return widget_completed && ocr_completed;
+    match mode {
+        ClickAtPreflightMode::WidgetOnly => {
+            if let Some(w) = widget_completed {
+                return w;
+            }
+            let widget_present = payload
+                .pointer("/screen_state/widget_tree")
+                .is_some_and(serde_json::Value::is_object);
+            let has_widget_error = payload
+                .pointer("/diagnostics/errors")
+                .and_then(serde_json::Value::as_array)
+                .is_some_and(|errors| {
+                    errors
+                        .iter()
+                        .filter_map(serde_json::Value::as_str)
+                        .any(|error| {
+                            error.contains("Widget tree capture failed")
+                                || error
+                                    .contains("Widget tree capture returned no active window tree")
+                        })
+                });
+            widget_present && !has_widget_error
+        }
+        ClickAtPreflightMode::WidgetAndOcr | ClickAtPreflightMode::None => {
+            let ocr_completed = payload
+                .pointer("/diagnostics/modalities/ocr/completed")
+                .and_then(serde_json::Value::as_bool);
+            if let (Some(w), Some(o)) = (widget_completed, ocr_completed) {
+                return w && o;
+            }
+            let widget_present = payload
+                .pointer("/screen_state/widget_tree")
+                .is_some_and(serde_json::Value::is_object);
+            let has_required_modality_error = payload
+                .pointer("/diagnostics/errors")
+                .and_then(serde_json::Value::as_array)
+                .is_some_and(|errors| {
+                    errors
+                        .iter()
+                        .filter_map(serde_json::Value::as_str)
+                        .any(|error| {
+                            error.contains("Widget tree capture failed")
+                                || error
+                                    .contains("Widget tree capture returned no active window tree")
+                                || error.contains("OCR extraction failed")
+                                || error.contains("OCR requested but screenshot capture failed")
+                        })
+                });
+            widget_present && !has_required_modality_error
+        }
     }
-
-    let widget_present = payload
-        .pointer("/screen_state/widget_tree")
-        .is_some_and(serde_json::Value::is_object);
-
-    let has_required_modality_error = payload
-        .pointer("/diagnostics/errors")
-        .and_then(serde_json::Value::as_array)
-        .is_some_and(|errors| {
-            errors
-                .iter()
-                .filter_map(serde_json::Value::as_str)
-                .any(|error| {
-                    error.contains("Widget tree capture failed")
-                        || error.contains("Widget tree capture returned no active window tree")
-                        || error.contains("OCR extraction failed")
-                        || error.contains("OCR requested but screenshot capture failed")
-                })
-        });
-
-    widget_present && !has_required_modality_error
 }
 
 fn perception_capture_satisfies_preflight_requirements(
     arguments: &serde_json::Value,
     output: &str,
+    mode: crate::config::ClickAtPreflightMode,
 ) -> bool {
-    perception_capture_requests_required_modalities(arguments)
-        && perception_capture_completed_required_modalities(output)
+    use crate::config::ClickAtPreflightMode;
+    if mode == ClickAtPreflightMode::None {
+        return true;
+    }
+    perception_capture_requests_required_modalities(arguments, mode)
+        && perception_capture_completed_required_modalities(output, mode)
 }
 
 fn is_mac_automation_click_at_call(name: &str, arguments: &serde_json::Value) -> bool {
@@ -2380,6 +2430,7 @@ pub(crate) async fn agent_turn(
         &[],
         None,
         None,
+        crate::config::ClickAtPreflightMode::default(),
     )
     .await
 }
@@ -2572,6 +2623,7 @@ pub(crate) async fn run_tool_call_loop(
     excluded_tools: &[String],
     task_persistence: Option<&TaskPersistenceContext<'_>>,
     mut tool_outcomes_sink: Option<&mut Vec<crate::agent::lesson::ToolOutcome>>,
+    click_at_preflight: crate::config::ClickAtPreflightMode,
 ) -> Result<String> {
     let max_iterations = if max_tool_iterations == 0 {
         DEFAULT_MAX_TOOL_ITERATIONS
@@ -2927,10 +2979,13 @@ pub(crate) async fn run_tool_call_loop(
                         return Err(ToolLoopCancelled.into());
                     }
                     chunk.push_str(word);
-                    if chunk.len() >= STREAM_CHUNK_MIN_CHARS
-                        && tx.send(std::mem::take(&mut chunk)).await.is_err()
-                    {
-                        break; // receiver dropped
+                    if chunk.len() >= STREAM_CHUNK_MIN_CHARS {
+                        if tx.send(std::mem::take(&mut chunk)).await.is_err() {
+                            tracing::warn!(
+                                "Draft delta channel closed mid-stream; Telegram preview may be incomplete until finalize"
+                            );
+                            break; // receiver dropped
+                        }
                     }
                 }
                 if !chunk.is_empty() {
@@ -3092,8 +3147,13 @@ pub(crate) async fn run_tool_call_loop(
             }
 
             if is_mac_automation_click_at_call(&tool_name, &tool_args) {
-                if !perception_preflight_available {
-                    let denied = "Blocked by runtime policy: call perception_capture with include_widget_tree=true and include_ocr=true, and complete both modalities successfully, before mac_automation click_at.".to_string();
+                if !perception_preflight_available
+                    && click_at_preflight != crate::config::ClickAtPreflightMode::None
+                {
+                    let denied = match click_at_preflight {
+                        crate::config::ClickAtPreflightMode::WidgetOnly => "Blocked by runtime policy: call perception_capture with include_widget_tree=true and complete the widget tree modality successfully, before mac_automation click_at.".to_string(),
+                        _ => "Blocked by runtime policy: call perception_capture with include_widget_tree=true and include_ocr=true, and complete both modalities successfully, before mac_automation click_at.".to_string(),
+                    };
                     runtime_trace::record_event(
                         "tool_call_result",
                         Some(channel_name),
@@ -3339,6 +3399,7 @@ pub(crate) async fn run_tool_call_loop(
                     && perception_capture_satisfies_preflight_requirements(
                         &item.arguments,
                         &item.output,
+                        click_at_preflight,
                     );
             }
             if is_mac_automation_click_at_call(&item.tool_name, &item.arguments) && item.success {
@@ -3524,6 +3585,7 @@ async fn run_host_agent_single_step(
     multimodal_config: crate::config::MultimodalConfig,
     max_tool_iterations: usize,
     self_learning: bool,
+    click_at_preflight: crate::config::ClickAtPreflightMode,
 ) -> Result<String> {
     let episode_manager =
         EpisodeManager::load_or_new(memory.clone(), session_id, user_goal.to_string()).await?;
@@ -3547,6 +3609,7 @@ async fn run_host_agent_single_step(
             approval_manager.clone(),
             self_learning,
             Arc::clone(&memory),
+            click_at_preflight,
         )));
         host_agent.register_worker(Arc::new(ToolLoopWorker::for_browser_host(
             Arc::clone(&provider),
@@ -3563,6 +3626,7 @@ async fn run_host_agent_single_step(
             approval_manager.clone(),
             self_learning,
             Arc::clone(&memory),
+            click_at_preflight,
         )));
         host_agent.register_worker(Arc::new(ToolLoopWorker::for_editor_host(
             Arc::clone(&provider),
@@ -3579,6 +3643,7 @@ async fn run_host_agent_single_step(
             approval_manager.clone(),
             self_learning,
             Arc::clone(&memory),
+            click_at_preflight,
         )));
         host_agent.register_worker(Arc::new(ToolLoopWorker::for_fallback_host(
             provider,
@@ -3595,6 +3660,7 @@ async fn run_host_agent_single_step(
             approval_manager,
             self_learning,
             memory,
+            click_at_preflight,
         )));
     } else {
         host_agent.register_worker(Arc::new(ToolLoopWorker::new(
@@ -3612,6 +3678,7 @@ async fn run_host_agent_single_step(
             approval_manager,
             self_learning,
             memory,
+            click_at_preflight,
         )));
     }
     let result = host_agent.run_task_with_result(user_goal).await?;
@@ -3636,6 +3703,7 @@ async fn run_conversation_host_agent_single_step(
     multimodal_config: crate::config::MultimodalConfig,
     max_tool_iterations: usize,
     self_learning: bool,
+    click_at_preflight: crate::config::ClickAtPreflightMode,
 ) -> Result<String> {
     let episode_manager =
         EpisodeManager::load_or_new(memory.clone(), session_id, user_goal.to_string()).await?;
@@ -3658,6 +3726,7 @@ async fn run_conversation_host_agent_single_step(
         max_tool_iterations,
         self_learning,
         Arc::clone(&memory),
+        click_at_preflight,
     )));
     host_agent.register_worker(Arc::new(ConversationToolLoopWorker::for_browser_host(
         Arc::clone(&shared_history),
@@ -3674,6 +3743,7 @@ async fn run_conversation_host_agent_single_step(
         max_tool_iterations,
         self_learning,
         Arc::clone(&memory),
+        click_at_preflight,
     )));
     host_agent.register_worker(Arc::new(ConversationToolLoopWorker::for_editor_host(
         Arc::clone(&shared_history),
@@ -3690,6 +3760,7 @@ async fn run_conversation_host_agent_single_step(
         max_tool_iterations,
         self_learning,
         Arc::clone(&memory),
+        click_at_preflight,
     )));
     host_agent.register_worker(Arc::new(ConversationToolLoopWorker::for_fallback_host(
         shared_history,
@@ -3706,6 +3777,7 @@ async fn run_conversation_host_agent_single_step(
         max_tool_iterations,
         self_learning,
         memory,
+        click_at_preflight,
     )));
     let result = host_agent.run_task_with_result(user_goal).await?;
     Ok(result.output)
@@ -3878,24 +3950,26 @@ pub async fn run(
             "Delete a memory entry. Use when: memory is incorrect/stale or explicitly requested for removal. Don't use when: impact is uncertain.",
         ),
     ];
-    tool_descs.push((
-        "cron_add",
-        "Create a cron job. Supports schedule kinds: cron, at, every; and job types: shell or agent.",
-    ));
-    tool_descs.push((
-        "cron_list",
-        "List all cron jobs with schedule, status, and metadata.",
-    ));
-    tool_descs.push(("cron_remove", "Remove a cron job by job_id."));
-    tool_descs.push((
-        "cron_update",
-        "Patch a cron job (schedule, enabled, command/prompt, model, delivery, session_target).",
-    ));
-    tool_descs.push((
-        "cron_run",
-        "Force-run a cron job immediately and record a run history entry.",
-    ));
-    tool_descs.push(("cron_runs", "Show recent run history for a cron job."));
+    if config.cron.enabled {
+        tool_descs.push((
+            "cron_add",
+            "Create a cron job. Supports schedule kinds: cron, at, every; and job types: shell or agent.",
+        ));
+        tool_descs.push((
+            "cron_list",
+            "List all cron jobs with schedule, status, and metadata. Use when: user explicitly asks about scheduled tasks. Don't use when: not asked about cron/scheduling.",
+        ));
+        tool_descs.push(("cron_remove", "Remove a cron job by job_id."));
+        tool_descs.push((
+            "cron_update",
+            "Patch a cron job (schedule, enabled, command/prompt, model, delivery, session_target).",
+        ));
+        tool_descs.push((
+            "cron_run",
+            "Force-run a cron job immediately and record a run history entry.",
+        ));
+        tool_descs.push(("cron_runs", "Show recent run history for a cron job."));
+    }
     tool_descs.push((
         "screenshot",
         "Capture a screenshot of the current screen. Returns file path and base64-encoded PNG. Use when: visual verification, UI inspection, debugging displays.",
@@ -4054,6 +4128,7 @@ pub async fn run(
             config.multimodal.clone(),
             config.agent.max_tool_iterations,
             config.agent.self_learning,
+            config.gui_verification.click_at_preflight,
         )
         .await?;
 
@@ -4202,6 +4277,7 @@ pub async fn run(
                 config.multimodal.clone(),
                 config.agent.max_tool_iterations,
                 config.agent.self_learning,
+                config.gui_verification.click_at_preflight,
             )
             .await
             {
@@ -4467,6 +4543,7 @@ pub async fn process_message(config: Config, message: &str) -> Result<String> {
         config.multimodal.clone(),
         config.agent.max_tool_iterations,
         config.agent.self_learning,
+        config.gui_verification.click_at_preflight,
     )
     .await?;
 
@@ -4924,6 +5001,7 @@ mod tests {
             &[],
             None,
             None,
+            crate::config::ClickAtPreflightMode::default(),
         )
         .await
         .expect_err("provider without vision support should fail");
@@ -4972,6 +5050,7 @@ mod tests {
             &[],
             None,
             None,
+            crate::config::ClickAtPreflightMode::default(),
         )
         .await
         .expect_err("oversized payload must fail");
@@ -5014,6 +5093,7 @@ mod tests {
             &[],
             None,
             None,
+            crate::config::ClickAtPreflightMode::default(),
         )
         .await
         .expect("valid multimodal payload should pass");
@@ -5147,6 +5227,7 @@ mod tests {
             &[],
             None,
             None,
+            crate::config::ClickAtPreflightMode::default(),
         )
         .await
         .expect("parallel execution should complete");
@@ -5218,6 +5299,7 @@ mod tests {
             &[],
             None,
             None,
+            crate::config::ClickAtPreflightMode::default(),
         )
         .await
         .expect("loop should finish after deduplicating repeated calls");
@@ -5276,6 +5358,7 @@ mod tests {
             &[],
             None,
             None,
+            crate::config::ClickAtPreflightMode::default(),
         )
         .await
         .expect("native fallback id flow should complete");
@@ -5337,6 +5420,7 @@ mod tests {
             &[],
             None,
             None,
+            crate::config::ClickAtPreflightMode::default(),
         )
         .await
         .expect("runtime continuation guard should force at least one tool attempt");
@@ -5396,6 +5480,7 @@ mod tests {
             &[],
             None,
             None,
+            crate::config::ClickAtPreflightMode::default(),
         )
         .await
         .expect("runtime continuation guard should force fallback after failed steps");
@@ -5462,6 +5547,7 @@ mod tests {
             &[],
             None,
             None,
+            crate::config::ClickAtPreflightMode::WidgetAndOcr,
         )
         .await
         .expect("loop should recover once perception preflight is provided");
@@ -5537,6 +5623,7 @@ mod tests {
             &[],
             None,
             None,
+            crate::config::ClickAtPreflightMode::WidgetAndOcr,
         )
         .await
         .expect("loop should complete");
@@ -5604,6 +5691,7 @@ mod tests {
             &[],
             None,
             None,
+            crate::config::ClickAtPreflightMode::WidgetAndOcr,
         )
         .await
         .expect("loop should complete");
@@ -7197,5 +7285,129 @@ Let me check the result."#;
         let parsed: serde_json::Value = serde_json::from_str(result.as_deref().unwrap()).unwrap();
         assert_eq!(parsed["content"].as_str(), Some("answer"));
         assert!(parsed.get("reasoning_content").is_none());
+    }
+
+    // ── ClickAtPreflightMode variant tests ────────────────────────────────
+
+    #[test]
+    fn preflight_none_mode_always_allows() {
+        use crate::config::ClickAtPreflightMode;
+        let args = serde_json::json!({});
+        assert!(perception_capture_requests_required_modalities(
+            &args,
+            ClickAtPreflightMode::None
+        ));
+        assert!(perception_capture_completed_required_modalities(
+            "{}",
+            ClickAtPreflightMode::None
+        ));
+        assert!(perception_capture_satisfies_preflight_requirements(
+            &args,
+            "{}",
+            ClickAtPreflightMode::None
+        ));
+    }
+
+    #[test]
+    fn preflight_widget_only_requires_widget_tree_arg() {
+        use crate::config::ClickAtPreflightMode;
+        let with_widget = serde_json::json!({"include_widget_tree": true});
+        let without_widget = serde_json::json!({"include_widget_tree": false});
+        assert!(perception_capture_requests_required_modalities(
+            &with_widget,
+            ClickAtPreflightMode::WidgetOnly
+        ));
+        assert!(!perception_capture_requests_required_modalities(
+            &without_widget,
+            ClickAtPreflightMode::WidgetOnly
+        ));
+    }
+
+    #[test]
+    fn preflight_widget_and_ocr_requires_both_args() {
+        use crate::config::ClickAtPreflightMode;
+        let both = serde_json::json!({"include_widget_tree": true, "include_ocr": true});
+        let widget_only = serde_json::json!({"include_widget_tree": true, "include_ocr": false});
+        let ocr_only = serde_json::json!({"include_widget_tree": false, "include_ocr": true});
+        assert!(perception_capture_requests_required_modalities(
+            &both,
+            ClickAtPreflightMode::WidgetAndOcr
+        ));
+        assert!(!perception_capture_requests_required_modalities(
+            &widget_only,
+            ClickAtPreflightMode::WidgetAndOcr
+        ));
+        assert!(!perception_capture_requests_required_modalities(
+            &ocr_only,
+            ClickAtPreflightMode::WidgetAndOcr
+        ));
+    }
+
+    #[test]
+    fn preflight_widget_only_completed_uses_diagnostics_flag() {
+        use crate::config::ClickAtPreflightMode;
+        let completed = r#"{"diagnostics":{"modalities":{"widget_tree":{"completed":true}}}}"#;
+        let not_completed = r#"{"diagnostics":{"modalities":{"widget_tree":{"completed":false}}}}"#;
+        assert!(perception_capture_completed_required_modalities(
+            completed,
+            ClickAtPreflightMode::WidgetOnly
+        ));
+        assert!(!perception_capture_completed_required_modalities(
+            not_completed,
+            ClickAtPreflightMode::WidgetOnly
+        ));
+    }
+
+    #[test]
+    fn preflight_widget_and_ocr_completed_requires_both_diagnostics() {
+        use crate::config::ClickAtPreflightMode;
+        let both_done = r#"{"diagnostics":{"modalities":{"widget_tree":{"completed":true},"ocr":{"completed":true}}}}"#;
+        let widget_done_ocr_not = r#"{"diagnostics":{"modalities":{"widget_tree":{"completed":true},"ocr":{"completed":false}}}}"#;
+        assert!(perception_capture_completed_required_modalities(
+            both_done,
+            ClickAtPreflightMode::WidgetAndOcr
+        ));
+        assert!(!perception_capture_completed_required_modalities(
+            widget_done_ocr_not,
+            ClickAtPreflightMode::WidgetAndOcr
+        ));
+    }
+
+    #[test]
+    fn preflight_satisfies_combines_args_and_output() {
+        use crate::config::ClickAtPreflightMode;
+        let args = serde_json::json!({"include_widget_tree": true});
+        let good_output = r#"{"diagnostics":{"modalities":{"widget_tree":{"completed":true}}}}"#;
+        let bad_output = r#"{"diagnostics":{"modalities":{"widget_tree":{"completed":false}}}}"#;
+        assert!(perception_capture_satisfies_preflight_requirements(
+            &args,
+            good_output,
+            ClickAtPreflightMode::WidgetOnly
+        ));
+        assert!(!perception_capture_satisfies_preflight_requirements(
+            &args,
+            bad_output,
+            ClickAtPreflightMode::WidgetOnly
+        ));
+    }
+
+    #[test]
+    fn preflight_widget_only_completed_falls_back_to_screen_state() {
+        use crate::config::ClickAtPreflightMode;
+        let no_diagnostics = r#"{"screen_state":{"widget_tree":{"root":{}}}}"#;
+        assert!(perception_capture_completed_required_modalities(
+            no_diagnostics,
+            ClickAtPreflightMode::WidgetOnly
+        ));
+    }
+
+    #[test]
+    fn preflight_widget_only_blocked_by_widget_error() {
+        use crate::config::ClickAtPreflightMode;
+        let with_error = r#"{"screen_state":{"widget_tree":{"root":{}}},"diagnostics":{"errors":["Widget tree capture failed: timeout"]}}"#;
+        assert!(!perception_capture_completed_required_modalities(
+            with_error,
+            ClickAtPreflightMode::WidgetOnly
+        ));
     }
 }

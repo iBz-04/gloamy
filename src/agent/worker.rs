@@ -237,7 +237,7 @@ fn fallback_contract() -> WorkerCapabilityContract {
 fn format_screen_state(state: &ScreenState) -> String {
     let mut out = String::from("\n\n[Current Screen State]\n");
     if let Some(path) = &state.screenshot_path {
-        let _ = write!(out, "Screenshot: ![]({path})\n");
+        let _ = writeln!(out, "Screenshot: ![]({path})");
     }
     if let Some(tree) = &state.widget_tree {
         out.push_str("Widget Tree (Accessibility):\n```json\n");
@@ -271,6 +271,7 @@ struct ToolLoopWorkerCore {
     approval_manager: Option<Arc<ApprovalManager>>,
     self_learning: bool,
     memory: Arc<dyn Memory>,
+    click_at_preflight: crate::config::ClickAtPreflightMode,
 }
 
 impl ToolLoopWorkerCore {
@@ -290,6 +291,7 @@ impl ToolLoopWorkerCore {
         approval_manager: Option<Arc<ApprovalManager>>,
         self_learning: bool,
         memory: Arc<dyn Memory>,
+        click_at_preflight: crate::config::ClickAtPreflightMode,
     ) -> Self {
         Self {
             provider,
@@ -306,6 +308,7 @@ impl ToolLoopWorkerCore {
             approval_manager,
             self_learning,
             memory,
+            click_at_preflight,
         }
     }
 
@@ -314,7 +317,8 @@ impl ToolLoopWorkerCore {
         task_instruction: &str,
         current_state: &ScreenState,
     ) -> anyhow::Result<ToolResult> {
-        let instruction_with_state = format!("{}{}", task_instruction, format_screen_state(current_state));
+        let instruction_with_state =
+            format!("{}{}", task_instruction, format_screen_state(current_state));
         let mut history = vec![
             ChatMessage::system(self.system_prompt.clone()),
             ChatMessage::user(instruction_with_state),
@@ -343,6 +347,7 @@ impl ToolLoopWorkerCore {
             } else {
                 None
             },
+            self.click_at_preflight,
         )
         .await?;
 
@@ -376,6 +381,7 @@ struct ConversationToolLoopWorkerCore {
     max_tool_iterations: usize,
     self_learning: bool,
     memory: Arc<dyn Memory>,
+    click_at_preflight: crate::config::ClickAtPreflightMode,
 }
 
 impl ConversationToolLoopWorkerCore {
@@ -395,6 +401,7 @@ impl ConversationToolLoopWorkerCore {
         max_tool_iterations: usize,
         self_learning: bool,
         memory: Arc<dyn Memory>,
+        click_at_preflight: crate::config::ClickAtPreflightMode,
     ) -> Self {
         Self {
             history,
@@ -411,6 +418,7 @@ impl ConversationToolLoopWorkerCore {
             max_tool_iterations,
             self_learning,
             memory,
+            click_at_preflight,
         }
     }
 
@@ -424,7 +432,8 @@ impl ConversationToolLoopWorkerCore {
             std::mem::take(&mut *shared_history)
         };
 
-        let instruction_with_state = format!("{}{}", task_instruction, format_screen_state(current_state));
+        let instruction_with_state =
+            format!("{}{}", task_instruction, format_screen_state(current_state));
         let needs_user_turn = !history.last().is_some_and(|message| {
             message.role == "user" && message.content.trim() == instruction_with_state.trim()
         });
@@ -456,6 +465,7 @@ impl ConversationToolLoopWorkerCore {
             } else {
                 None
             },
+            self.click_at_preflight,
         )
         .await;
 
@@ -502,6 +512,7 @@ impl TerminalToolLoopWorker {
         approval_manager: Option<Arc<ApprovalManager>>,
         self_learning: bool,
         memory: Arc<dyn Memory>,
+        click_at_preflight: crate::config::ClickAtPreflightMode,
     ) -> Self {
         Self {
             core: ToolLoopWorkerCore::new(
@@ -519,6 +530,7 @@ impl TerminalToolLoopWorker {
                 approval_manager,
                 self_learning,
                 memory,
+                click_at_preflight,
             ),
         }
     }
@@ -573,6 +585,7 @@ impl BrowserToolLoopWorker {
         approval_manager: Option<Arc<ApprovalManager>>,
         self_learning: bool,
         memory: Arc<dyn Memory>,
+        click_at_preflight: crate::config::ClickAtPreflightMode,
     ) -> Self {
         Self {
             core: ToolLoopWorkerCore::new(
@@ -590,6 +603,7 @@ impl BrowserToolLoopWorker {
                 approval_manager,
                 self_learning,
                 memory,
+                click_at_preflight,
             ),
         }
     }
@@ -644,6 +658,7 @@ impl EditorToolLoopWorker {
         approval_manager: Option<Arc<ApprovalManager>>,
         self_learning: bool,
         memory: Arc<dyn Memory>,
+        click_at_preflight: crate::config::ClickAtPreflightMode,
     ) -> Self {
         Self {
             core: ToolLoopWorkerCore::new(
@@ -661,6 +676,7 @@ impl EditorToolLoopWorker {
                 approval_manager,
                 self_learning,
                 memory,
+                click_at_preflight,
             ),
         }
     }
@@ -715,6 +731,7 @@ impl FallbackToolLoopWorker {
         approval_manager: Option<Arc<ApprovalManager>>,
         self_learning: bool,
         memory: Arc<dyn Memory>,
+        click_at_preflight: crate::config::ClickAtPreflightMode,
     ) -> Self {
         Self {
             core: ToolLoopWorkerCore::new(
@@ -732,6 +749,7 @@ impl FallbackToolLoopWorker {
                 approval_manager,
                 self_learning,
                 memory,
+                click_at_preflight,
             ),
         }
     }
@@ -786,6 +804,7 @@ impl TerminalConversationToolLoopWorker {
         max_tool_iterations: usize,
         self_learning: bool,
         memory: Arc<dyn Memory>,
+        click_at_preflight: crate::config::ClickAtPreflightMode,
     ) -> Self {
         Self {
             core: ConversationToolLoopWorkerCore::new(
@@ -803,6 +822,7 @@ impl TerminalConversationToolLoopWorker {
                 max_tool_iterations,
                 self_learning,
                 memory,
+                click_at_preflight,
             ),
         }
     }
@@ -857,6 +877,7 @@ impl BrowserConversationToolLoopWorker {
         max_tool_iterations: usize,
         self_learning: bool,
         memory: Arc<dyn Memory>,
+        click_at_preflight: crate::config::ClickAtPreflightMode,
     ) -> Self {
         Self {
             core: ConversationToolLoopWorkerCore::new(
@@ -874,6 +895,7 @@ impl BrowserConversationToolLoopWorker {
                 max_tool_iterations,
                 self_learning,
                 memory,
+                click_at_preflight,
             ),
         }
     }
@@ -928,6 +950,7 @@ impl EditorConversationToolLoopWorker {
         max_tool_iterations: usize,
         self_learning: bool,
         memory: Arc<dyn Memory>,
+        click_at_preflight: crate::config::ClickAtPreflightMode,
     ) -> Self {
         Self {
             core: ConversationToolLoopWorkerCore::new(
@@ -945,6 +968,7 @@ impl EditorConversationToolLoopWorker {
                 max_tool_iterations,
                 self_learning,
                 memory,
+                click_at_preflight,
             ),
         }
     }
@@ -999,6 +1023,7 @@ impl FallbackConversationToolLoopWorker {
         max_tool_iterations: usize,
         self_learning: bool,
         memory: Arc<dyn Memory>,
+        click_at_preflight: crate::config::ClickAtPreflightMode,
     ) -> Self {
         Self {
             core: ConversationToolLoopWorkerCore::new(
@@ -1016,6 +1041,7 @@ impl FallbackConversationToolLoopWorker {
                 max_tool_iterations,
                 self_learning,
                 memory,
+                click_at_preflight,
             ),
         }
     }
@@ -1070,6 +1096,7 @@ impl ToolLoopWorker {
         approval_manager: Option<Arc<ApprovalManager>>,
         self_learning: bool,
         memory: Arc<dyn Memory>,
+        click_at_preflight: crate::config::ClickAtPreflightMode,
     ) -> FallbackToolLoopWorker {
         FallbackToolLoopWorker::new(
             provider,
@@ -1086,6 +1113,7 @@ impl ToolLoopWorker {
             approval_manager,
             self_learning,
             memory,
+            click_at_preflight,
         )
     }
 
@@ -1105,6 +1133,7 @@ impl ToolLoopWorker {
         approval_manager: Option<Arc<ApprovalManager>>,
         self_learning: bool,
         memory: Arc<dyn Memory>,
+        click_at_preflight: crate::config::ClickAtPreflightMode,
     ) -> TerminalToolLoopWorker {
         TerminalToolLoopWorker::new(
             provider,
@@ -1121,6 +1150,7 @@ impl ToolLoopWorker {
             approval_manager,
             self_learning,
             memory,
+            click_at_preflight,
         )
     }
 
@@ -1140,6 +1170,7 @@ impl ToolLoopWorker {
         approval_manager: Option<Arc<ApprovalManager>>,
         self_learning: bool,
         memory: Arc<dyn Memory>,
+        click_at_preflight: crate::config::ClickAtPreflightMode,
     ) -> BrowserToolLoopWorker {
         BrowserToolLoopWorker::new(
             provider,
@@ -1156,6 +1187,7 @@ impl ToolLoopWorker {
             approval_manager,
             self_learning,
             memory,
+            click_at_preflight,
         )
     }
 
@@ -1175,6 +1207,7 @@ impl ToolLoopWorker {
         approval_manager: Option<Arc<ApprovalManager>>,
         self_learning: bool,
         memory: Arc<dyn Memory>,
+        click_at_preflight: crate::config::ClickAtPreflightMode,
     ) -> EditorToolLoopWorker {
         EditorToolLoopWorker::new(
             provider,
@@ -1191,6 +1224,7 @@ impl ToolLoopWorker {
             approval_manager,
             self_learning,
             memory,
+            click_at_preflight,
         )
     }
 
@@ -1210,6 +1244,7 @@ impl ToolLoopWorker {
         approval_manager: Option<Arc<ApprovalManager>>,
         self_learning: bool,
         memory: Arc<dyn Memory>,
+        click_at_preflight: crate::config::ClickAtPreflightMode,
     ) -> FallbackToolLoopWorker {
         FallbackToolLoopWorker::new(
             provider,
@@ -1226,6 +1261,7 @@ impl ToolLoopWorker {
             approval_manager,
             self_learning,
             memory,
+            click_at_preflight,
         )
     }
 }
@@ -1250,6 +1286,7 @@ impl ConversationToolLoopWorker {
         max_tool_iterations: usize,
         self_learning: bool,
         memory: Arc<dyn Memory>,
+        click_at_preflight: crate::config::ClickAtPreflightMode,
     ) -> TerminalConversationToolLoopWorker {
         TerminalConversationToolLoopWorker::new(
             history,
@@ -1266,6 +1303,7 @@ impl ConversationToolLoopWorker {
             max_tool_iterations,
             self_learning,
             memory,
+            click_at_preflight,
         )
     }
 
@@ -1285,6 +1323,7 @@ impl ConversationToolLoopWorker {
         max_tool_iterations: usize,
         self_learning: bool,
         memory: Arc<dyn Memory>,
+        click_at_preflight: crate::config::ClickAtPreflightMode,
     ) -> BrowserConversationToolLoopWorker {
         BrowserConversationToolLoopWorker::new(
             history,
@@ -1301,6 +1340,7 @@ impl ConversationToolLoopWorker {
             max_tool_iterations,
             self_learning,
             memory,
+            click_at_preflight,
         )
     }
 
@@ -1320,6 +1360,7 @@ impl ConversationToolLoopWorker {
         max_tool_iterations: usize,
         self_learning: bool,
         memory: Arc<dyn Memory>,
+        click_at_preflight: crate::config::ClickAtPreflightMode,
     ) -> EditorConversationToolLoopWorker {
         EditorConversationToolLoopWorker::new(
             history,
@@ -1336,6 +1377,7 @@ impl ConversationToolLoopWorker {
             max_tool_iterations,
             self_learning,
             memory,
+            click_at_preflight,
         )
     }
 
@@ -1355,6 +1397,7 @@ impl ConversationToolLoopWorker {
         max_tool_iterations: usize,
         self_learning: bool,
         memory: Arc<dyn Memory>,
+        click_at_preflight: crate::config::ClickAtPreflightMode,
     ) -> FallbackConversationToolLoopWorker {
         FallbackConversationToolLoopWorker::new(
             history,
@@ -1371,6 +1414,7 @@ impl ConversationToolLoopWorker {
             max_tool_iterations,
             self_learning,
             memory,
+            click_at_preflight,
         )
     }
 }
@@ -1439,6 +1483,7 @@ mod tests {
             None,
             false,
             Arc::new(NoneMemory::new()),
+            crate::config::ClickAtPreflightMode::default(),
         );
 
         let result = worker
@@ -1497,6 +1542,7 @@ mod tests {
             None,
             false,
             Arc::new(NoneMemory::new()),
+            crate::config::ClickAtPreflightMode::default(),
         );
         let contract = worker.capability_contract();
         assert_eq!(contract.app_family, "terminal");
@@ -1525,6 +1571,7 @@ mod tests {
             8,
             false,
             Arc::new(NoneMemory::new()),
+            crate::config::ClickAtPreflightMode::default(),
         );
 
         let result = worker

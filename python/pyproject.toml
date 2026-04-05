@@ -10,10 +10,11 @@ readme = "README.md"
 license = { text = "MIT OR Apache-2.0" }
 requires-python = ">=3.10"
 authors = [
-    { name = "Gloamy Community" }
+    { name = "iBz-04" }
 ]
 keywords = [
     "ai",
+    "agentic"
     "llm",
     "agent",
     "langgraph",

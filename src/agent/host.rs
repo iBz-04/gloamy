@@ -31,9 +31,7 @@ struct ScreenStateDiff {
 
 impl ScreenStateDiff {
     fn has_meaningful_change(&self) -> bool {
-        self.app_changed
-            || self.widget_tree_changed
-            || self.ocr_count_changed
+        self.app_changed || self.widget_tree_changed || self.ocr_count_changed
     }
 }
 

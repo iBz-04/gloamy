@@ -345,7 +345,11 @@ impl GroundingExpert for VisionRoutingGroundingExpert {
             while let Ok(Some(entry)) = entries.next_entry().await {
                 if let Ok(metadata) = entry.metadata().await {
                     if let Ok(modified) = metadata.modified() {
-                        if modified.elapsed().unwrap_or(std::time::Duration::from_secs(0)) > threshold {
+                        if modified
+                            .elapsed()
+                            .unwrap_or(std::time::Duration::from_secs(0))
+                            > threshold
+                        {
                             let _ = tokio::fs::remove_file(entry.path()).await;
                         }
                     }

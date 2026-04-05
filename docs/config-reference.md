@@ -326,6 +326,7 @@ Notes:
 | `approval_gate` | `supervised_only` | When to require approval for browser and `mac_automation` actions: `always`, `supervised_only`, or `never` |
 | `approval_threshold` | `irreversible` | Reversibility bucket that triggers approval: `partially_reversible`, `irreversible`, or `unknown` |
 | `approval_timeout_secs` | `120` | Timeout for native GUI approval prompts when supported; `0` waits indefinitely |
+| `click_at_preflight` | `widget_and_ocr` | Required perception modalities before `mac_automation click_at` is allowed: `widget_and_ocr`, `widget_only`, or `none` |
 
 Notes:
 
@@ -334,6 +335,9 @@ Notes:
 - `approval_threshold = "irreversible"` prompts only for actions classified `irreversible`.
 - `approval_threshold = "partially_reversible"` also prompts for partially reversible actions such as window-closing or actions that may have an undo path.
 - `approval_threshold = "unknown"` prompts only when action reversibility cannot be classified.
+- `click_at_preflight = "widget_and_ocr"` (default) requires a successful `perception_capture` with both `include_widget_tree=true` and `include_ocr=true` before any `mac_automation click_at` call is allowed.
+- `click_at_preflight = "widget_only"` relaxes the requirement to widget-tree alone, useful when OCR is unavailable or too slow.
+- `click_at_preflight = "none"` disables the preflight gate entirely, allowing `click_at` without any prior perception capture.
 
 ## `[http_request]`
 

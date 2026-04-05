@@ -39,6 +39,17 @@ const TELEGRAM_BIND_COMMAND: &str = "/bind";
 /// Split a message into chunks that respect Telegram's 4096 character limit.
 /// Tries to split at word boundaries when possible, and handles continuation.
 /// The effective per-chunk limit is reduced to leave room for continuation markers.
+/// Truncate `text` to at most `max_chars` Unicode scalar values (byte-safe).
+fn truncate_str_to_telegram_chars(text: &str, max_chars: usize) -> &str {
+    if text.chars().count() <= max_chars {
+        return text;
+    }
+    text.char_indices()
+        .nth(max_chars)
+        .map(|(idx, _)| &text[..idx])
+        .unwrap_or(text)
+}
+
 fn split_message_for_telegram(message: &str) -> Vec<String> {
     if message.chars().count() <= TELEGRAM_MAX_MESSAGE_LENGTH {
         return vec![message.to_string()];
@@ -2259,20 +2270,8 @@ impl Channel for TelegramChannel {
             }
         }
 
-        // Truncate to Telegram limit for mid-stream edits (UTF-8 safe)
-        let display_text = if text.len() > TELEGRAM_MAX_MESSAGE_LENGTH {
-            let mut end = 0;
-            for (idx, ch) in text.char_indices() {
-                let next = idx + ch.len_utf8();
-                if next > TELEGRAM_MAX_MESSAGE_LENGTH {
-                    break;
-                }
-                end = next;
-            }
-            &text[..end]
-        } else {
-            text
-        };
+        // Truncate to Telegram's character limit (not raw UTF-8 byte length).
+        let display_text = truncate_str_to_telegram_chars(text, TELEGRAM_MAX_MESSAGE_LENGTH);
 
         let message_id_parsed = match message_id.parse::<i64>() {
             Ok(id) => id,
@@ -2363,8 +2362,8 @@ impl Channel for TelegramChannel {
             return Ok(());
         }
 
-        // If text exceeds limit, delete draft and send as chunked messages
-        if text.len() > TELEGRAM_MAX_MESSAGE_LENGTH {
+        // If text exceeds Telegram's character limit, delete draft and send as chunked messages
+        if text.chars().count() > TELEGRAM_MAX_MESSAGE_LENGTH {
             if let Some(id) = msg_id {
                 let _ = self
                     .client
@@ -2389,37 +2388,48 @@ impl Channel for TelegramChannel {
                 .await;
         };
 
-        // Try editing with HTML formatting
-        let body = serde_json::json!({
-            "chat_id": chat_id,
-            "message_id": id,
-            "text": Self::markdown_to_telegram_html(text),
-            "parse_mode": "HTML",
-        });
+        let html_text = Self::markdown_to_telegram_html(text);
+        let html_attempt: Option<(reqwest::StatusCode, String)> =
+            if html_text.chars().count() <= TELEGRAM_MAX_MESSAGE_LENGTH {
+                let body = serde_json::json!({
+                    "chat_id": chat_id,
+                    "message_id": id,
+                    "text": html_text,
+                    "parse_mode": "HTML",
+                });
 
-        let resp = self
-            .client
-            .post(self.api_url("editMessageText"))
-            .json(&body)
-            .send()
-            .await?;
+                let resp = self
+                    .client
+                    .post(self.api_url("editMessageText"))
+                    .json(&body)
+                    .send()
+                    .await?;
 
-        if resp.status().is_success() {
-            return Ok(());
-        }
+                if resp.status().is_success() {
+                    return Ok(());
+                }
 
-        let html_status = resp.status();
-        let html_err = resp.text().await.unwrap_or_default();
-        if Self::is_message_not_modified(&html_err) {
-            return Ok(());
-        }
-        tracing::debug!(
-            status = %html_status,
-            error = %html_err,
-            "Telegram finalize_draft HTML edit failed; retrying without parse_mode"
-        );
+                let html_status = resp.status();
+                let html_err = resp.text().await.unwrap_or_default();
+                if Self::is_message_not_modified(&html_err) {
+                    return Ok(());
+                }
+                tracing::debug!(
+                    status = %html_status,
+                    error = %html_err,
+                    "Telegram finalize_draft HTML edit failed; retrying without parse_mode"
+                );
+                Some((html_status, html_err))
+            } else {
+                tracing::debug!(
+                    rendered_chars = html_text.chars().count(),
+                    limit = TELEGRAM_MAX_MESSAGE_LENGTH,
+                    "Telegram finalize_draft: skipping HTML parse_mode (rendered text too long)"
+                );
+                None
+            };
 
-        // Markdown failed — retry without parse_mode
+        // HTML missing, too long, or failed — retry without parse_mode
         let plain_body = serde_json::json!({
             "chat_id": chat_id,
             "message_id": id,
@@ -2445,8 +2455,7 @@ impl Channel for TelegramChannel {
 
         // Edit failed entirely — fall back to new message
         tracing::warn!(
-            html_status = %html_status,
-            html_error = %html_err,
+            html_error = ?html_attempt.as_ref().map(|(_, e)| e),
             plain_status = %plain_status,
             plain_error = %plain_err,
             "Telegram finalize_draft edit failed; falling back to sendMessage"
@@ -2694,8 +2703,9 @@ Ensure only one `gloamy` process is using this bot token."
                     }
 
                     // Send "typing" indicator immediately when we receive a message
+                    let (typing_chat_id, _) = Self::parse_reply_target(&msg.reply_target);
                     let typing_body = serde_json::json!({
-                        "chat_id": &msg.reply_target,
+                        "chat_id": typing_chat_id,
                         "action": "typing"
                     });
                     let _ = self
@@ -2735,35 +2745,38 @@ Ensure only one `gloamy` process is using this bot token."
     }
 
     async fn start_typing(&self, recipient: &str) -> anyhow::Result<()> {
-        self.stop_typing(recipient).await?;
-
-        let client = self.http_client();
-        let url = self.api_url("sendChatAction");
-        let chat_id = recipient.to_string();
-
-        let handle = tokio::spawn(async move {
-            loop {
-                let body = serde_json::json!({
-                    "chat_id": &chat_id,
-                    "action": "typing"
-                });
-                let _ = client.post(&url).json(&body).send().await;
-                // Telegram typing indicator expires after 5s; refresh at 4s
-                tokio::time::sleep(Duration::from_secs(4)).await;
-            }
+        let (chat_id, _) = Self::parse_reply_target(recipient);
+        let body = serde_json::json!({
+            "chat_id": chat_id,
+            "action": "typing"
         });
-
-        let mut guard = self.typing_handle.lock();
-        *guard = Some(handle);
-
+        let _ = self
+            .http_client()
+            .post(self.api_url("sendChatAction"))
+            .json(&body)
+            .send()
+            .await;
         Ok(())
     }
 
-    async fn stop_typing(&self, _recipient: &str) -> anyhow::Result<()> {
-        let mut guard = self.typing_handle.lock();
-        if let Some(handle) = guard.take() {
-            handle.abort();
-        }
+    async fn stop_typing(&self, recipient: &str) -> anyhow::Result<()> {
+        // Telegram typing indicator auto-expires after ~5s and is normally
+        // cleared when a message is sent, but a refresh race can keep it
+        // visible. Sending any non-typing chat action (e.g. "cancel")
+        // clears it immediately. "cancel" is not officially documented
+        // but is accepted by the Bot API as a no-op action that resets
+        // the typing state.
+        let (chat_id, _) = Self::parse_reply_target(recipient);
+        let body = serde_json::json!({
+            "chat_id": chat_id,
+            "action": "cancel"
+        });
+        let _ = self
+            .http_client()
+            .post(self.api_url("sendChatAction"))
+            .json(&body)
+            .send()
+            .await;
         Ok(())
     }
 }
@@ -2817,41 +2830,18 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn stop_typing_clears_handle() {
+    async fn stop_typing_sends_cancel_chat_action() {
         let ch = TelegramChannel::new("fake-token".into(), vec!["*".into()], false);
-
-        // Manually insert a dummy handle
-        {
-            let mut guard = ch.typing_handle.lock();
-            *guard = Some(tokio::spawn(async {
-                tokio::time::sleep(Duration::from_secs(60)).await;
-            }));
-        }
-
-        // stop_typing should abort and clear
+        // Uses sendChatAction "cancel" to clear typing (network errors ignored).
         ch.stop_typing("123").await.unwrap();
-
-        let guard = ch.typing_handle.lock();
-        assert!(guard.is_none());
+        ch.stop_typing("456:789").await.unwrap();
     }
 
-    #[tokio::test]
-    async fn start_typing_replaces_previous_handle() {
-        let ch = TelegramChannel::new("fake-token".into(), vec!["*".into()], false);
-
-        // Insert a dummy handle first
-        {
-            let mut guard = ch.typing_handle.lock();
-            *guard = Some(tokio::spawn(async {
-                tokio::time::sleep(Duration::from_secs(60)).await;
-            }));
-        }
-
-        // start_typing should abort the old handle and set a new one
-        let _ = ch.start_typing("123").await;
-
-        let guard = ch.typing_handle.lock();
-        assert!(guard.is_some());
+    #[test]
+    fn truncate_str_to_telegram_chars_respects_scalar_count() {
+        let s = "😀".repeat(3000);
+        assert_eq!(truncate_str_to_telegram_chars(&s, 10).chars().count(), 10);
+        assert_eq!(truncate_str_to_telegram_chars("abc", 4096), "abc");
     }
 
     #[test]

@@ -1830,6 +1830,7 @@ mod tests {
             approval_gate: GuiApprovalGate::Always,
             approval_threshold: GuiApprovalThreshold::Unknown,
             approval_timeout_secs: 30,
+            click_at_preflight: crate::config::ClickAtPreflightMode::default(),
         };
         assert!(needs_gui_approval(
             &config,
@@ -1859,6 +1860,7 @@ mod tests {
             approval_gate: GuiApprovalGate::Always,
             approval_threshold: GuiApprovalThreshold::PartiallyReversible,
             approval_timeout_secs: 30,
+            click_at_preflight: crate::config::ClickAtPreflightMode::default(),
         };
         assert!(needs_gui_approval(
             &config,

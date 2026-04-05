@@ -276,6 +276,7 @@ struct ChannelRuntimeContext {
     hooks: Option<Arc<crate::hooks::HookRunner>>,
     non_cli_excluded_tools: Arc<Vec<String>>,
     task_store: Arc<dyn TaskStore>,
+    click_at_preflight: crate::config::ClickAtPreflightMode,
 }
 
 #[derive(Clone)]
@@ -322,6 +323,7 @@ struct ChannelToolLoopWorker {
     hooks: Option<Arc<crate::hooks::HookRunner>>,
     excluded_tools: Vec<String>,
     task_persistence: Option<ChannelTaskPersistenceOwned>,
+    click_at_preflight: crate::config::ClickAtPreflightMode,
 }
 
 impl ChannelToolLoopWorker {
@@ -342,6 +344,7 @@ impl ChannelToolLoopWorker {
         hooks: Option<Arc<crate::hooks::HookRunner>>,
         excluded_tools: Vec<String>,
         task_persistence: Option<ChannelTaskPersistenceOwned>,
+        click_at_preflight: crate::config::ClickAtPreflightMode,
     ) -> Self {
         Self {
             provider,
@@ -359,6 +362,7 @@ impl ChannelToolLoopWorker {
             hooks,
             excluded_tools,
             task_persistence,
+            click_at_preflight,
         }
     }
 }
@@ -414,6 +418,7 @@ impl AppWorker for ChannelToolLoopWorker {
             &self.excluded_tools,
             task_persistence.as_ref(),
             None, // Channels don't track tool outcomes for self-learning (no access to config/memory)
+            self.click_at_preflight,
         )
         .await;
 
@@ -1861,6 +1866,7 @@ async fn process_channel_message(
     }
 
     println!("  ⏳ Processing message...");
+    let _ = std::io::Write::flush(&mut std::io::stdout());
     let started_at = Instant::now();
 
     let mut had_prior_history = ctx
@@ -2065,6 +2071,7 @@ async fn process_channel_message(
         ctx.hooks.clone(),
         excluded_tools,
         Some(task_persistence),
+        ctx.click_at_preflight,
     );
     let episode_session_id = format!("channel_host_{history_key}");
     let episode_manager = match EpisodeManager::load_or_new(
@@ -2095,16 +2102,23 @@ async fn process_channel_message(
         ) => LlmExecutionResult::Completed(result.map(|inner| inner.map(|tool_result| tool_result.output))),
     };
     let history = shared_history.lock().await.clone();
+    // `ChannelToolLoopWorker` holds the draft `delta_tx`. The draft updater task
+    // only exits after all senders drop; `host_agent` owns the worker `Arc`, so
+    // we must drop it before awaiting the draft task — otherwise we deadlock and
+    // never reach the terminal "🤖 Reply" log or finalize/send the message.
+    drop(host_agent);
 
-    if let Some(handle) = draft_updater {
-        let _ = handle.await;
-    }
-
+    // Cancel typing indicator immediately so it doesn't keep refreshing
+    // while the draft updater drains remaining deltas.
     if let Some(token) = typing_cancellation.as_ref() {
         token.cancel();
     }
     if let Some(handle) = typing_task {
         log_worker_join_result(handle.await);
+    }
+
+    if let Some(handle) = draft_updater {
+        let _ = handle.await;
     }
 
     let reaction_done_emoji = match &llm_result {
@@ -2269,6 +2283,7 @@ async fn process_channel_message(
                 started_at.elapsed().as_millis(),
                 truncate_with_ellipsis(&delivered_response, 80)
             );
+            let _ = std::io::Write::flush(&mut std::io::stdout());
             if let Some(channel) = target_channel.as_ref() {
                 let auto_voice_candidate = auto_voice_reply_plan != AutoVoiceReplyPlan::Disabled
                     && !delivered_response.trim().is_empty()
@@ -2571,6 +2586,13 @@ async fn process_channel_message(
                 }
             }
         }
+    }
+
+    // Second stop clears typing after outbound delivery: avoids races where the
+    // last sendChatAction(typing) from the refresh loop or webhook landed just
+    // before cancel, and aligns Telegram UI with the finished reply.
+    if let Some(channel) = target_channel.as_ref() {
+        let _ = channel.stop_typing(&msg.reply_target).await;
     }
 
     // Swap 👀 → ✅ (or ⚠️ on error) to signal processing is complete
@@ -3873,6 +3895,7 @@ async fn start_channels_internal(config: Config, run_scheduler: bool) -> Result<
         },
         non_cli_excluded_tools: Arc::new(config.autonomy.non_cli_excluded_tools.clone()),
         task_store,
+        click_at_preflight: config.gui_verification.click_at_preflight,
     });
 
     run_message_dispatch_loop(rx, runtime_ctx, max_in_flight_messages).await;
@@ -4228,6 +4251,7 @@ mod tests {
             message_timeout_secs: CHANNEL_MESSAGE_TIMEOUT_SECS,
             non_cli_excluded_tools: Arc::new(Vec::new()),
             task_store: Arc::new(MockTaskStore::default()),
+            click_at_preflight: crate::config::ClickAtPreflightMode::default(),
         };
 
         assert!(compact_sender_history(&ctx, &sender));
@@ -4279,6 +4303,7 @@ mod tests {
             message_timeout_secs: CHANNEL_MESSAGE_TIMEOUT_SECS,
             non_cli_excluded_tools: Arc::new(Vec::new()),
             task_store: Arc::new(MockTaskStore::default()),
+            click_at_preflight: crate::config::ClickAtPreflightMode::default(),
         };
 
         append_sender_turn(&ctx, &sender, ChatMessage::user("hello"));
@@ -4333,6 +4358,7 @@ mod tests {
             message_timeout_secs: CHANNEL_MESSAGE_TIMEOUT_SECS,
             non_cli_excluded_tools: Arc::new(Vec::new()),
             task_store: Arc::new(MockTaskStore::default()),
+            click_at_preflight: crate::config::ClickAtPreflightMode::default(),
         };
 
         assert!(rollback_orphan_user_turn(&ctx, &sender, "pending"));
@@ -4384,6 +4410,7 @@ mod tests {
             message_timeout_secs: CHANNEL_MESSAGE_TIMEOUT_SECS,
             non_cli_excluded_tools: Arc::new(Vec::new()),
             task_store: store.clone(),
+            click_at_preflight: crate::config::ClickAtPreflightMode::default(),
         };
 
         store
@@ -4673,6 +4700,7 @@ mod tests {
             hooks: None,
             non_cli_excluded_tools: Arc::new(Vec::new()),
             task_store: Arc::new(MockTaskStore::default()),
+            click_at_preflight: crate::config::ClickAtPreflightMode::default(),
         })
     }
 
@@ -5000,6 +5028,7 @@ BTC is currently around $65,000 based on latest tool output."#
             multimodal: crate::config::MultimodalConfig::default(),
             tts: crate::config::TtsConfig::default(),
             hooks: None,
+            click_at_preflight: crate::config::ClickAtPreflightMode::default(),
         });
 
         process_channel_message(
@@ -5061,6 +5090,7 @@ BTC is currently around $65,000 based on latest tool output."#
             multimodal: crate::config::MultimodalConfig::default(),
             tts: crate::config::TtsConfig::default(),
             hooks: None,
+            click_at_preflight: crate::config::ClickAtPreflightMode::default(),
         });
 
         process_channel_message(
@@ -5263,6 +5293,7 @@ BTC is currently around $65,000 based on latest tool output."#
             hooks: None,
             non_cli_excluded_tools: Arc::new(Vec::new()),
             task_store: Arc::new(MockTaskStore::default()),
+            click_at_preflight: crate::config::ClickAtPreflightMode::default(),
         });
 
         process_channel_message(
@@ -5324,6 +5355,7 @@ BTC is currently around $65,000 based on latest tool output."#
             hooks: None,
             non_cli_excluded_tools: Arc::new(Vec::new()),
             task_store: Arc::new(MockTaskStore::default()),
+            click_at_preflight: crate::config::ClickAtPreflightMode::default(),
         });
 
         process_channel_message(
@@ -5394,6 +5426,7 @@ BTC is currently around $65,000 based on latest tool output."#
             hooks: None,
             non_cli_excluded_tools: Arc::new(Vec::new()),
             task_store: Arc::new(MockTaskStore::default()),
+            click_at_preflight: crate::config::ClickAtPreflightMode::default(),
         });
 
         process_channel_message(
@@ -5485,6 +5518,7 @@ BTC is currently around $65,000 based on latest tool output."#
             hooks: None,
             non_cli_excluded_tools: Arc::new(Vec::new()),
             task_store: Arc::new(MockTaskStore::default()),
+            click_at_preflight: crate::config::ClickAtPreflightMode::default(),
         });
 
         process_channel_message(
@@ -5558,6 +5592,7 @@ BTC is currently around $65,000 based on latest tool output."#
             hooks: None,
             non_cli_excluded_tools: Arc::new(Vec::new()),
             task_store: Arc::new(MockTaskStore::default()),
+            click_at_preflight: crate::config::ClickAtPreflightMode::default(),
         });
 
         process_channel_message(
@@ -5646,6 +5681,7 @@ BTC is currently around $65,000 based on latest tool output."#
             hooks: None,
             non_cli_excluded_tools: Arc::new(Vec::new()),
             task_store: Arc::new(MockTaskStore::default()),
+            click_at_preflight: crate::config::ClickAtPreflightMode::default(),
         });
 
         process_channel_message(
@@ -5719,6 +5755,7 @@ BTC is currently around $65,000 based on latest tool output."#
             hooks: None,
             non_cli_excluded_tools: Arc::new(Vec::new()),
             task_store: Arc::new(MockTaskStore::default()),
+            click_at_preflight: crate::config::ClickAtPreflightMode::default(),
         });
 
         process_channel_message(
@@ -5781,6 +5818,7 @@ BTC is currently around $65,000 based on latest tool output."#
             hooks: None,
             non_cli_excluded_tools: Arc::new(Vec::new()),
             task_store: Arc::new(MockTaskStore::default()),
+            click_at_preflight: crate::config::ClickAtPreflightMode::default(),
         });
 
         process_channel_message(
@@ -5954,6 +5992,7 @@ BTC is currently around $65,000 based on latest tool output."#
             hooks: None,
             non_cli_excluded_tools: Arc::new(Vec::new()),
             task_store: Arc::new(MockTaskStore::default()),
+            click_at_preflight: crate::config::ClickAtPreflightMode::default(),
         });
 
         let (tx, rx) = tokio::sync::mpsc::channel::<traits::ChannelMessage>(4);
@@ -6036,6 +6075,7 @@ BTC is currently around $65,000 based on latest tool output."#
             hooks: None,
             non_cli_excluded_tools: Arc::new(Vec::new()),
             task_store: Arc::new(MockTaskStore::default()),
+            click_at_preflight: crate::config::ClickAtPreflightMode::default(),
         });
 
         let (tx, rx) = tokio::sync::mpsc::channel::<traits::ChannelMessage>(8);
@@ -6130,6 +6170,7 @@ BTC is currently around $65,000 based on latest tool output."#
             hooks: None,
             non_cli_excluded_tools: Arc::new(Vec::new()),
             task_store: Arc::new(MockTaskStore::default()),
+            click_at_preflight: crate::config::ClickAtPreflightMode::default(),
         });
 
         let (tx, rx) = tokio::sync::mpsc::channel::<traits::ChannelMessage>(8);
@@ -6206,6 +6247,7 @@ BTC is currently around $65,000 based on latest tool output."#
             hooks: None,
             non_cli_excluded_tools: Arc::new(Vec::new()),
             task_store: Arc::new(MockTaskStore::default()),
+            click_at_preflight: crate::config::ClickAtPreflightMode::default(),
         });
 
         process_channel_message(
@@ -6226,7 +6268,10 @@ BTC is currently around $65,000 based on latest tool output."#
         let starts = channel_impl.start_typing_calls.load(Ordering::SeqCst);
         let stops = channel_impl.stop_typing_calls.load(Ordering::SeqCst);
         assert_eq!(starts, 1, "start_typing should be called once");
-        assert_eq!(stops, 1, "stop_typing should be called once");
+        assert_eq!(
+            stops, 2,
+            "stop_typing once from scoped typing task exit and once post-delivery to clear Telegram races"
+        );
     }
 
     #[tokio::test]
@@ -6267,6 +6312,7 @@ BTC is currently around $65,000 based on latest tool output."#
             hooks: None,
             non_cli_excluded_tools: Arc::new(Vec::new()),
             task_store: Arc::new(MockTaskStore::default()),
+            click_at_preflight: crate::config::ClickAtPreflightMode::default(),
         });
 
         process_channel_message(
@@ -6790,6 +6836,7 @@ BTC is currently around $65,000 based on latest tool output."#
             hooks: None,
             non_cli_excluded_tools: Arc::new(Vec::new()),
             task_store: Arc::new(MockTaskStore::default()),
+            click_at_preflight: crate::config::ClickAtPreflightMode::default(),
         });
 
         process_channel_message(
@@ -6877,6 +6924,7 @@ BTC is currently around $65,000 based on latest tool output."#
             hooks: None,
             non_cli_excluded_tools: Arc::new(Vec::new()),
             task_store: Arc::new(MockTaskStore::default()),
+            click_at_preflight: crate::config::ClickAtPreflightMode::default(),
         });
 
         process_channel_message(
@@ -6964,6 +7012,7 @@ BTC is currently around $65,000 based on latest tool output."#
             hooks: None,
             non_cli_excluded_tools: Arc::new(Vec::new()),
             task_store: Arc::new(MockTaskStore::default()),
+            click_at_preflight: crate::config::ClickAtPreflightMode::default(),
         });
 
         process_channel_message(
@@ -7515,6 +7564,7 @@ This is an example JSON object for profile settings."#;
             hooks: None,
             non_cli_excluded_tools: Arc::new(Vec::new()),
             task_store: Arc::new(MockTaskStore::default()),
+            click_at_preflight: crate::config::ClickAtPreflightMode::default(),
         });
 
         // Simulate a photo attachment message with [IMAGE:] marker.
@@ -7583,6 +7633,7 @@ This is an example JSON object for profile settings."#;
             hooks: None,
             non_cli_excluded_tools: Arc::new(Vec::new()),
             task_store: Arc::new(MockTaskStore::default()),
+            click_at_preflight: crate::config::ClickAtPreflightMode::default(),
         });
 
         process_channel_message(

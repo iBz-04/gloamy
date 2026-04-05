@@ -1219,6 +1219,26 @@ impl Default for BrowserConfig {
     }
 }
 
+/// Strictness level for the perception preflight gate that guards `mac_automation click_at`.
+///
+/// - `widget_and_ocr` (default): requires `perception_capture` with both `include_widget_tree=true`
+///   and `include_ocr=true` to complete successfully before any `click_at`.
+/// - `widget_only`: requires only `include_widget_tree=true`. Sufficient for most GUI navigation
+///   tasks where the accessibility tree provides enough coordinate context.
+/// - `none`: disables the preflight gate entirely. The agent decides when to call
+///   `perception_capture`. Simplest, but removes the safety guardrail.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, JsonSchema, PartialEq, Eq, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum ClickAtPreflightMode {
+    /// Require widget tree + OCR before click_at (original strict behavior).
+    #[default]
+    WidgetAndOcr,
+    /// Require widget tree only before click_at.
+    WidgetOnly,
+    /// No preflight gate; agent decides when to observe.
+    None,
+}
+
 /// How GUI approvals should be enforced for browser and desktop actions.
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, JsonSchema, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
@@ -1249,6 +1269,10 @@ pub struct GuiVerificationConfig {
     /// Timeout for native GUI approval prompts. `0` blocks indefinitely when supported.
     #[serde(default = "default_gui_approval_timeout_secs")]
     pub approval_timeout_secs: u64,
+    /// How strict the perception preflight gate is before `mac_automation click_at`.
+    /// Default: `widget_and_ocr` (original behavior).
+    #[serde(default)]
+    pub click_at_preflight: ClickAtPreflightMode,
 }
 
 fn default_gui_approval_gate() -> GuiApprovalGate {
@@ -1269,6 +1293,7 @@ impl Default for GuiVerificationConfig {
             approval_gate: default_gui_approval_gate(),
             approval_threshold: default_gui_approval_threshold(),
             approval_timeout_secs: default_gui_approval_timeout_secs(),
+            click_at_preflight: ClickAtPreflightMode::default(),
         }
     }
 }

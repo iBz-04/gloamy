@@ -590,6 +590,7 @@ impl AppWorker for DelegateAgenticWorker {
             &[],
             None,
             None, // Delegate worker doesn't track outcomes for self-learning
+            crate::config::ClickAtPreflightMode::default(),
         )
         .await;
 
