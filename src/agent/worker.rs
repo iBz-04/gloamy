@@ -7,6 +7,7 @@ use crate::perception::traits::ScreenState;
 use crate::providers::{ChatMessage, Provider};
 use crate::tools::traits::{Tool, ToolResult};
 use async_trait::async_trait;
+use std::fmt::Write as _;
 use std::sync::Arc;
 use tokio::sync::Mutex;
 
@@ -163,19 +164,26 @@ fn augment_instruction_with_contract(
     }
 
     instruction.push_str("[Worker capability contract]\n");
-    instruction.push_str(&format!("- App family: {}\n", contract.app_family));
-    instruction.push_str(&format!(
-        "- Preferred tools: {}\n",
+    writeln!(instruction, "- App family: {}", contract.app_family)
+        .expect("writing app family to worker instruction");
+    writeln!(
+        instruction,
+        "- Preferred tools: {}",
         csv_or_none(contract.preferred_tools)
-    ));
-    instruction.push_str(&format!(
-        "- Restricted tools: {}\n",
+    )
+    .expect("writing preferred tools to worker instruction");
+    writeln!(
+        instruction,
+        "- Restricted tools: {}",
         csv_or_none(contract.restricted_tools)
-    ));
-    instruction.push_str(&format!(
-        "- Escalation policy: {}\n",
+    )
+    .expect("writing restricted tools to worker instruction");
+    writeln!(
+        instruction,
+        "- Escalation policy: {}",
         contract.escalation_policy
-    ));
+    )
+    .expect("writing escalation policy to worker instruction");
     instruction.push_str("\n[Worker execution policy]\n");
     instruction.push_str(policy_prompt.trim());
     instruction
@@ -1021,6 +1029,7 @@ impl AppWorker for FallbackConversationToolLoopWorker {
 pub struct ToolLoopWorker;
 
 impl ToolLoopWorker {
+    #[allow(clippy::new_ret_no_self)]
     #[allow(clippy::too_many_arguments)]
     pub fn new(
         provider: Arc<dyn Provider>,

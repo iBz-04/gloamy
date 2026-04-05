@@ -87,6 +87,7 @@ Required:
 Required:
 
 - Keep each module focused on one concern.
+- Do not make monolithic files
 - Extend behavior by implementing existing narrow traits whenever possible.
 - Avoid fat interfaces and “god modules” that mix policy + transport + storage.
 

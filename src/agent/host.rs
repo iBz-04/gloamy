@@ -4,6 +4,7 @@ use crate::perception::traits::{PerceptionProvider, ScreenState};
 use crate::tools::traits::ToolResult;
 use anyhow::{anyhow, Result};
 use std::collections::VecDeque;
+use std::fmt::Write as _;
 use std::sync::Arc;
 
 const MAX_PLANNED_STEPS: usize = 8;
@@ -18,6 +19,7 @@ enum PostStepDecision {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[allow(clippy::struct_excessive_bools)]
 struct ScreenStateDiff {
     app_before: String,
     app_after: Option<String>,
@@ -427,10 +429,12 @@ impl HostAgent {
                 format!("Recover and re-attempt safely: {}", completed_step.trim());
             if state_diff.app_changed {
                 if let Some(app_after) = state_diff.app_after.as_deref() {
-                    recovery_step.push_str(&format!(
+                    write!(
+                        recovery_step,
                         " (runtime app moved from '{}' to '{}')",
                         state_diff.app_before, app_after
-                    ));
+                    )
+                    .expect("writing runtime app transition to string");
                 }
             } else if state_diff.capture_failed {
                 recovery_step.push_str(" (state-after capture failed; validate before retry)");

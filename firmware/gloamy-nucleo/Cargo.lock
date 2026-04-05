@@ -834,7 +834,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "zeroclaw-nucleo"
+name = "gloamy-nucleo"
 version = "0.1.0"
 dependencies = [
  "cortex-m-rt",
