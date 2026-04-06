@@ -19,7 +19,6 @@
     "core:resources:default",
     "core:menu:default",
     "core:tray:default",
-    "shell:default",
     "shell:allow-open",
     "store:default",
     "log:default",

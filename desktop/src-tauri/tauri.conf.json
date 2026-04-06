@@ -30,6 +30,11 @@
       "csp": null
     }
   },
+  "plugins": {
+    "shell": {
+      "open": ".*"
+    }
+  },
   "bundle": {
     "active": true,
     "targets": "all",

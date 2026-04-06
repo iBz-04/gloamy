@@ -15,6 +15,11 @@
       }
     ]
   },
+  "plugins": {
+    "shell": {
+      "open": ".*"
+    }
+  },
   "bundle": {
     "macOS": {
       "signingIdentity": "-",

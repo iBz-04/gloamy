@@ -6,6 +6,7 @@ use crate::approval::ApprovalManager;
 use crate::config::DelegateAgentConfig;
 use crate::memory::episode::EpisodeManager;
 use crate::memory::{Memory, NoneMemory};
+use crate::observability::runtime_trace;
 use crate::observability::traits::{Observer, ObserverEvent, ObserverMetric};
 use crate::perception::traits::{PerceptionProvider, ScreenState};
 use crate::providers::{self, Provider};
@@ -14,9 +15,10 @@ use crate::security::SecurityPolicy;
 use async_trait::async_trait;
 use serde_json::json;
 use sha2::{Digest, Sha256};
-use std::collections::HashMap;
-use std::sync::Arc;
-use std::time::Duration;
+use std::collections::{BTreeSet, HashMap};
+use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant};
+use uuid::Uuid;
 
 /// Default timeout for sub-agent provider calls.
 const DELEGATE_TIMEOUT_SECS: u64 = 600;
@@ -27,6 +29,138 @@ fn delegate_session_id(agent_name: &str, execution_channel: &str, prompt: &str) 
     let seed = format!("{execution_channel}:{agent_name}:{prompt}");
     let digest = Sha256::digest(seed.as_bytes());
     format!("delegate_agentic_{}", &hex::encode(digest)[..16])
+}
+
+#[derive(Debug, Clone, Default)]
+struct DelegateToolCallReport {
+    total_calls: usize,
+    successful_calls: usize,
+    failed_calls: usize,
+    tools_used: BTreeSet<String>,
+}
+
+impl DelegateToolCallReport {
+    fn from_outcomes(outcomes: &[crate::agent::lesson::ToolOutcome]) -> Self {
+        let mut report = Self::default();
+        report.record_outcomes(outcomes);
+        report
+    }
+
+    fn record_outcomes(&mut self, outcomes: &[crate::agent::lesson::ToolOutcome]) {
+        for outcome in outcomes {
+            self.total_calls += 1;
+            if outcome.success {
+                self.successful_calls += 1;
+            } else {
+                self.failed_calls += 1;
+            }
+            if !outcome.tool_name.trim().is_empty() {
+                self.tools_used.insert(outcome.tool_name.clone());
+            }
+        }
+    }
+
+    fn tools_used_vec(&self) -> Vec<String> {
+        self.tools_used.iter().cloned().collect()
+    }
+
+    fn tools_used_compact(&self) -> String {
+        let tools = self.tools_used_vec();
+        if tools.is_empty() {
+            "none".to_string()
+        } else {
+            tools.join(",")
+        }
+    }
+
+    fn append_footer(&self, mode: &str, agent_name: &str, output: String) -> String {
+        let footer = format!(
+            "[delegate_report mode={mode} agent={agent_name} tool_calls_total={} tool_calls_success={} tool_calls_failed={} tools_used={}]",
+            self.total_calls,
+            self.successful_calls,
+            self.failed_calls,
+            self.tools_used_compact()
+        );
+        if output.trim().is_empty() {
+            footer
+        } else {
+            format!("{output}\n\n{footer}")
+        }
+    }
+
+    fn as_trace_payload(&self) -> serde_json::Value {
+        json!({
+            "tool_calls_total": self.total_calls,
+            "tool_calls_success": self.successful_calls,
+            "tool_calls_failed": self.failed_calls,
+            "tools_used": self.tools_used_vec(),
+        })
+    }
+}
+
+fn snapshot_delegate_report(sink: &Arc<Mutex<DelegateToolCallReport>>) -> DelegateToolCallReport {
+    sink.lock()
+        .map(|report| report.clone())
+        .unwrap_or_else(|poisoned| poisoned.into_inner().clone())
+}
+
+struct DelegateTraceContext<'a> {
+    channel: &'a str,
+    provider: &'a str,
+    model: &'a str,
+    turn_id: &'a str,
+    mode: &'a str,
+    agent_name: &'a str,
+    timeout_secs: u64,
+}
+
+fn record_delegate_subagent_start(
+    trace: &DelegateTraceContext<'_>,
+    max_tool_iterations: Option<usize>,
+    tool_registry_count: Option<usize>,
+) {
+    runtime_trace::record_event(
+        "delegate_subagent_start",
+        Some(trace.channel),
+        Some(trace.provider),
+        Some(trace.model),
+        Some(trace.turn_id),
+        None,
+        None,
+        json!({
+            "mode": trace.mode,
+            "agent_name": trace.agent_name,
+            "timeout_secs": trace.timeout_secs,
+            "max_tool_iterations": max_tool_iterations,
+            "tool_registry_count": tool_registry_count,
+        }),
+    );
+}
+
+fn record_delegate_subagent_end(
+    trace: &DelegateTraceContext<'_>,
+    duration_ms: u128,
+    success: bool,
+    failure_reason: Option<&str>,
+    report: &DelegateToolCallReport,
+) {
+    runtime_trace::record_event(
+        "delegate_subagent_end",
+        Some(trace.channel),
+        Some(trace.provider),
+        Some(trace.model),
+        Some(trace.turn_id),
+        Some(success),
+        failure_reason,
+        json!({
+            "mode": trace.mode,
+            "agent_name": trace.agent_name,
+            "duration_ms": duration_ms,
+            "timeout_secs": trace.timeout_secs,
+            "failure_reason": failure_reason,
+            "tool_call_counts": report.as_trace_payload(),
+        }),
+    );
 }
 
 /// Tool that delegates a subtask to a named agent with a different
@@ -330,6 +464,20 @@ impl Tool for DelegateTool {
                 .await;
         }
 
+        let trace_turn_id = Uuid::new_v4().to_string();
+        let delegate_started_at = Instant::now();
+        let empty_report = DelegateToolCallReport::default();
+        let trace_context = DelegateTraceContext {
+            channel: &self.execution_channel,
+            provider: &agent_config.provider,
+            model: &agent_config.model,
+            turn_id: &trace_turn_id,
+            mode: "single",
+            agent_name,
+            timeout_secs: DELEGATE_TIMEOUT_SECS,
+        };
+        record_delegate_subagent_start(&trace_context, None, None);
+
         // Wrap the provider call in a timeout to prevent indefinite blocking
         let result = tokio::time::timeout(
             Duration::from_secs(DELEGATE_TIMEOUT_SECS),
@@ -345,12 +493,19 @@ impl Tool for DelegateTool {
         let result = match result {
             Ok(inner) => inner,
             Err(_elapsed) => {
+                let failure =
+                    format!("Agent '{agent_name}' timed out after {DELEGATE_TIMEOUT_SECS}s");
+                record_delegate_subagent_end(
+                    &trace_context,
+                    delegate_started_at.elapsed().as_millis(),
+                    false,
+                    Some(&failure),
+                    &empty_report,
+                );
                 return Ok(ToolResult {
                     success: false,
                     output: String::new(),
-                    error: Some(format!(
-                        "Agent '{agent_name}' timed out after {DELEGATE_TIMEOUT_SECS}s"
-                    )),
+                    error: Some(failure),
                 });
             }
         };
@@ -362,6 +517,13 @@ impl Tool for DelegateTool {
                     rendered = "[Empty response]".to_string();
                 }
 
+                record_delegate_subagent_end(
+                    &trace_context,
+                    delegate_started_at.elapsed().as_millis(),
+                    true,
+                    None,
+                    &empty_report,
+                );
                 Ok(ToolResult {
                     success: true,
                     output: format!(
@@ -372,11 +534,21 @@ impl Tool for DelegateTool {
                     error: None,
                 })
             }
-            Err(e) => Ok(ToolResult {
-                success: false,
-                output: String::new(),
-                error: Some(format!("Agent '{agent_name}' failed: {e}",)),
-            }),
+            Err(e) => {
+                let failure = format!("Agent '{agent_name}' failed: {e}");
+                record_delegate_subagent_end(
+                    &trace_context,
+                    delegate_started_at.elapsed().as_millis(),
+                    false,
+                    Some(&failure),
+                    &empty_report,
+                );
+                Ok(ToolResult {
+                    success: false,
+                    output: String::new(),
+                    error: Some(failure),
+                })
+            }
         }
     }
 }
@@ -452,6 +624,24 @@ impl DelegateTool {
             Some(combined_system_prompt)
         };
         let observer: Arc<dyn Observer> = Arc::new(NoopObserver);
+        let tool_report_sink = Arc::new(Mutex::new(DelegateToolCallReport::default()));
+        let trace_turn_id = Uuid::new_v4().to_string();
+        let delegate_started_at = Instant::now();
+        let sub_tool_count = sub_tools.len();
+        let trace_context = DelegateTraceContext {
+            channel: &self.execution_channel,
+            provider: &agent_config.provider,
+            model: &agent_config.model,
+            turn_id: &trace_turn_id,
+            mode: "agentic",
+            agent_name,
+            timeout_secs: DELEGATE_AGENTIC_TIMEOUT_SECS,
+        };
+        record_delegate_subagent_start(
+            &trace_context,
+            Some(agent_config.max_iterations),
+            Some(sub_tool_count),
+        );
 
         let episode_manager = EpisodeManager::load_or_new(
             Arc::clone(&self.episode_memory),
@@ -464,6 +654,7 @@ impl DelegateTool {
             provider,
             tools_registry: sub_tools,
             observer,
+            agent_name: agent_name.to_string(),
             provider_name: agent_config.provider.clone(),
             model_name: agent_config.model.clone(),
             temperature,
@@ -473,6 +664,7 @@ impl DelegateTool {
             max_tool_iterations: agent_config.max_iterations,
             system_prompt,
             approval: self.approval.clone(),
+            tool_report_sink: Arc::clone(&tool_report_sink),
         }));
 
         let result = tokio::time::timeout(
@@ -483,6 +675,14 @@ impl DelegateTool {
 
         match result {
             Ok(Ok(tool_result)) => {
+                let report = snapshot_delegate_report(&tool_report_sink);
+                record_delegate_subagent_end(
+                    &trace_context,
+                    delegate_started_at.elapsed().as_millis(),
+                    tool_result.success,
+                    tool_result.error.as_deref(),
+                    &report,
+                );
                 let rendered = if tool_result.output.trim().is_empty() {
                     "[Empty response]".to_string()
                 } else {
@@ -499,18 +699,40 @@ impl DelegateTool {
                     error: None,
                 })
             }
-            Ok(Err(e)) => Ok(ToolResult {
-                success: false,
-                output: String::new(),
-                error: Some(format!("Agent '{agent_name}' failed: {}", e.root_cause())),
-            }),
-            Err(_) => Ok(ToolResult {
-                success: false,
-                output: String::new(),
-                error: Some(format!(
+            Ok(Err(e)) => {
+                let report = snapshot_delegate_report(&tool_report_sink);
+                let failure = format!("Agent '{agent_name}' failed: {}", e.root_cause());
+                record_delegate_subagent_end(
+                    &trace_context,
+                    delegate_started_at.elapsed().as_millis(),
+                    false,
+                    Some(&failure),
+                    &report,
+                );
+                Ok(ToolResult {
+                    success: false,
+                    output: String::new(),
+                    error: Some(failure),
+                })
+            }
+            Err(_) => {
+                let report = snapshot_delegate_report(&tool_report_sink);
+                let failure = format!(
                     "Agent '{agent_name}' timed out after {DELEGATE_AGENTIC_TIMEOUT_SECS}s"
-                )),
-            }),
+                );
+                record_delegate_subagent_end(
+                    &trace_context,
+                    delegate_started_at.elapsed().as_millis(),
+                    false,
+                    Some(&failure),
+                    &report,
+                );
+                Ok(ToolResult {
+                    success: false,
+                    output: String::new(),
+                    error: Some(failure),
+                })
+            }
         }
     }
 }
@@ -537,6 +759,7 @@ struct DelegateAgenticWorker {
     provider: Arc<dyn Provider>,
     tools_registry: Vec<Box<dyn Tool>>,
     observer: Arc<dyn Observer>,
+    agent_name: String,
     provider_name: String,
     model_name: String,
     temperature: f64,
@@ -546,6 +769,7 @@ struct DelegateAgenticWorker {
     max_tool_iterations: usize,
     system_prompt: Option<String>,
     approval: Option<Arc<ApprovalManager>>,
+    tool_report_sink: Arc<Mutex<DelegateToolCallReport>>,
 }
 
 #[async_trait]
@@ -571,6 +795,7 @@ impl AppWorker for DelegateAgenticWorker {
             task_instruction.to_string(),
         ));
 
+        let mut tool_outcomes = Vec::new();
         let response = run_tool_call_loop(
             self.provider.as_ref(),
             &mut history,
@@ -589,16 +814,24 @@ impl AppWorker for DelegateAgenticWorker {
             None,
             &[],
             None,
-            None, // Delegate worker doesn't track outcomes for self-learning
+            Some(&mut tool_outcomes),
             crate::config::ClickAtPreflightMode::default(),
             None,
         )
         .await;
+        let step_report = DelegateToolCallReport::from_outcomes(&tool_outcomes);
+        {
+            let mut aggregate = self
+                .tool_report_sink
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
+            aggregate.record_outcomes(&tool_outcomes);
+        }
 
         match response {
             Ok(output) => Ok(ToolResult {
                 success: true,
-                output,
+                output: step_report.append_footer("agentic", &self.agent_name, output),
                 error: None,
             }),
             Err(err) => Err(err),
@@ -1255,6 +1488,13 @@ mod tests {
         assert!(result.success, "{result:?}");
         assert!(result.output.contains("(openrouter/model-test, agentic)"));
         assert!(result.output.contains("done"));
+        assert!(result
+            .output
+            .contains("delegate_report mode=agentic agent=agentic"));
+        assert!(result.output.contains("tool_calls_total=1"));
+        assert!(result.output.contains("tool_calls_success=1"));
+        assert!(result.output.contains("tool_calls_failed=0"));
+        assert!(result.output.contains("tools_used=echo_tool"));
     }
 
     #[tokio::test]

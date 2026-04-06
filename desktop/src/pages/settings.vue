@@ -1,8 +1,11 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
+import { Icon } from '@iconify/vue'
 import { useAuthStore } from '@/stores/auth'
 import { useSettingsStore } from '@/stores/settings'
 import { useColorMode } from '@vueuse/core'
+import { open } from '@tauri-apps/plugin-shell'
+import { homeDir, join } from '@tauri-apps/api/path'
 
 const auth = useAuthStore()
 const settingsStore = useSettingsStore()
@@ -28,6 +31,37 @@ function handleThemeChange(theme: 'light' | 'dark' | 'auto') {
 const logout = async () => {
   await auth.logout()
 }
+
+async function openConfigFile() {
+  const home = await homeDir()
+  const configPath = await join(home, '.gloamy', 'config.toml')
+  const ideTargets = [
+    `vscode://file${configPath}`,
+    `cursor://file${configPath}`,
+  ]
+
+  for (const target of ideTargets) {
+    try {
+      await open(target)
+      return
+    }
+    catch {
+    }
+  }
+
+  try {
+    await open(configPath)
+    return
+  }
+  catch {
+  }
+
+  await open(`file://${configPath}`)
+}
+
+function openWebsite() {
+  open('https://www.gloamy.co')
+}
 </script>
 
 <template>
@@ -38,14 +72,15 @@ const logout = async () => {
     </div>
 
     <!-- Content -->
-    <div class="px-6 pb-12 max-w-2xl space-y-10">
-      
-      <!-- General Section removed: language selector -->
+    <div class="px-6 pb-12 max-w-2xl space-y-8">
 
       <!-- Appearance Section -->
       <section class="space-y-4">
-        <h2 class="text-[13px] font-medium text-muted-foreground">Appearance</h2>
-        
+        <div class="flex items-center gap-2">
+          <Icon icon="hugeicons:paint-board" class="size-[15px] text-muted-foreground" />
+          <h2 class="text-[13px] font-medium text-muted-foreground">Appearance</h2>
+        </div>
+
         <div class="flex flex-wrap gap-5">
           <!-- Light Mode Card -->
           <div class="flex flex-col items-center gap-2">
@@ -116,19 +151,86 @@ const logout = async () => {
       </section>
 
       <hr class="border-border/30" />
-      
-      <!-- Session Management / Account Management -->
-      <section>
-        <div class="flex items-center justify-between py-1">
-          <p class="text-[14px] font-medium text-foreground">Account management</p>
-          <div class="flex items-center">
-             <button
-              @click="logout"
-              class="px-5 py-1.5 bg-destructive/10 border border-transparent hover:border-destructive/20 text-destructive transition-colors rounded-xl text-[13px] font-medium"
-            >
-              Sign out device
-            </button>
+
+      <!-- Config Section -->
+      <section class="space-y-3">
+        <div class="flex items-center gap-2">
+          <Icon icon="hugeicons:settings-01" class="size-[15px] text-muted-foreground" />
+          <h2 class="text-[13px] font-medium text-muted-foreground">Configuration</h2>
+        </div>
+        <div class="flex items-center justify-between py-2 px-3 rounded-xl border border-border/50 hover:border-border/80 transition-colors">
+          <div class="flex items-center gap-3">
+            <div class="size-8 rounded-lg bg-muted/40 flex items-center justify-center shrink-0">
+              <Icon icon="hugeicons:file-edit" class="size-[16px] text-foreground/70" />
+            </div>
+            <div>
+              <p class="text-[13px] font-medium text-foreground">config.toml</p>
+              <p class="text-[12px] text-muted-foreground mt-0.5">Open and edit your Gloamy configuration file</p>
+            </div>
           </div>
+          <button
+            @click="openConfigFile"
+            class="flex items-center gap-1.5 px-3 py-1.5 border border-border hover:border-foreground/30 text-foreground transition-colors rounded-lg text-[12px] font-medium shrink-0"
+          >
+            Open file
+            <Icon icon="hugeicons:arrow-up-right-01" class="size-[13px]" />
+          </button>
+        </div>
+      </section>
+
+      <hr class="border-border/30" />
+
+      <!-- Account Section -->
+      <section class="space-y-3">
+        <div class="flex items-center gap-2">
+          <Icon icon="hugeicons:user-account" class="size-[15px] text-muted-foreground" />
+          <h2 class="text-[13px] font-medium text-muted-foreground">Account</h2>
+        </div>
+        <div class="flex items-center justify-between py-2 px-3 rounded-xl border border-border/50 hover:border-border/80 transition-colors">
+          <div class="flex items-center gap-3">
+            <div class="size-8 rounded-lg bg-muted/40 flex items-center justify-center shrink-0">
+              <Icon icon="hugeicons:logout-02" class="size-[16px] text-foreground/70" />
+            </div>
+            <div>
+              <p class="text-[13px] font-medium text-foreground">Sign out</p>
+              <p class="text-[12px] text-muted-foreground mt-0.5">Remove this device's pairing token</p>
+            </div>
+          </div>
+          <button
+            @click="logout"
+            class="flex items-center gap-1.5 px-3 py-1.5 border border-destructive/30 hover:border-destructive/60 text-destructive transition-colors rounded-lg text-[12px] font-medium shrink-0"
+          >
+            <Icon icon="hugeicons:logout-02" class="size-[13px]" />
+            Sign out device
+          </button>
+        </div>
+      </section>
+
+      <hr class="border-border/30" />
+
+      <!-- About Section -->
+      <section class="space-y-3">
+        <div class="flex items-center gap-2">
+          <Icon icon="hugeicons:information-circle" class="size-[15px] text-muted-foreground" />
+          <h2 class="text-[13px] font-medium text-muted-foreground">About</h2>
+        </div>
+        <div class="flex items-center justify-between py-2 px-3 rounded-xl border border-border/50 hover:border-border/80 transition-colors">
+          <div class="flex items-center gap-3">
+            <div class="size-8 rounded-lg bg-muted/40 flex items-center justify-center shrink-0">
+              <Icon icon="hugeicons:globe" class="size-[16px] text-foreground/70" />
+            </div>
+            <div>
+              <p class="text-[13px] font-medium text-foreground">Gloamy website</p>
+              <p class="text-[12px] text-muted-foreground mt-0.5">Documentation, updates, and more at gloamy.co</p>
+            </div>
+          </div>
+          <button
+            @click="openWebsite"
+            class="flex items-center gap-1.5 px-3 py-1.5 border border-border hover:border-foreground/30 text-foreground transition-colors rounded-lg text-[12px] font-medium shrink-0"
+          >
+            gloamy.co
+            <Icon icon="hugeicons:arrow-up-right-01" class="size-[13px]" />
+          </button>
         </div>
       </section>
 
