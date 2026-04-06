@@ -111,6 +111,7 @@ impl PromptSection for IdentitySection {
             "BOOTSTRAP.md",
             "MEMORY.md",
             "experience.md",
+            "INTEGRATIONS.md",
         ] {
             inject_workspace_file(&mut prompt, ctx.workspace_dir, file);
         }
