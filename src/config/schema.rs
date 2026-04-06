@@ -1181,6 +1181,10 @@ pub struct BrowserConfig {
     #[serde(default)]
     pub session_name: Option<String>,
     /// Browser automation backend: "agent_browser" | "rust_native" | "computer_use" | "auto"
+    ///
+    /// `auto` is action-aware:
+    /// - computer-use-only actions route to `computer_use`
+    /// - browser actions prefer `rust_native`, then `agent_browser`, then `computer_use`
     #[serde(default = "default_browser_backend")]
     pub backend: String,
     /// Headless mode for rust-native backend
@@ -1198,7 +1202,7 @@ pub struct BrowserConfig {
 }
 
 fn default_browser_backend() -> String {
-    "computer_use".into()
+    "auto".into()
 }
 
 fn default_browser_webdriver_url() -> String {
@@ -6496,7 +6500,7 @@ default_temperature = 0.7
         assert!(c.one.api_key.is_none());
         assert!(c.secrets.encrypt);
         assert!(c.browser.enabled);
-        assert_eq!(c.browser.backend, "computer_use");
+        assert_eq!(c.browser.backend, "auto");
         assert!(c.browser.allowed_domains.is_empty());
     }
 
@@ -6505,7 +6509,7 @@ default_temperature = 0.7
         let b = BrowserConfig::default();
         assert!(b.enabled);
         assert!(b.allowed_domains.is_empty());
-        assert_eq!(b.backend, "computer_use");
+        assert_eq!(b.backend, "auto");
         assert!(b.native_headless);
         assert_eq!(b.native_webdriver_url, "http://127.0.0.1:9515");
         assert!(b.native_chrome_path.is_none());
@@ -6597,7 +6601,7 @@ default_temperature = 0.7
 "#;
         let parsed: Config = toml::from_str(minimal).unwrap();
         assert!(parsed.browser.enabled);
-        assert_eq!(parsed.browser.backend, "computer_use");
+        assert_eq!(parsed.browser.backend, "auto");
         assert!(parsed.browser.allowed_domains.is_empty());
     }
 

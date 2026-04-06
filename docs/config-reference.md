@@ -296,7 +296,7 @@ Notes:
 | `enabled` | `true` | Enable `browser_open` tool (opens URLs in the system browser without scraping) |
 | `allowed_domains` | `[]` | Allowed domains for `browser_open` (exact/subdomain match, or `"*"` for all public domains) |
 | `session_name` | unset | Browser session name (for agent-browser automation) |
-| `backend` | `computer_use` | Browser automation backend: `"agent_browser"`, `"rust_native"`, `"computer_use"`, or `"auto"` |
+| `backend` | `auto` | Browser automation backend: `"agent_browser"`, `"rust_native"`, `"computer_use"`, or `"auto"` |
 | `native_headless` | `true` | Headless mode for rust-native backend |
 | `native_webdriver_url` | `http://127.0.0.1:9515` | WebDriver endpoint URL for rust-native backend |
 | `native_chrome_path` | unset | Optional Chrome/Chromium executable path for rust-native backend |
@@ -316,6 +316,11 @@ Notes:
 Notes:
 
 - When `backend = "computer_use"`, the agent delegates browser actions to the sidecar at `computer_use.endpoint`.
+- When `backend = "auto"`, Gloamy routes computer-use-only actions (`mouse_*`, `key_*`, `screen_capture`) to the sidecar and uses browser automation backends for normal page actions.
+- At startup (`gloamy agent`, `gloamy daemon`, `gloamy gateway`, and `gloamy channel start`), Gloamy bootstraps browser services automatically:
+  - warms the `agent-browser` backend
+  - starts an embedded local computer-use sidecar when `computer_use.endpoint` is a loopback `http://.../v1/actions` address
+  - starts local WebDriver when `native_webdriver_url` points to loopback `http://host:port`; on macOS, if `chromedriver` is missing, Gloamy attempts a managed install under `~/.gloamy/bin/chromedriver/chromedriver` before launching it
 - `allow_remote_endpoint = false` (default) rejects any non-loopback endpoint to prevent accidental public exposure.
 - Use `window_allowlist` to restrict which OS windows the sidecar can interact with.
 

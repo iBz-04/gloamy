@@ -803,17 +803,20 @@ async fn main() -> Result<()> {
             model,
             temperature,
             peripheral,
-        } => agent::run(
-            config,
-            message,
-            provider,
-            model,
-            temperature,
-            peripheral,
-            true,
-        )
-        .await
-        .map(|_| ()),
+        } => {
+            tools::browser_services::ensure_started(&config.browser).await;
+            agent::run(
+                config,
+                message,
+                provider,
+                model,
+                temperature,
+                peripheral,
+                true,
+            )
+            .await
+            .map(|_| ())
+        }
 
         Commands::Gateway { port, host } => {
             let port = port.unwrap_or(config.gateway.port);
@@ -823,6 +826,7 @@ async fn main() -> Result<()> {
             } else {
                 info!("🚀 Starting Gloamy Gateway on {host}:{port}");
             }
+            tools::browser_services::ensure_started(&config.browser).await;
             gateway::run_gateway(&host, port, config).await
         }
 
@@ -834,6 +838,7 @@ async fn main() -> Result<()> {
             } else {
                 info!("🧠 Starting Gloamy Daemon on {host}:{port}");
             }
+            tools::browser_services::ensure_started(&config.browser).await;
             daemon::run(config, host, port).await
         }
 
@@ -1024,7 +1029,10 @@ async fn main() -> Result<()> {
         },
 
         Commands::Channel { channel_command } => match channel_command {
-            ChannelCommands::Start => channels::start_channels_with_scheduler(config).await,
+            ChannelCommands::Start => {
+                tools::browser_services::ensure_started(&config.browser).await;
+                channels::start_channels_with_scheduler(config).await
+            }
             ChannelCommands::Doctor => channels::doctor_channels(config).await,
             other => channels::handle_command(other, &config).await,
         },

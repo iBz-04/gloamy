@@ -9,6 +9,14 @@ use tokio::time::Duration;
 const STATUS_FLUSH_SECONDS: u64 = 5;
 
 pub async fn run(config: Config, host: String, port: u16) -> Result<()> {
+    tracing::info!(
+        webdriver_endpoint = %config.browser.native_webdriver_url,
+        computer_use_endpoint = %config.browser.computer_use.endpoint,
+        "Browser bootstrap: ensuring startup services for daemon"
+    );
+    crate::tools::browser_services::ensure_started(&config.browser).await;
+    tracing::info!("Browser bootstrap: daemon startup service check complete");
+
     let initial_backoff = config.reliability.channel_initial_backoff_secs.max(1);
     let max_backoff = config
         .reliability

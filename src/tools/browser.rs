@@ -1,6 +1,6 @@
 //! Browser automation tool with pluggable backends.
 //!
-//! By default this uses Vercel's `agent-browser` CLI for automation.
+//! The default mode is backend `auto`, which chooses an available backend per action.
 //! Optionally, a Rust-native backend can be enabled at build time via
 //! `--features browser-native` and selected through config.
 //! Computer-use (OS-level) actions are supported via an optional sidecar endpoint.
@@ -218,7 +218,7 @@ impl BrowserTool {
             )),
             allowed_domains,
             session_name,
-            "computer_use".into(),
+            "auto".into(),
             true,
             "http://127.0.0.1:9515".into(),
             None,
@@ -368,7 +368,7 @@ impl BrowserTool {
         Ok(endpoint_reachable(&endpoint, Duration::from_millis(500)))
     }
 
-    async fn resolve_backend(&self) -> anyhow::Result<ResolvedBackend> {
+    async fn resolve_backend_for_action(&self, action: &str) -> anyhow::Result<ResolvedBackend> {
         let configured = self.configured_backend()?;
 
         match configured {
@@ -404,6 +404,24 @@ impl BrowserTool {
                 Ok(ResolvedBackend::ComputerUse)
             }
             BrowserBackendKind::Auto => {
+                if is_computer_use_only_action(action) {
+                    let computer_use_err = match self.computer_use_available() {
+                        Ok(true) => return Ok(ResolvedBackend::ComputerUse),
+                        Ok(false) => None,
+                        Err(err) => Some(err.to_string()),
+                    };
+
+                    if let Some(err) = computer_use_err {
+                        anyhow::bail!(
+                            "browser.backend='auto' routes action '{action}' to computer_use, but sidecar is unavailable ({err})"
+                        );
+                    }
+
+                    anyhow::bail!(
+                        "browser.backend='auto' routes action '{action}' to computer_use, but sidecar endpoint is unreachable"
+                    )
+                }
+
                 if Self::rust_native_compiled() && self.rust_native_available() {
                     return Ok(ResolvedBackend::RustNative);
                 }
@@ -1584,7 +1602,21 @@ impl Tool for BrowserTool {
             }
         };
 
-        let backend = match self.resolve_backend().await {
+        // Parse action from args before backend resolution so `auto` can route by action type.
+        let action_str = args
+            .get("action")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| anyhow::anyhow!("Missing 'action' parameter"))?;
+
+        if !is_supported_browser_action(action_str) {
+            return Ok(ToolResult {
+                success: false,
+                output: String::new(),
+                error: Some(format!("Unknown action: {action_str}")),
+            });
+        }
+
+        let backend = match self.resolve_backend_for_action(action_str).await {
             Ok(selected) => selected,
             Err(error) => {
                 return Ok(ToolResult {
@@ -1600,20 +1632,6 @@ impl Tool for BrowserTool {
                 success: false,
                 output: String::new(),
                 error: Some(error.to_string()),
-            });
-        }
-
-        // Parse action from args
-        let action_str = args
-            .get("action")
-            .and_then(|v| v.as_str())
-            .ok_or_else(|| anyhow::anyhow!("Missing 'action' parameter"))?;
-
-        if !is_supported_browser_action(action_str) {
-            return Ok(ToolResult {
-                success: false,
-                output: String::new(),
-                error: Some(format!("Unknown action: {action_str}")),
             });
         }
 
@@ -3176,13 +3194,10 @@ mod tests {
     }
 
     #[test]
-    fn browser_tool_default_backend_is_computer_use() {
+    fn browser_tool_default_backend_is_auto() {
         let security = Arc::new(SecurityPolicy::default());
         let tool = BrowserTool::new(security, vec!["example.com".into()], None);
-        assert_eq!(
-            tool.configured_backend().unwrap(),
-            BrowserBackendKind::ComputerUse
-        );
+        assert_eq!(tool.configured_backend().unwrap(), BrowserBackendKind::Auto);
     }
 
     #[test]
@@ -3349,6 +3364,32 @@ mod tests {
             unavailable_action_for_backend_error("mouse_move", ResolvedBackend::RustNative),
             "Action 'mouse_move' is unavailable for backend 'rust_native'"
         );
+    }
+
+    #[tokio::test]
+    async fn auto_backend_requires_computer_use_for_computer_use_only_actions() {
+        let security = Arc::new(SecurityPolicy::default());
+        let tool = BrowserTool::new_with_backend(
+            security,
+            vec!["example.com".into()],
+            None,
+            "auto".into(),
+            true,
+            "http://127.0.0.1:9515".into(),
+            None,
+            ComputerUseConfig {
+                endpoint: "not-a-valid-url".into(),
+                ..ComputerUseConfig::default()
+            },
+        );
+
+        let error = tool
+            .resolve_backend_for_action("mouse_move")
+            .await
+            .expect_err("auto mode must require computer_use for mouse actions");
+        assert!(error
+            .to_string()
+            .contains("routes action 'mouse_move' to computer_use"));
     }
 
     #[test]

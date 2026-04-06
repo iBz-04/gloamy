@@ -2,7 +2,7 @@
 
 This inventory classifies docs by intent so readers can quickly distinguish runtime-contract guides from design proposals.
 
-Last reviewed: **February 18, 2026**.
+Last reviewed: **March 2, 2026**.
 
 ## Classification Legend
 

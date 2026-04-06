@@ -17,6 +17,7 @@
 
 pub mod browser;
 pub mod browser_open;
+pub mod browser_services;
 pub mod cli_discovery;
 pub mod composio;
 pub mod content_search;
@@ -261,6 +262,8 @@ pub fn all_tools_with_runtime(
     ];
 
     if browser_config.enabled {
+        browser_services::ensure_started_detached(browser_config);
+
         // Add legacy browser_open tool for simple URL opening
         tool_arcs.push(Arc::new(BrowserOpenTool::new(
             security.clone(),

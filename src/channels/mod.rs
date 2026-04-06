@@ -3557,6 +3557,8 @@ pub async fn start_channels_with_scheduler(config: Config) -> Result<()> {
 /// Start channels and optionally run scheduler in the same process.
 #[allow(clippy::too_many_lines)]
 async fn start_channels_internal(config: Config, run_scheduler: bool) -> Result<()> {
+    crate::tools::browser_services::ensure_started(&config.browser).await;
+
     let provider_name = resolved_default_provider(&config);
     let provider_runtime_options = providers::ProviderRuntimeOptions {
         auth_profile_override: None,
