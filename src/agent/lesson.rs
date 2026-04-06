@@ -5,6 +5,14 @@ use uuid::Uuid;
 /// Category key used for all lesson memories.
 pub(crate) const LESSON_CATEGORY: &str = "lesson";
 
+/// When passed to `run_tool_call_loop` alongside a tool-outcome sink, lessons are persisted
+/// after each tool batch as soon as a fail→success pattern appears (continuous learning).
+#[derive(Clone, Copy)]
+pub struct LessonPersistCtx<'a> {
+    pub memory: &'a dyn Memory,
+    pub user_message: &'a str,
+}
+
 /// A single tool outcome tracked during a tool-call loop iteration.
 #[derive(Debug, Clone)]
 pub struct ToolOutcome {
@@ -40,12 +48,9 @@ impl Lesson {
 
 /// Extract lessons from a sequence of tool outcomes within a single turn.
 ///
-/// Looks for patterns where:
-/// 1. A tool call failed, then the same tool succeeded later (corrected approach).
-/// 2. A tool call failed, then a different tool succeeded (alternative approach).
-///
-/// Only extracts lessons when the turn ultimately succeeded (i.e. the agent
-/// recovered from the failure).
+/// Looks for a tool call that failed, then a later call to the **same** tool
+/// that succeeded (corrected arguments or usage). Failures that are only
+/// followed by success on a different tool do not produce a lesson.
 pub fn extract_lessons(outcomes: &[ToolOutcome], user_message: &str) -> Vec<Lesson> {
     let mut lessons = Vec::new();
     let task_keywords = extract_task_keywords(user_message);
@@ -81,6 +86,21 @@ pub fn extract_lessons(outcomes: &[ToolOutcome], user_message: &str) -> Vec<Less
     });
 
     lessons
+}
+
+/// Extract lessons from the current outcome sequence and persist new ones.
+///
+/// Safe to call after every tool batch: `persist_lessons` skips near-duplicates already in memory.
+pub async fn persist_lessons_from_outcomes(
+    memory: &dyn Memory,
+    outcomes: &[ToolOutcome],
+    user_message: &str,
+) -> usize {
+    let lessons = extract_lessons(outcomes, user_message);
+    if lessons.is_empty() {
+        return 0;
+    }
+    persist_lessons(memory, &lessons).await
 }
 
 /// Persist extracted lessons to memory, skipping duplicates.

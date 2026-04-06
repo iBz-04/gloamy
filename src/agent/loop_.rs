@@ -2431,6 +2431,7 @@ pub(crate) async fn agent_turn(
         None,
         None,
         crate::config::ClickAtPreflightMode::default(),
+        None,
     )
     .await
 }
@@ -2624,6 +2625,7 @@ pub(crate) async fn run_tool_call_loop(
     task_persistence: Option<&TaskPersistenceContext<'_>>,
     mut tool_outcomes_sink: Option<&mut Vec<crate::agent::lesson::ToolOutcome>>,
     click_at_preflight: crate::config::ClickAtPreflightMode,
+    lesson_persist: Option<&crate::agent::lesson::LessonPersistCtx<'_>>,
 ) -> Result<String> {
     let max_iterations = if max_tool_iterations == 0 {
         DEFAULT_MAX_TOOL_ITERATIONS
@@ -3378,6 +3380,21 @@ pub(crate) async fn run_tool_call_loop(
                     tool_results,
                     "<tool_result name=\"{}\">\n{}\n</tool_result>",
                     tool_name, outcome.output
+                );
+            }
+        }
+        if let (Some(ctx), Some(sink)) = (lesson_persist, tool_outcomes_sink.as_mut()) {
+            let stored = crate::agent::lesson::persist_lessons_from_outcomes(
+                ctx.memory,
+                sink.as_slice(),
+                ctx.user_message,
+            )
+            .await;
+            if stored > 0 {
+                tracing::info!(
+                    count = stored,
+                    iteration = iteration + 1,
+                    "Self-learning: persisted lessons after tool batch"
                 );
             }
         }
@@ -5002,6 +5019,7 @@ mod tests {
             None,
             None,
             crate::config::ClickAtPreflightMode::default(),
+            None,
         )
         .await
         .expect_err("provider without vision support should fail");
@@ -5051,6 +5069,7 @@ mod tests {
             None,
             None,
             crate::config::ClickAtPreflightMode::default(),
+            None,
         )
         .await
         .expect_err("oversized payload must fail");
@@ -5094,6 +5113,7 @@ mod tests {
             None,
             None,
             crate::config::ClickAtPreflightMode::default(),
+            None,
         )
         .await
         .expect("valid multimodal payload should pass");
@@ -5228,6 +5248,7 @@ mod tests {
             None,
             None,
             crate::config::ClickAtPreflightMode::default(),
+            None,
         )
         .await
         .expect("parallel execution should complete");
@@ -5300,6 +5321,7 @@ mod tests {
             None,
             None,
             crate::config::ClickAtPreflightMode::default(),
+            None,
         )
         .await
         .expect("loop should finish after deduplicating repeated calls");
@@ -5359,6 +5381,7 @@ mod tests {
             None,
             None,
             crate::config::ClickAtPreflightMode::default(),
+            None,
         )
         .await
         .expect("native fallback id flow should complete");
@@ -5421,6 +5444,7 @@ mod tests {
             None,
             None,
             crate::config::ClickAtPreflightMode::default(),
+            None,
         )
         .await
         .expect("runtime continuation guard should force at least one tool attempt");
@@ -5481,6 +5505,7 @@ mod tests {
             None,
             None,
             crate::config::ClickAtPreflightMode::default(),
+            None,
         )
         .await
         .expect("runtime continuation guard should force fallback after failed steps");
@@ -5548,6 +5573,7 @@ mod tests {
             None,
             None,
             crate::config::ClickAtPreflightMode::WidgetAndOcr,
+            None,
         )
         .await
         .expect("loop should recover once perception preflight is provided");
@@ -5624,6 +5650,7 @@ mod tests {
             None,
             None,
             crate::config::ClickAtPreflightMode::WidgetAndOcr,
+            None,
         )
         .await
         .expect("loop should complete");
@@ -5692,6 +5719,7 @@ mod tests {
             None,
             None,
             crate::config::ClickAtPreflightMode::WidgetAndOcr,
+            None,
         )
         .await
         .expect("loop should complete");

@@ -583,7 +583,8 @@ pub struct AgentConfig {
     #[serde(default = "default_agent_tool_dispatcher")]
     pub tool_dispatcher: String,
     /// Enable automatic self-learning from tool-call errors. Default: `true`.
-    /// When enabled, the agent extracts lessons from fail→success patterns
+    /// When enabled, the agent extracts lessons from fail→success patterns,
+    /// persists them after each tool batch (and in the interactive agent loop),
     /// and recalls them in future turns to avoid repeating mistakes.
     #[serde(default = "default_self_learning")]
     pub self_learning: bool,

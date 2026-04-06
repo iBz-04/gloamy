@@ -463,12 +463,12 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn shell_blocks_plain_variable_expansion() {
+    async fn shell_blocks_unknown_shell_variable_expansion() {
         let tool = ShellTool::new(test_security_with_env_cmd(), test_runtime());
         let result = tool
-            .execute(json!({"command": "echo $HOME"}))
+            .execute(json!({"command": "echo $PATH"}))
             .await
-            .expect("plain variable expansion should be blocked");
+            .expect("unknown $VAR expansion should be blocked");
         assert!(!result.success);
         assert!(result
             .error

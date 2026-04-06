@@ -795,20 +795,6 @@ impl Agent {
                     )));
                 self.trim_history();
 
-                // Persist lessons learned from tool-call errors
-                if self.config.self_learning && !tool_outcomes.is_empty() {
-                    let lessons =
-                        crate::agent::lesson::extract_lessons(&tool_outcomes, user_message);
-                    if !lessons.is_empty() {
-                        let stored =
-                            crate::agent::lesson::persist_lessons(self.memory.as_ref(), &lessons)
-                                .await;
-                        if stored > 0 {
-                            tracing::info!(count = stored, "Self-learning: persisted new lessons");
-                        }
-                    }
-                }
-
                 self.latest_checkpoint_note = execution_checkpoint_note.clone();
                 self.persist_task_snapshot(
                     &effective_model,
@@ -839,7 +825,7 @@ impl Agent {
 
             let results = self.execute_tools(&calls).await;
 
-            // Track tool outcomes for self-learning
+            // Track tool outcomes for self-learning (persist after each batch)
             if self.config.self_learning {
                 for (call, result) in calls.iter().zip(&results) {
                     tool_outcomes.push(crate::agent::lesson::ToolOutcome {
@@ -848,6 +834,15 @@ impl Agent {
                         success: result.success,
                         output: result.output.clone(),
                     });
+                }
+                let stored = crate::agent::lesson::persist_lessons_from_outcomes(
+                    self.memory.as_ref(),
+                    &tool_outcomes,
+                    user_message,
+                )
+                .await;
+                if stored > 0 {
+                    tracing::info!(count = stored, "Self-learning: persisted new lessons");
                 }
             }
 

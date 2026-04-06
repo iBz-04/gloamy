@@ -419,6 +419,7 @@ impl AppWorker for ChannelToolLoopWorker {
             task_persistence.as_ref(),
             None, // Channels don't track tool outcomes for self-learning (no access to config/memory)
             self.click_at_preflight,
+            None,
         )
         .await;
 

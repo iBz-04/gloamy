@@ -152,6 +152,11 @@ fn home_dir() -> Option<PathBuf> {
     std::env::var_os("HOME").map(PathBuf::from)
 }
 
+/// Env vars permitted in `$VAR` / `"$VAR/..."` patterns for shell policy checks.
+/// Unknown `$FOO` remains blocked so paths cannot hide behind indirection (e.g.
+/// `cat $SECRET_FILE`). Expansions here must match [`expand_user_path`].
+const SAFE_SHELL_PATH_VARS: &[&str] = &["HOME", "TMPDIR", "PWD"];
+
 fn expand_user_path(path: &str) -> PathBuf {
     if path == "~" {
         if let Some(home) = home_dir() {
@@ -163,6 +168,37 @@ fn expand_user_path(path: &str) -> PathBuf {
         if let Some(home) = home_dir() {
             return home.join(stripped);
         }
+    }
+
+    if let Some(rest) = path.strip_prefix("$HOME/") {
+        if let Some(home) = home_dir() {
+            return home.join(rest);
+        }
+    }
+    if path == "$HOME" {
+        return home_dir().unwrap_or_else(|| PathBuf::from(path));
+    }
+
+    if let Some(rest) = path.strip_prefix("$TMPDIR/") {
+        if let Ok(tmp) = std::env::var("TMPDIR") {
+            return PathBuf::from(tmp).join(rest);
+        }
+    }
+    if path == "$TMPDIR" {
+        return std::env::var("TMPDIR")
+            .map(PathBuf::from)
+            .unwrap_or_else(|_| PathBuf::from(path));
+    }
+
+    if let Some(rest) = path.strip_prefix("$PWD/") {
+        if let Ok(pwd) = std::env::var("PWD") {
+            return PathBuf::from(pwd).join(rest);
+        }
+    }
+    if path == "$PWD" {
+        return std::env::var("PWD")
+            .map(PathBuf::from)
+            .unwrap_or_else(|_| PathBuf::from(path));
     }
 
     PathBuf::from(path)
@@ -404,10 +440,12 @@ fn contains_unquoted_char(command: &str, target: char) -> bool {
     false
 }
 
-/// Detect unquoted shell variable expansions like `$HOME`, `$1`, `$?`.
+/// True if the command uses `$` expansion that must stay blocked.
 ///
-/// Escaped dollars (`\$`) are ignored. Variables inside single quotes are
-/// treated as literals and therefore ignored.
+/// Allows only a small set of path-safe variables ([`SAFE_SHELL_PATH_VARS`]) so
+/// commands like `mkdir -p "$HOME/Downloads/x"` work while `cat $SECRET_FILE`
+/// and `$(...)` / `${...}` remain blocked. Escaped dollars (`\$`) and literals
+/// inside single quotes are ignored.
 fn contains_unquoted_shell_variable_expansion(command: &str) -> bool {
     let mut quote = QuoteState::None;
     let mut escaped = false;
@@ -464,13 +502,132 @@ fn contains_unquoted_shell_variable_expansion(command: &str) -> bool {
         let Some(next) = chars.get(i + 1).copied() else {
             continue;
         };
-        if next.is_ascii_alphanumeric()
-            || matches!(
-                next,
-                '_' | '{' | '(' | '#' | '?' | '!' | '$' | '*' | '@' | '-'
-            )
-        {
-            return true;
+
+        match next {
+            '{' | '(' => return true,
+            c if c.is_ascii_digit() => return true,
+            '*' | '@' | '#' | '!' | '$' | '?' | '-' => return true,
+            c if c.is_ascii_alphabetic() || c == '_' => {
+                let mut j = i + 2;
+                while j < chars.len() && (chars[j].is_ascii_alphanumeric() || chars[j] == '_') {
+                    j += 1;
+                }
+                let name: String = chars[i + 1..j].iter().collect();
+                if SAFE_SHELL_PATH_VARS.contains(&name.as_str()) {
+                    continue;
+                }
+                return true;
+            }
+            _ => return true,
+        }
+    }
+
+    false
+}
+
+/// Unquoted `<` used for input redirection (`< file`) must stay blocked.
+///
+/// Allows `<<'DELIM'` / `<<"DELIM"` / `<<-'DELIM'` openers (quoted heredoc
+/// delimiter only) so inline scripts like `python3 - <<'PY'` pass the gate.
+/// Unquoted delimiters (`<<EOF`) remain blocked.
+fn contains_unquoted_dangerous_lt(command: &str) -> bool {
+    let chars: Vec<char> = command.chars().collect();
+    let mut i = 0usize;
+    let mut quote = QuoteState::None;
+    let mut escaped = false;
+
+    while i < chars.len() {
+        let ch = chars[i];
+        match quote {
+            QuoteState::Single => {
+                if ch == '\'' {
+                    quote = QuoteState::None;
+                }
+                i += 1;
+            }
+            QuoteState::Double => {
+                if escaped {
+                    escaped = false;
+                    i += 1;
+                    continue;
+                }
+                if ch == '\\' {
+                    escaped = true;
+                    i += 1;
+                    continue;
+                }
+                if ch == '"' {
+                    quote = QuoteState::None;
+                }
+                i += 1;
+            }
+            QuoteState::None => {
+                if escaped {
+                    escaped = false;
+                    i += 1;
+                    continue;
+                }
+                if ch == '\\' {
+                    escaped = true;
+                    i += 1;
+                    continue;
+                }
+                if ch == '\'' {
+                    quote = QuoteState::Single;
+                    i += 1;
+                    continue;
+                }
+                if ch == '"' {
+                    quote = QuoteState::Double;
+                    i += 1;
+                    continue;
+                }
+                if ch == '<' {
+                    if chars.get(i + 1) == Some(&'<') {
+                        let mut j = i + 2;
+                        if chars.get(j) == Some(&'-') {
+                            j += 1;
+                        }
+                        while j < chars.len() && chars[j].is_ascii_whitespace() {
+                            j += 1;
+                        }
+                        if let Some(&delim_ch) = chars.get(j) {
+                            if delim_ch == '\'' {
+                                j += 1;
+                                while j < chars.len() && chars[j] != '\'' {
+                                    j += 1;
+                                }
+                                if j < chars.len() {
+                                    i = j + 1;
+                                    continue;
+                                }
+                            } else if delim_ch == '"' {
+                                j += 1;
+                                let mut esc = false;
+                                let mut closed = false;
+                                while j < chars.len() {
+                                    if esc {
+                                        esc = false;
+                                    } else if chars[j] == '\\' {
+                                        esc = true;
+                                    } else if chars[j] == '"' {
+                                        j += 1;
+                                        closed = true;
+                                        break;
+                                    }
+                                    j += 1;
+                                }
+                                if closed {
+                                    i = j;
+                                    continue;
+                                }
+                            }
+                        }
+                    }
+                    return true;
+                }
+                i += 1;
+            }
         }
     }
 
@@ -739,7 +896,7 @@ impl SecurityPolicy {
         // Block shell redirections (`<`, `>`, `>>`) — they can read/write
         // arbitrary paths and bypass path checks.
         // Ignore quoted literals, e.g. `echo "a>b"` and `echo "a<b"`.
-        if contains_unquoted_char(command, '>') || contains_unquoted_char(command, '<') {
+        if contains_unquoted_char(command, '>') || contains_unquoted_dangerous_lt(command) {
             return false;
         }
 
@@ -1726,8 +1883,46 @@ mod tests {
     #[test]
     fn command_injection_plain_dollar_var_blocked() {
         let p = default_policy();
-        assert!(!p.is_command_allowed("cat $HOME/.ssh/id_rsa"));
+        assert!(
+            p.forbidden_path_argument("cat $HOME/.ssh/id_rsa").is_some(),
+            "$HOME must expand so forbidden_paths still applies"
+        );
+        assert!(p.is_command_allowed("cat $HOME/.ssh/id_rsa"));
         assert!(!p.is_command_allowed("cat $SECRET_FILE"));
+    }
+
+    #[test]
+    fn home_downloads_shell_pipeline_allowed_under_wildcard_allowlist() {
+        let p = SecurityPolicy {
+            allowed_commands: vec!["*".into()],
+            workspace_only: false,
+            // Narrow forbidden list so `$HOME/...` resolves under Linux `/home/...` in CI.
+            forbidden_paths: vec!["~/.ssh".into()],
+            ..SecurityPolicy::default()
+        };
+        let cmd = r#"mkdir -p "$HOME/Downloads/_gloamy_sort" && ls -1 "$HOME/Downloads""#;
+        assert!(p.is_command_allowed(cmd));
+        assert_eq!(p.forbidden_path_argument(cmd), None);
+    }
+
+    #[test]
+    fn quoted_heredoc_opener_allows_double_angle() {
+        let p = SecurityPolicy {
+            allowed_commands: vec!["python3".into()],
+            ..SecurityPolicy::default()
+        };
+        assert!(p.is_command_allowed("python3 - <<'PY'"));
+        assert!(p.is_command_allowed("python3 - <<-'PY'"));
+        assert!(p.is_command_allowed("python3 - <<\"PY\""));
+    }
+
+    #[test]
+    fn unquoted_heredoc_delimiter_still_blocks_lt_gate() {
+        let p = SecurityPolicy {
+            allowed_commands: vec!["python3".into()],
+            ..SecurityPolicy::default()
+        };
+        assert!(!p.is_command_allowed("python3 - <<PY"));
     }
 
     #[test]

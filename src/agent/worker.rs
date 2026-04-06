@@ -324,6 +324,10 @@ impl ToolLoopWorkerCore {
             ChatMessage::user(instruction_with_state),
         ];
         let mut tool_outcomes = Vec::new();
+        let lesson_ctx = lesson::LessonPersistCtx {
+            memory: self.memory.as_ref(),
+            user_message: task_instruction,
+        };
         let response = run_tool_call_loop(
             self.provider.as_ref(),
             &mut history,
@@ -348,15 +352,13 @@ impl ToolLoopWorkerCore {
                 None
             },
             self.click_at_preflight,
+            if self.self_learning {
+                Some(&lesson_ctx)
+            } else {
+                None
+            },
         )
         .await?;
-
-        if self.self_learning && !tool_outcomes.is_empty() {
-            let lessons = lesson::extract_lessons(&tool_outcomes, task_instruction);
-            if !lessons.is_empty() {
-                let _ = lesson::persist_lessons(self.memory.as_ref(), &lessons).await;
-            }
-        }
 
         Ok(ToolResult {
             success: true,
@@ -442,6 +444,10 @@ impl ConversationToolLoopWorkerCore {
         }
 
         let mut tool_outcomes = Vec::new();
+        let lesson_ctx = lesson::LessonPersistCtx {
+            memory: self.memory.as_ref(),
+            user_message: task_instruction,
+        };
         let response = run_tool_call_loop(
             self.provider.as_ref(),
             &mut history,
@@ -466,6 +472,11 @@ impl ConversationToolLoopWorkerCore {
                 None
             },
             self.click_at_preflight,
+            if self.self_learning {
+                Some(&lesson_ctx)
+            } else {
+                None
+            },
         )
         .await;
 
@@ -475,13 +486,6 @@ impl ConversationToolLoopWorkerCore {
         }
 
         let output = response?;
-
-        if self.self_learning && !tool_outcomes.is_empty() {
-            let lessons = lesson::extract_lessons(&tool_outcomes, task_instruction);
-            if !lessons.is_empty() {
-                let _ = lesson::persist_lessons(self.memory.as_ref(), &lessons).await;
-            }
-        }
 
         Ok(ToolResult {
             success: true,
