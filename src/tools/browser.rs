@@ -1551,21 +1551,31 @@ impl Tool for BrowserTool {
     }
 
     async fn execute(&self, args: Value) -> anyhow::Result<ToolResult> {
-        // Security checks
-        if !self.security.can_act() {
-            return Ok(ToolResult {
-                success: false,
-                output: String::new(),
-                error: Some("Action blocked: autonomy is read-only".into()),
-            });
-        }
+        // Parse action first so we can gate read vs mutating operations correctly.
+        let action_str_early = args
+            .get("action")
+            .and_then(|v| v.as_str())
+            .unwrap_or("");
 
-        if !self.security.record_action() {
-            return Ok(ToolResult {
-                success: false,
-                output: String::new(),
-                error: Some("Action blocked: rate limit exceeded".into()),
-            });
+        let is_read_action = is_browser_read_action(action_str_early);
+
+        // Read-only actions bypass autonomy and rate-limit gates (no side effects).
+        if !is_read_action {
+            if !self.security.can_act() {
+                return Ok(ToolResult {
+                    success: false,
+                    output: String::new(),
+                    error: Some("Action blocked: autonomy is read-only".into()),
+                });
+            }
+
+            if !self.security.record_action() {
+                return Ok(ToolResult {
+                    success: false,
+                    output: String::new(),
+                    error: Some("Action blocked: rate limit exceeded".into()),
+                });
+            }
         }
 
         // Parse verification expectations (if any) before executing
@@ -2844,6 +2854,13 @@ fn truncate_summary_value(value: &str) -> String {
     }
 }
 
+fn is_browser_read_action(action: &str) -> bool {
+    matches!(
+        action,
+        "snapshot" | "get_url" | "get_title" | "get_text" | "is_visible" | "screenshot"
+    )
+}
+
 fn is_computer_use_only_action(action: &str) -> bool {
     matches!(
         action,
@@ -3340,6 +3357,30 @@ mod tests {
         let security = Arc::new(SecurityPolicy::default());
         let tool = BrowserTool::new(security, vec![], None);
         assert!(tool.validate_url("https://example.com").is_err());
+    }
+
+    #[test]
+    fn browser_read_actions_are_classified_correctly() {
+        for action in ["snapshot", "get_url", "get_title", "get_text", "is_visible", "screenshot"] {
+            assert!(
+                is_browser_read_action(action),
+                "'{action}' should be a read action"
+            );
+        }
+    }
+
+    #[test]
+    fn browser_mutating_actions_are_not_read() {
+        for action in [
+            "open", "click", "fill", "type", "press", "hover", "scroll", "close", "find",
+            "wait", "mouse_move", "mouse_click", "mouse_drag", "key_type", "key_press",
+            "screen_capture",
+        ] {
+            assert!(
+                !is_browser_read_action(action),
+                "'{action}' should NOT be a read action"
+            );
+        }
     }
 
     #[test]

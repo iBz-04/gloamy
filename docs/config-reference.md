@@ -412,9 +412,25 @@ allowed_roots = ["~/Desktop/projects", "/opt/shared-repo"]
 | `vector_weight` | `0.7` | hybrid ranking vector weight |
 | `keyword_weight` | `0.3` | hybrid ranking keyword weight |
 
+### Memory Categories
+
+The memory system supports several categories for organizing stored information:
+
+| Category | Purpose | Scope |
+|---|---|---|
+| `core` | Long-term factual knowledge | Global |
+| `daily` | Day-to-day context and notes | Session |
+| `conversation` | Chat history and dialogue context | Session |
+| `episode` | Short-term GUI/system action sequences | Session |
+| `trajectory` | **Successful end-to-end task executions for future planning** | Global |
+| `custom(name)` | User-defined categories | Variable |
+
+**Trajectory Category**: Stores successful task execution patterns as `TaskTrajectory` objects containing the original goal, operating context, and step sequence. These serve as reusable templates for planning similar tasks in future sessions (zero-shot or few-shot bootstrapping).
+
 Notes:
 
 - Memory context injection ignores legacy `assistant_resp*` auto-save keys to prevent old model-authored summaries from being treated as facts.
+- Trajectory memories are stored globally (no session scope) to ensure availability across all future agent sessions.
 
 ## `[[model_routes]]` and `[[embedding_routes]]`
 
