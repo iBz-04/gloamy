@@ -239,7 +239,7 @@ If you want a safe preview of the candidate entries without writing data, use `-
 
 This repository also includes a desktop application in [`desktop/`](desktop), built with Tauri (Rust backend) and Vue 3 (frontend).
 
-The legacy browser dashboard has been removed. Use the desktop app for the primary UI, and use the gateway for webhook/API access.
+ Use the desktop app for the primary UI, and use the gateway for webhook/API access.
 
 If you want to run the desktop UI locally:
 

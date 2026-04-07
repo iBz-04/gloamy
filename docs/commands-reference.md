@@ -10,6 +10,7 @@ Last verified: **April 5, 2026**.
 |---|---|
 | `onboard` | Initialize workspace/config quickly or interactively |
 | `agent` | Run interactive chat or single-message mode |
+| `auth` | Manage authentication profiles and tokens |
 | `gateway` | Start webhook, API, and WebSocket gateway for external clients |
 | `daemon` | Start supervised runtime (gateway + channels + optional heartbeat/scheduler) |
 | `service` | Manage user-level OS service lifecycle |
@@ -17,7 +18,7 @@ Last verified: **April 5, 2026**.
 | `status` | Print current configuration and system summary |
 | `estop` | Engage/resume emergency stop levels and inspect estop state |
 | `cron` | Manage scheduled tasks |
-| `models` | Refresh provider model catalogs |
+| `models` | Refresh provider model catalogs and set default model |
 | `providers` | List provider IDs, aliases, and active provider |
 | `channel` | Manage channels and channel health checks |
 | `integrations` | Inspect integration details |
@@ -70,6 +71,33 @@ Runtime notes:
 - Before `mac_automation click_at`, the runtime requires a successful `perception_capture` preflight with `include_widget_tree=true` and `include_ocr=true`.
 - `perception_capture` accepts optional OCR overrides under `ocr`: `language`, `psm`, `oem`, and `tessdata_dir`. These are per-call runtime arguments, not persistent config keys.
 
+### `auth`
+
+Authentication management for providers and services.
+
+- `gloamy auth status`
+- `gloamy auth use <provider> <profile>`
+- `gloamy auth refresh [--provider <ID>]`
+- `gloamy auth logout [--provider <ID>]`
+
+**Commands:**
+
+| Command | Purpose |
+|---------|---------|
+| `auth status` | Show authentication status for all providers, active profile, and token expiry |
+| `auth use <provider> <profile>` | Set active authentication profile for a provider |
+| `auth refresh` | Refresh authentication tokens (OpenAI Codex, Gemini OAuth) |
+| `auth logout` | Remove authentication profile and clear stored tokens |
+
+**Examples:**
+
+```bash
+gloamy auth status                    # View all auth status
+gloamy auth use openai personal       # Switch to 'personal' profile
+gloamy auth refresh --provider gemini # Refresh Gemini tokens
+gloamy auth logout --provider openai  # Clear OpenAI auth
+```
+
 ### `gateway` / `daemon`
 
 - `gloamy gateway [--host <HOST>] [--port <PORT>]`
@@ -102,11 +130,25 @@ Notes:
 ### `service`
 
 - `gloamy service install`
+- `gloamy service install --service-init <auto|systemd|openrc>`
 - `gloamy service start`
 - `gloamy service stop`
 - `gloamy service restart`
 - `gloamy service status`
 - `gloamy service uninstall`
+
+**Options:**
+
+| Option | Purpose |
+|--------|---------|
+| `--service-init <type>` | Service initialization system: `auto` (default), `systemd`, or `openrc` |
+
+**Examples:**
+
+```bash
+gloamy service --service-init systemd install   # Use systemd explicitly
+gloamy service --service-init openrc install    # Use OpenRC for Alpine/embedded
+```
 
 ### `cron`
 
@@ -118,19 +160,32 @@ Notes:
 - `gloamy cron remove <id>`
 - `gloamy cron pause <id>`
 - `gloamy cron resume <id>`
+- `gloamy cron update <id> [--expr <new_expr>] [--command <new_cmd>] [--tz <new_tz>]`
 
 Notes:
 
 - Mutating schedule/cron actions require `cron.enabled = true`.
 - Shell command payloads for schedule creation (`create` / `add` / `once`) are validated by security command policy before job persistence.
+- `cron update` modifies only specified fields; unspecified fields remain unchanged.
 
 ### `models`
 
 - `gloamy models refresh`
 - `gloamy models refresh --provider <ID>`
+- `gloamy models refresh --all`
 - `gloamy models refresh --force`
+- `gloamy models set <model_id>`
 
 `models refresh` currently supports live catalog refresh for provider IDs: `openrouter`, `openai`, `anthropic`, `groq`, `mistral`, `deepseek`, `xai`, `together-ai`, `gemini`, `ollama`, `llamacpp`, `sglang`, `vllm`, `astrai`, `venice`, `fireworks`, `cohere`, `moonshot`, `glm`, `zai`, `qwen`, and `nvidia`.
+
+**Options:**
+
+| Option | Purpose |
+|--------|---------|
+| `--all` | Refresh all providers that support live model discovery |
+| `--force` | Force refresh bypassing cache |
+
+`models set <model_id>` updates `default_model` in config and activates immediately.
 
 ### `doctor`
 
@@ -140,6 +195,22 @@ Notes:
 - `gloamy doctor traces --id <TRACE_ID>`
 
 `doctor traces` reads runtime tool/model diagnostics from `observability.runtime_trace_path`.
+
+**Subcommands:**
+
+| Command | Purpose |
+|---------|---------|
+| `doctor models` | Probe model catalogs across providers, verify connectivity |
+| `doctor traces` | Query runtime trace events with filtering |
+
+**Trace Filtering Options:**
+
+| Option | Purpose |
+|--------|---------|
+| `--limit <N>` | Maximum events to return (default: 50) |
+| `--event <TYPE>` | Filter by event type (`tool_call`, `tool_call_result`, `model_request`, etc.) |
+| `--contains <TEXT>` | Filter events containing text |
+| `--id <TRACE_ID>` | Retrieve specific trace by ID |
 
 ### `channel`
 

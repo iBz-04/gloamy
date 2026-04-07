@@ -66,8 +66,9 @@ The base border radius is defined as `2px`, with variations for different compon
 
 The project uses two primary icon libraries to ensure a consistent and high-quality visual language:
 
-- **Lucide Icons**: Provided via the `lucide-vue-next` package for general-purpose iconography.
-- **Huge Icons**: Provided via `@hugeicons/vue` for more specific or illustrative icons.
+- **Huge Icons**: Provided via `@hugeicons/vue` for main icons of the app.
+- **Lucide Icons**: Provided via the `lucide-vue-next` package for logos icon packs.
+
 
 ## Component System
 

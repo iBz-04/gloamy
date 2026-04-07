@@ -725,6 +725,72 @@ Notes:
 - Place `.md`/`.txt` datasheet files named by board (e.g. `nucleo-f401re.md`, `rpi-gpio.md`) in `datasheet_dir` for RAG retrieval.
 - See [hardware-peripherals-design.md](hardware-peripherals-design.md) for board protocol and firmware notes.
 
+## Environment Variables
+
+Gloamy recognizes several environment variables for runtime configuration. Precedence: environment variables override config file values.
+
+### Core Environment Variables
+
+| Variable | Purpose | Config Override |
+|----------|---------|-----------------|
+| `GLOAMY_WORKSPACE` | Override workspace directory path | `workspace_dir` |
+| `GLOAMY_CONFIG_DIR` | Override config directory path (default: `~/.gloamy`) | Config file location |
+| `GLOAMY_PROVIDER` | Override default provider | `default_provider` |
+| `PROVIDER` | Legacy fallback for provider (only when config unset) | `default_provider` |
+| `GLOAMY_AUTOSTART_CHANNELS` | Auto-start channels after onboard wizard | Onboarding behavior |
+
+### Skills Environment Variables
+
+| Variable | Purpose | Values |
+|----------|---------|--------|
+| `GLOAMY_OPEN_SKILLS_ENABLED` | Override `skills.open_skills_enabled` | `1/0`, `true/false`, `yes/no`, `on/off` |
+| `GLOAMY_OPEN_SKILLS_DIR` | Override open-skills repository path | Absolute or relative path |
+| `GLOAMY_SKILLS_PROMPT_MODE` | Override skill prompt injection mode | `full` (default) or `compact` |
+
+**Notes:**
+
+- `prompt_injection_mode = "compact"` reduces startup prompt size by including only skill name/description/location instead of full inline instructions and tools
+- Use compact mode with low-context local models to preserve context window
+
+### Channel Webhook Secrets
+
+| Variable | Purpose | Config Section |
+|----------|---------|----------------|
+| `GLOAMY_LINQ_SIGNING_SECRET` | Override Linq webhook signing secret | `[channels_config.linq]` |
+| `GLOAMY_NEXTCLOUD_TALK_WEBHOOK_SECRET` | Override Nextcloud Talk webhook secret | `[channels_config.nextcloud_talk]` |
+
+### Provider API Keys
+
+Standard provider API keys can be set via environment:
+
+| Variable | Provider |
+|----------|----------|
+| `OPENAI_API_KEY` | OpenAI |
+| `ANTHROPIC_API_KEY` | Anthropic |
+| `GEMINI_API_KEY` | Gemini |
+| `GROQ_API_KEY` | Groq |
+| `DEEPSEEK_API_KEY` | DeepSeek |
+| `MISTRAL_API_KEY` | Mistral |
+| `TOGETHER_API_KEY` | Together AI |
+| `XAI_API_KEY` | xAI |
+| `COHERE_API_KEY` | Cohere |
+| `FIREWORKS_API_KEY` | Fireworks |
+| `OPENROUTER_API_KEY` | OpenRouter |
+
+### Service Management
+
+| Variable | Purpose |
+|----------|---------|
+| `GLOAMY_SERVICE_LOG_LEVEL` | Log level for service/daemon mode (`error`, `warn`, `info`, `debug`, `trace`) |
+
+### Precedence Rules
+
+1. Explicit environment variable (highest)
+2. Config file value
+3. Default value (lowest)
+
+Example: If `config.toml` sets `default_provider = "ollama"` but `GLOAMY_PROVIDER=openai` is set, the runtime uses OpenAI.
+
 ## Security-Relevant Defaults
 
 - deny-by-default channel allowlists (`[]` means deny all)

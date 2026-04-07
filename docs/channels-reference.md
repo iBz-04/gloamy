@@ -439,12 +439,56 @@ Notes:
 - `GLOAMY_LINQ_SIGNING_SECRET` overrides config secret.
 - `allowed_senders` uses E.164 phone number format (e.g. `+1234567890`).
 
-### 4.17 iMessage
+### 4.18 WATI (WhatsApp Team Inbox)
 
 ```toml
-[channels_config.imessage]
-allowed_contacts = ["*"]
+[channels_config.wati]
+api_token = "wati-api-token"
+api_url = "https://live-mt-server.wati.io"  # Or your WATI server URL
+tenant_id = "optional-tenant-id"            # For multi-tenant setups
+allowed_numbers = ["*"]
 ```
+
+**Configuration:**
+
+| Key | Required | Description |
+|-----|----------|-------------|
+| `api_token` | Yes | WATI API authentication token |
+| `api_url` | Yes | WATI API base URL |
+| `tenant_id` | No | Tenant identifier for multi-tenant accounts |
+| `allowed_numbers` | Recommended | Allowed sender phone numbers (`[]` = deny all, `"*"` = allow all) |
+
+Notes:
+
+- WATI provides a WhatsApp Business API with team collaboration features.
+- Similar to WhatsApp Cloud API but WATI-specific endpoints and features.
+- Webhook endpoint: `POST /wati`.
+- Phone numbers should be in E.164 format (e.g., `+1234567890`).
+
+### 4.19 ClawdTalk
+
+```toml
+[channels_config.clawdtalk]
+api_key = "clawdtalk-api-key"
+webhook_secret = "optional-webhook-secret"
+allowed_agents = ["*"]
+```
+
+**Configuration:**
+
+| Key | Required | Description |
+|-----|----------|-------------|
+| `api_key` | Yes | ClawdTalk API key for authentication |
+| `webhook_secret` | No | Secret for webhook signature verification |
+| `allowed_agents` | Recommended | Allowed agent IDs (`[]` = deny all, `"*"` = allow all) |
+
+Notes:
+
+- **Internal channel** for inter-agent communication within a Gloamy deployment.
+- Enables agent-to-agent messaging for coordination and delegation.
+- Used for multi-agent workflows where one agent needs to message another.
+- Webhook endpoint: `POST /clawdtalk`.
+- Agents are identified by their configured agent name in `[agents.<name>]`.
 
 ---
 
