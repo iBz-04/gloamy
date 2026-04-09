@@ -987,8 +987,8 @@ dependencies = [
 ]
 
 [[package]]
-name = "desktop-starter"
-version = "0.0.1"
+name = "Gloamy"
+version = "0.1.8"
 dependencies = [
  "log",
  "serde",

@@ -1,6 +1,6 @@
 [package]
 name = "Gloamy"
-version = "0.0.1"
+version = "0.1.8"
 description = "Gloamy desktop runtime and control center"
 authors = ["you"]
 edition = "2021"
