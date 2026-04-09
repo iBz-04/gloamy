@@ -114,6 +114,8 @@ impl Default for SecurityPolicy {
                 "head".into(),
                 "tail".into(),
                 "date".into(),
+                "osascript".into(),
+                "sleep".into(),
             ],
             forbidden_paths: vec![
                 // System directories (blocked even when workspace_only=false)
