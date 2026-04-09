@@ -121,7 +121,7 @@ fn audit_path(root: &Path, path: &Path, report: &mut SkillAuditReport) -> Result
         return Ok(());
     }
 
-    if is_unsupported_script_file(path) {
+    if is_unsupported_script_file(path) && !is_packaged_script_file(root, path) {
         report.findings.push(format!(
             "{rel}: script-like files are blocked by skill security policy."
         ));
@@ -366,6 +366,19 @@ fn is_unsupported_script_file(path: &Path) -> bool {
     has_script_suffix(path.to_string_lossy().as_ref()) || has_shell_shebang(path)
 }
 
+fn is_packaged_script_file(root: &Path, path: &Path) -> bool {
+    let Ok(relative) = path.strip_prefix(root) else {
+        return false;
+    };
+
+    let mut components = relative.components();
+    matches!(
+        components.next(),
+        Some(Component::Normal(name))
+            if matches!(name.to_str(), Some("scripts" | "bin"))
+    )
+}
+
 fn has_script_suffix(raw: &str) -> bool {
     let lowered = raw.to_ascii_lowercase();
     let script_suffixes = [
@@ -540,7 +553,7 @@ mod tests {
     }
 
     #[test]
-    fn audit_rejects_shell_script_files() {
+    fn audit_rejects_root_level_shell_script_files() {
         let dir = tempfile::tempdir().unwrap();
         let skill_dir = dir.path().join("unsafe");
         std::fs::create_dir_all(&skill_dir).unwrap();
@@ -556,6 +569,22 @@ mod tests {
             "{:#?}",
             report.findings
         );
+    }
+
+    #[test]
+    fn audit_allows_packaged_script_files_in_scripts_dir() {
+        let dir = tempfile::tempdir().unwrap();
+        let skill_dir = dir.path().join("safe");
+        std::fs::create_dir_all(skill_dir.join("scripts")).unwrap();
+        std::fs::write(skill_dir.join("SKILL.md"), "# Skill\n").unwrap();
+        std::fs::write(
+            skill_dir.join("scripts").join("install.sh"),
+            "#!/bin/sh\necho safe\n",
+        )
+        .unwrap();
+
+        let report = audit_skill_directory(&skill_dir).unwrap();
+        assert!(report.is_clean(), "{:#?}", report.findings);
     }
 
     #[test]

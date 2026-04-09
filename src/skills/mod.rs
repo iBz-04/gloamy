@@ -579,42 +579,115 @@ fn load_skill_toml(path: &Path) -> Result<Skill> {
 /// Load a skill from a SKILL.md file (simpler format)
 fn load_skill_md(path: &Path, dir: &Path) -> Result<Skill> {
     let content = std::fs::read_to_string(path)?;
-    let name = dir
-        .file_name()
-        .and_then(|n| n.to_str())
-        .unwrap_or("unknown")
-        .to_string();
+    let parsed = parse_markdown_skill_document(&content);
+    let name = parsed.name.unwrap_or_else(|| {
+        dir.file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or("unknown")
+            .to_string()
+    });
 
     Ok(Skill {
         name,
-        description: extract_description(&content),
+        description: parsed.description,
         version: "0.1.0".to_string(),
         author: None,
         tags: Vec::new(),
         tools: Vec::new(),
-        prompts: vec![content],
+        prompts: vec![parsed.prompt_body],
         location: Some(path.to_path_buf()),
     })
 }
 
 fn load_open_skill_md(path: &Path) -> Result<Skill> {
     let content = std::fs::read_to_string(path)?;
-    let name = path
-        .file_stem()
-        .and_then(|n| n.to_str())
-        .unwrap_or("open-skill")
-        .to_string();
+    let parsed = parse_markdown_skill_document(&content);
+    let name = parsed.name.unwrap_or_else(|| {
+        path.file_stem()
+            .and_then(|n| n.to_str())
+            .unwrap_or("open-skill")
+            .to_string()
+    });
 
     Ok(Skill {
         name,
-        description: extract_description(&content),
+        description: parsed.description,
         version: "open-skills".to_string(),
         author: Some("besoeasy/open-skills".to_string()),
         tags: vec!["open-skills".to_string()],
         tools: Vec::new(),
-        prompts: vec![content],
+        prompts: vec![parsed.prompt_body],
         location: Some(path.to_path_buf()),
     })
+}
+
+struct ParsedMarkdownSkill {
+    name: Option<String>,
+    description: String,
+    prompt_body: String,
+}
+
+fn parse_markdown_skill_document(content: &str) -> ParsedMarkdownSkill {
+    let (frontmatter, body) = split_markdown_frontmatter(content);
+    let prompt_body = body.trim().to_string();
+
+    ParsedMarkdownSkill {
+        name: frontmatter
+            .as_ref()
+            .and_then(|metadata| metadata.name.clone())
+            .filter(|value| !value.trim().is_empty()),
+        description: frontmatter
+            .as_ref()
+            .and_then(|metadata| metadata.description.clone())
+            .filter(|value| !value.trim().is_empty())
+            .unwrap_or_else(|| extract_description(body)),
+        prompt_body: if prompt_body.is_empty() {
+            content.trim().to_string()
+        } else {
+            prompt_body
+        },
+    }
+}
+
+#[derive(Default)]
+struct MarkdownSkillFrontmatter {
+    name: Option<String>,
+    description: Option<String>,
+}
+
+fn split_markdown_frontmatter(content: &str) -> (Option<MarkdownSkillFrontmatter>, &str) {
+    let newline_len = if content.starts_with("---\r\n") {
+        5
+    } else if content.starts_with("---\n") {
+        4
+    } else {
+        return (None, content);
+    };
+
+    let rest = &content[newline_len..];
+    let mut offset = newline_len;
+    let mut metadata = MarkdownSkillFrontmatter::default();
+
+    for segment in rest.split_inclusive('\n') {
+        let trimmed = segment.trim_end_matches(['\r', '\n']);
+        offset += segment.len();
+
+        if trimmed.trim() == "---" {
+            let body = &content[offset..];
+            return (Some(metadata), body);
+        }
+
+        if let Some((key, value)) = trimmed.split_once(':') {
+            let parsed = value.trim().trim_matches('"').trim_matches('\'');
+            match key.trim() {
+                "name" => metadata.name = Some(parsed.to_string()),
+                "description" => metadata.description = Some(parsed.to_string()),
+                _ => {}
+            }
+        }
+    }
+
+    (None, content)
 }
 
 fn extract_description(content: &str) -> String {
@@ -1230,6 +1303,37 @@ command = "echo hello"
         assert_eq!(skills.len(), 1);
         assert_eq!(skills[0].name, "md-skill");
         assert!(skills[0].description.contains("cool things"));
+    }
+
+    #[test]
+    fn load_skill_from_md_frontmatter_uses_metadata_and_strips_prompt_header() {
+        let dir = tempfile::tempdir().unwrap();
+        let skills_dir = dir.path().join("skills");
+        let skill_dir = skills_dir.join("mac_use");
+        fs::create_dir_all(&skill_dir).unwrap();
+
+        fs::write(
+            skill_dir.join("SKILL.md"),
+            r#"---
+name: mac-use
+description: Control macOS GUI apps visually.
+---
+
+# Mac Use
+
+Control any macOS GUI application through screenshots.
+"#,
+        )
+        .unwrap();
+
+        let skills = load_skills(dir.path());
+        assert_eq!(skills.len(), 1);
+        assert_eq!(skills[0].name, "mac-use");
+        assert_eq!(skills[0].description, "Control macOS GUI apps visually.");
+        assert!(
+            skills[0].prompts[0].starts_with("# Mac Use"),
+            "frontmatter should not be injected into the prompt body"
+        );
     }
 
     #[test]
