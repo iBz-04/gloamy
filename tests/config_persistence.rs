@@ -41,15 +41,15 @@ fn config_default_temperature_positive() {
 }
 
 #[test]
-fn config_default_browser_computer_use_enabled() {
+fn config_default_browser_auto_backend_enabled() {
     let config = Config::default();
     assert!(
         config.browser.enabled,
         "browser should be enabled by default"
     );
     assert_eq!(
-        config.browser.backend, "computer_use",
-        "browser backend should default to computer_use"
+        config.browser.backend, "auto",
+        "browser backend should default to auto"
     );
 }
 

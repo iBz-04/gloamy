@@ -1,9 +1,10 @@
 #[cfg(test)]
 mod temp {
-    use crate::security::policy::{SecurityPolicy, AutonomyLevel};
+    use crate::security::policy::SecurityPolicy;
+
     #[test]
     fn test_user_script() {
-        let p = SecurityPolicy {
+        let _policy = SecurityPolicy {
             allowed_commands: vec!["osascript".into()],
             ..SecurityPolicy::default()
         };
@@ -19,7 +20,7 @@ tell application "Reminders"
     end tell
 end tell
 APPLESCRIPT"#;
-        
+
         // Print why it failed by running through the checks manually
         println!("Contains backtick: {}", cmd.contains('`'));
         // contains_unquoted_shell_variable_expansion is private, wait I can just call it by name if it's in the same module... Wait, I'm in a sub-module.

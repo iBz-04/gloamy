@@ -1552,10 +1552,7 @@ impl Tool for BrowserTool {
 
     async fn execute(&self, args: Value) -> anyhow::Result<ToolResult> {
         // Parse action first so we can gate read vs mutating operations correctly.
-        let action_str_early = args
-            .get("action")
-            .and_then(|v| v.as_str())
-            .unwrap_or("");
+        let action_str_early = args.get("action").and_then(|v| v.as_str()).unwrap_or("");
 
         let is_read_action = is_browser_read_action(action_str_early);
 
@@ -3361,7 +3358,14 @@ mod tests {
 
     #[test]
     fn browser_read_actions_are_classified_correctly() {
-        for action in ["snapshot", "get_url", "get_title", "get_text", "is_visible", "screenshot"] {
+        for action in [
+            "snapshot",
+            "get_url",
+            "get_title",
+            "get_text",
+            "is_visible",
+            "screenshot",
+        ] {
             assert!(
                 is_browser_read_action(action),
                 "'{action}' should be a read action"
@@ -3372,8 +3376,21 @@ mod tests {
     #[test]
     fn browser_mutating_actions_are_not_read() {
         for action in [
-            "open", "click", "fill", "type", "press", "hover", "scroll", "close", "find",
-            "wait", "mouse_move", "mouse_click", "mouse_drag", "key_type", "key_press",
+            "open",
+            "click",
+            "fill",
+            "type",
+            "press",
+            "hover",
+            "scroll",
+            "close",
+            "find",
+            "wait",
+            "mouse_move",
+            "mouse_click",
+            "mouse_drag",
+            "key_type",
+            "key_press",
             "screen_capture",
         ] {
             assert!(

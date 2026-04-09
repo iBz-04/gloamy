@@ -4,7 +4,7 @@ version = 4
 
 [[package]]
 name = "Gloamy"
-version = "0.0.1"
+version = "0.1.9"
 dependencies = [
  "log",
  "serde",
@@ -3293,7 +3293,7 @@ dependencies = [
 
 [[package]]
 name = "gloamy"
-version = "0.1.8"
+version = "0.1.9"
 dependencies = [
  "anyhow",
  "async-imap",

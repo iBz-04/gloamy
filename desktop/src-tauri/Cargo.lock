@@ -988,7 +988,7 @@ dependencies = [
 
 [[package]]
 name = "Gloamy"
-version = "0.1.8"
+version = "0.1.9"
 dependencies = [
  "log",
  "serde",

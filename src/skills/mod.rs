@@ -185,7 +185,7 @@ fn load_skills_from_directory_with_options(
             continue;
         };
         let is_symlink_dir = file_type.is_symlink() && path.is_dir();
-        if !file_type.is_dir() && !(allow_symlink_roots && is_symlink_dir) {
+        if !(file_type.is_dir() || allow_symlink_roots && is_symlink_dir) {
             continue;
         }
 
