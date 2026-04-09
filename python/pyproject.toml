@@ -5,7 +5,7 @@ build-backend = "hatchling.build"
 [project]
 name = "gloamy-tools"
 version = "0.1.0"
-description = "Python companion package for Gloamy - LangGraph-based tool calling for consistent LLM agent execution"
+description = "LangGraph-based tool calling for consistent LLM agent execution"
 readme = "README.md"
 license = { text = "MIT OR Apache-2.0" }
 requires-python = ">=3.10"

@@ -27,7 +27,7 @@ Gloamy is built around explicit subsystem contracts:
 - `RuntimeAdapter` for runtime isolation
 - `Peripheral` for boards and device integrations
 
-The project goal is simple: one runtime, one configuration model, and swappable integrations without rewriting the core agent loop.
+The project goal is simple: Local first agents for real-world tasks
 
 ## What Gloamy Does
 

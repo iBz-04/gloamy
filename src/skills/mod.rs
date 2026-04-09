@@ -42,8 +42,9 @@ const BUNDLED_SKILL_ASSETS: &[BundledSkillAsset] = &[
 ];
 
 /// A skill is a user-defined or community-built capability.
-/// Skills live in `~/.gloamy/workspace/skills/<name>/SKILL.md`
-/// and can include tool definitions, prompts, and automation scripts.
+/// Skills can live in the configured Gloamy workspace or a project-local
+/// `skills/<name>/SKILL.md` directory discovered from the current working tree.
+/// They can include tool definitions, prompts, and automation scripts.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Skill {
     pub name: String,
@@ -100,7 +101,7 @@ fn default_version() -> String {
     "0.1.0".to_string()
 }
 
-/// Load all skills from the workspace skills directory
+/// Load skills from the configured workspace and optional open-skills sources.
 pub fn load_skills(workspace_dir: &Path) -> Vec<Skill> {
     load_skills_with_open_skills_config(workspace_dir, None, None)
 }
@@ -117,6 +118,24 @@ pub fn load_skills_with_config(workspace_dir: &Path, config: &crate::config::Con
     }
 
     extend_skills_preferring_later(&mut skills, load_workspace_skills(workspace_dir));
+    skills
+}
+
+/// Load skills using runtime config values plus any project-local `skills/`
+/// directory discovered from the current working directory.
+pub fn load_skills_with_runtime_context(
+    workspace_dir: &Path,
+    config: &crate::config::Config,
+) -> Vec<Skill> {
+    let mut skills = load_skills_with_config(workspace_dir, config);
+
+    if let Some(project_skills_dir) = discover_project_skills_dir(workspace_dir) {
+        extend_skills_preferring_later(
+            &mut skills,
+            load_skills_from_directory_with_options(&project_skills_dir, false),
+        );
+    }
+
     skills
 }
 
@@ -143,6 +162,13 @@ fn load_workspace_skills(workspace_dir: &Path) -> Vec<Skill> {
 }
 
 fn load_skills_from_directory(skills_dir: &Path) -> Vec<Skill> {
+    load_skills_from_directory_with_options(skills_dir, true)
+}
+
+fn load_skills_from_directory_with_options(
+    skills_dir: &Path,
+    allow_symlink_roots: bool,
+) -> Vec<Skill> {
     if !skills_dir.exists() {
         return Vec::new();
     }
@@ -155,11 +181,21 @@ fn load_skills_from_directory(skills_dir: &Path) -> Vec<Skill> {
 
     for entry in entries.flatten() {
         let path = entry.path();
-        if !path.is_dir() {
+        let Ok(file_type) = entry.file_type() else {
+            continue;
+        };
+        let is_symlink_dir = file_type.is_symlink() && path.is_dir();
+        if !file_type.is_dir() && !(allow_symlink_roots && is_symlink_dir) {
             continue;
         }
 
-        match audit::audit_skill_directory(&path) {
+        let audit_result = if is_symlink_dir {
+            audit::audit_skill_directory(&path)
+        } else {
+            audit::audit_skill_directory_in_collection(&path, skills_dir)
+        };
+
+        match audit_result {
             Ok(report) if report.is_clean() => {}
             Ok(report) => {
                 tracing::warn!(
@@ -194,6 +230,28 @@ fn load_skills_from_directory(skills_dir: &Path) -> Vec<Skill> {
     }
 
     skills
+}
+
+fn discover_project_skills_dir(workspace_dir: &Path) -> Option<PathBuf> {
+    let current_dir = std::env::current_dir().ok()?;
+    for ancestor in current_dir.ancestors() {
+        let skills_dir = ancestor.join("skills");
+        if !skills_dir.is_dir() {
+            continue;
+        }
+        if same_directory(ancestor, workspace_dir) {
+            return None;
+        }
+        return Some(skills_dir);
+    }
+    None
+}
+
+fn same_directory(left: &Path, right: &Path) -> bool {
+    match (left.canonicalize(), right.canonicalize()) {
+        (Ok(left), Ok(right)) => left == right,
+        _ => left == right,
+    }
 }
 
 fn load_open_skills(repo_dir: &Path) -> Vec<Skill> {
@@ -1065,7 +1123,7 @@ pub fn handle_command(command: crate::SkillCommands, config: &crate::config::Con
     let workspace_dir = &config.workspace_dir;
     match command {
         crate::SkillCommands::List => {
-            let skills = load_skills_with_config(workspace_dir, config);
+            let skills = load_skills_with_runtime_context(workspace_dir, config);
             if skills.is_empty() {
                 println!("No skills installed.");
                 println!();
@@ -1224,6 +1282,11 @@ mod tests {
         ENV_LOCK.get_or_init(|| Mutex::new(()))
     }
 
+    fn current_dir_lock() -> &'static Mutex<()> {
+        static CWD_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+        CWD_LOCK.get_or_init(|| Mutex::new(()))
+    }
+
     struct EnvVarGuard {
         key: &'static str,
         original: Option<String>,
@@ -1244,6 +1307,24 @@ mod tests {
             } else {
                 std::env::remove_var(self.key);
             }
+        }
+    }
+
+    struct CurrentDirGuard {
+        original: PathBuf,
+    }
+
+    impl CurrentDirGuard {
+        fn set(path: &Path) -> Self {
+            let original = std::env::current_dir().unwrap();
+            std::env::set_current_dir(path).unwrap();
+            Self { original }
+        }
+    }
+
+    impl Drop for CurrentDirGuard {
+        fn drop(&mut self) {
+            std::env::set_current_dir(&self.original).unwrap();
         }
     }
 
@@ -1816,6 +1897,39 @@ version = "9.9.9"
 
         assert_eq!(docx.description, "Workspace override");
         assert_eq!(docx.version, "9.9.9");
+    }
+
+    #[test]
+    fn load_skills_with_runtime_context_includes_project_local_skills() {
+        let _cwd_guard = current_dir_lock().lock().unwrap();
+        let dir = tempfile::tempdir().unwrap();
+        let config_dir = dir.path().join(".gloamy");
+        let workspace_dir = dir.path().join("workspace");
+        let project_dir = dir.path().join("project");
+        let project_skill_dir = project_dir.join("skills/mac_use");
+        fs::create_dir_all(&config_dir).unwrap();
+        fs::create_dir_all(workspace_dir.join("skills")).unwrap();
+        fs::create_dir_all(&project_skill_dir).unwrap();
+        fs::write(
+            project_skill_dir.join("SKILL.md"),
+            r#"---
+name: mac-use
+description: Control macOS GUI apps visually.
+---
+
+# Mac Use
+"#,
+        )
+        .unwrap();
+
+        let _dir_guard = CurrentDirGuard::set(&project_dir);
+
+        let mut config = crate::config::Config::default();
+        config.workspace_dir = workspace_dir.clone();
+        config.config_path = config_dir.join("config.toml");
+
+        let skills = load_skills_with_runtime_context(&workspace_dir, &config);
+        assert!(skills.iter().any(|skill| skill.name == "mac-use"));
     }
 }
 

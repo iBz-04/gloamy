@@ -223,6 +223,10 @@ impl PromptSection for ExecutionSection {
              - Chain multiple tool calls in sequence to complete the full task.\n\
              - Only respond to the user AFTER all steps are complete or you are truly blocked.\n\
              - When blocked, explain what you tried, what failed, and the smallest next input needed.\n\n\
+             Skill-first routing (IMPORTANT):\n\
+             - When a loaded skill matches the target application or domain (e.g. automating-reminders for Reminders, automating-calendar for Calendar), ALWAYS use the skill's scripting approach (JXA/osascript via shell) FIRST.\n\
+             - Only fall back to mac_automation (UI automation) if the skill's scripting approach fails or no matching skill is loaded for that app.\n\
+             - mac_automation is for general-purpose apps that have no dedicated skill. Never skip a matching skill to go straight to UI automation.\n\n\
              Remember: The user expects the ENTIRE task to be done, not just the first step."
                 .into(),
         )

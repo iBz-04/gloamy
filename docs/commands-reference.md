@@ -255,11 +255,13 @@ Channel runtime also watches `config.toml` and hot-applies updates to:
 - symlinks inside the skill package
 - script-like files (`.sh`, `.bash`, `.zsh`, `.ps1`, `.bat`, `.cmd`)
 - high-risk command snippets (for example pipe-to-shell payloads)
-- markdown links that escape the skill root, point to remote markdown, or target script files
+- markdown links that escape the enclosing skill package or shared `skills/` collection, point to remote markdown, or target script files
 
 Use `skills audit` to manually validate a candidate skill directory (or an installed skill by name) before sharing it.
 
 Skill manifests (`SKILL.toml`) support `prompts` and `[[tools]]`; both are injected into the agent system prompt at runtime, so the model can follow skill instructions without manually reading skill files.
+
+At runtime, Gloamy merges skills from the configured workspace `skills/` directory and, when you launch it from a project/worktree that contains its own `skills/` directory, that project-local collection as well.
 
 Gloamy also ships built-in `docx`, `xlsx`, and `pptx` document skills. They are materialized under the user's Gloamy config directory on first run, appear in `gloamy skills list`, and can be audited by name with `gloamy skills audit docx` (or `xlsx` / `pptx`) without a separate install step.
 

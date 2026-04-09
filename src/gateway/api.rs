@@ -525,7 +525,7 @@ pub async fn handle_api_skills(
     }
 
     let config = state.config.lock().clone();
-    let skills = crate::skills::load_skills_with_config(&config.workspace_dir, &config);
+    let skills = crate::skills::load_skills_with_runtime_context(&config.workspace_dir, &config);
 
     let entries: Vec<serde_json::Value> = skills
         .iter()

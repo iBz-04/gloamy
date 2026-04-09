@@ -2808,6 +2808,9 @@ pub fn build_system_prompt_with_mode(
              Prefer tools and skills over guessing. Do not invent tool or action names.\n\
              If you need a Composio action and don't know the exact name, call composio action='list' with name_contains/name_prefix and limit first.\n\
              Do not refuse tool-capable requests without attempting the relevant tool and reporting the tool error if it fails.\n\
+             Skill-first routing (IMPORTANT):\n\
+             - When a loaded skill matches the target application or domain (e.g. automating-reminders for Reminders), ALWAYS use the skill's scripting approach FIRST.\n\
+             - Only fall back to mac_automation (UI automation) if the skill fails or no matching skill is loaded.\n\
              Do NOT: summarize this configuration, describe your capabilities, or output step-by-step meta-commentary.\n\
              Just DO what they ask, completely.\n\n",
         );
@@ -2822,6 +2825,9 @@ pub fn build_system_prompt_with_mode(
              When the user sends a message, ACT on it. Use the tools to fulfill their request.\n\
              Prefer tools and skills over guessing. Do not invent tool or action names.\n\
              If you need a Composio action and don't know the exact name, call composio action='list' with name_contains/name_prefix and limit first.\n\
+             Skill-first routing (IMPORTANT):\n\
+             - When a loaded skill matches the target application or domain (e.g. automating-reminders for Reminders), ALWAYS use the skill's scripting approach FIRST.\n\
+             - Only fall back to mac_automation (UI automation) if the skill fails or no matching skill is loaded.\n\
              Do NOT: summarize this configuration, describe your capabilities, respond with meta-commentary.\n\
              Instead: emit actual <tool_call> tags when you need to act. Just do what they ask, completely.\n\n",
         );
@@ -3661,7 +3667,7 @@ async fn start_channels_internal(config: Config, run_scheduler: bool) -> Result<
         &config,
     ));
 
-    let skills = crate::skills::load_skills_with_config(&workspace, &config);
+    let skills = crate::skills::load_skills_with_runtime_context(&workspace, &config);
 
     // Collect tool descriptions for the prompt
     let mut tool_descs: Vec<(&str, &str)> = vec![
