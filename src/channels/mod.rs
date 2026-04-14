@@ -235,6 +235,7 @@ struct ConfigFileStamp {
 struct RuntimeConfigState {
     defaults: ChannelRuntimeDefaults,
     last_applied_stamp: Option<ConfigFileStamp>,
+    security: Option<Arc<SecurityPolicy>>,
 }
 
 fn runtime_config_store() -> &'static Mutex<HashMap<PathBuf, RuntimeConfigState>> {
@@ -835,7 +836,7 @@ fn decrypt_optional_secret_for_runtime_reload(
     Ok(())
 }
 
-async fn load_runtime_defaults_from_config_file(path: &Path) -> Result<ChannelRuntimeDefaults> {
+async fn load_runtime_defaults_from_config_file(path: &Path) -> Result<(ChannelRuntimeDefaults, u32)> {
     let contents = tokio::fs::read_to_string(path)
         .await
         .with_context(|| format!("Failed to read {}", path.display()))?;
@@ -849,7 +850,8 @@ async fn load_runtime_defaults_from_config_file(path: &Path) -> Result<ChannelRu
     }
 
     parsed.apply_env_overrides();
-    Ok(runtime_defaults_from_config(&parsed))
+    let max_actions = parsed.autonomy.max_actions_per_hour;
+    Ok((runtime_defaults_from_config(&parsed), max_actions))
 }
 
 async fn maybe_apply_runtime_config_update(ctx: &ChannelRuntimeContext) -> Result<()> {
@@ -872,7 +874,14 @@ async fn maybe_apply_runtime_config_update(ctx: &ChannelRuntimeContext) -> Resul
         }
     }
 
-    let next_defaults = load_runtime_defaults_from_config_file(&config_path).await?;
+    let existing_security = {
+        let store = runtime_config_store()
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        store.get(&config_path).and_then(|s| s.security.clone())
+    };
+
+    let (next_defaults, new_max_actions) = load_runtime_defaults_from_config_file(&config_path).await?;
     let next_default_provider = providers::create_resilient_provider_with_options(
         &next_defaults.default_provider,
         next_defaults.api_key.as_deref(),
@@ -907,7 +916,16 @@ async fn maybe_apply_runtime_config_update(ctx: &ChannelRuntimeContext) -> Resul
             RuntimeConfigState {
                 defaults: next_defaults.clone(),
                 last_applied_stamp: Some(stamp),
+                security: existing_security.clone(),
             },
+        );
+    }
+
+    if let Some(security) = existing_security {
+        security.set_max_actions_per_hour(new_max_actions);
+        tracing::info!(
+            max_actions_per_hour = new_max_actions,
+            "Updated security rate limit from config"
         );
     }
 
@@ -3590,6 +3608,11 @@ async fn start_channels_internal(config: Config, run_scheduler: bool) -> Result<
         tracing::warn!("Provider warmup failed (non-fatal): {e}");
     }
 
+    let security = Arc::new(SecurityPolicy::from_config(
+        &config.autonomy,
+        &config.workspace_dir,
+    ));
+
     let initial_stamp = config_file_stamp(&config.config_path).await;
     {
         let mut store = runtime_config_store()
@@ -3600,6 +3623,7 @@ async fn start_channels_internal(config: Config, run_scheduler: bool) -> Result<
             RuntimeConfigState {
                 defaults: runtime_defaults_from_config(&config),
                 last_applied_stamp: initial_stamp,
+                security: Some(Arc::clone(&security)),
             },
         );
     }
@@ -3623,10 +3647,6 @@ async fn start_channels_internal(config: Config, run_scheduler: bool) -> Result<
     };
     let runtime: Arc<dyn runtime::RuntimeAdapter> =
         Arc::from(runtime::create_runtime(&config.runtime)?);
-    let security = Arc::new(SecurityPolicy::from_config(
-        &config.autonomy,
-        &config.workspace_dir,
-    ));
     let model = resolved_default_model(&config);
     let temperature = config.default_temperature;
     let mem: Arc<dyn Memory> = Arc::from(memory::create_memory_with_storage(
@@ -5655,6 +5675,7 @@ BTC is currently around $65,000 based on latest tool output."#
                         reliability: crate::config::ReliabilityConfig::default(),
                     },
                     last_applied_stamp: None,
+                    security: None,
                 },
             );
         }

@@ -5,6 +5,7 @@ Time-bound project status snapshots for planning documentation and operations wo
 ## Current Snapshot
 
 - [../project-triage-snapshot-2026-02-18.md](../project-triage-snapshot-2026-02-18.md)
+- [benchmark-snapshot-2026-04-10.md](benchmark-snapshot-2026-04-10.md)
 
 ## Scope
 

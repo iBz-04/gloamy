@@ -41,3 +41,6 @@ desktop/release-assets/
 
 # Node.js dependencies
 node_modules/
+
+# Local build/release scripts
+build_release.sh

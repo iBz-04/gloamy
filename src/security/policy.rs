@@ -2,6 +2,8 @@ use parking_lot::Mutex;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
+use std::sync::atomic::{AtomicU32, Ordering};
 use std::time::Instant;
 
 /// How much autonomy the agent has
@@ -92,6 +94,8 @@ pub struct SecurityPolicy {
     pub block_high_risk_commands: bool,
     pub shell_env_passthrough: Vec<String>,
     pub tracker: ActionTracker,
+    /// Runtime-updatable limit. `u32::MAX` means "use the static `max_actions_per_hour`".
+    pub(crate) live_limit: Arc<AtomicU32>,
 }
 
 impl Default for SecurityPolicy {
@@ -146,6 +150,7 @@ impl Default for SecurityPolicy {
             block_high_risk_commands: true,
             shell_env_passthrough: vec![],
             tracker: ActionTracker::new(),
+            live_limit: Arc::new(AtomicU32::new(u32::MAX)),
         }
     }
 }
@@ -1196,13 +1201,23 @@ impl SecurityPolicy {
     /// Record an action and check if the rate limit has been exceeded.
     /// Returns `true` if the action is allowed, `false` if rate-limited.
     pub fn record_action(&self) -> bool {
+        let live = self.live_limit.load(Ordering::Relaxed);
+        let limit = if live == u32::MAX { self.max_actions_per_hour } else { live } as usize;
         let count = self.tracker.record();
-        count <= self.max_actions_per_hour as usize
+        count <= limit
     }
 
     /// Check if the rate limit would be exceeded without recording.
     pub fn is_rate_limited(&self) -> bool {
-        self.tracker.count() >= self.max_actions_per_hour as usize
+        let live = self.live_limit.load(Ordering::Relaxed);
+        let limit = if live == u32::MAX { self.max_actions_per_hour } else { live } as usize;
+        self.tracker.count() >= limit
+    }
+
+    /// Update the per-hour action limit at runtime without restarting the daemon.
+    /// Called by the config hot-reload path when `max_actions_per_hour` changes.
+    pub fn set_max_actions_per_hour(&self, n: u32) {
+        self.live_limit.store(n, Ordering::Relaxed);
     }
 
     /// Build from config sections
@@ -1234,6 +1249,7 @@ impl SecurityPolicy {
             block_high_risk_commands: autonomy_config.block_high_risk_commands,
             shell_env_passthrough: autonomy_config.shell_env_passthrough.clone(),
             tracker: ActionTracker::new(),
+            live_limit: Arc::new(AtomicU32::new(u32::MAX)),
         }
     }
 }
