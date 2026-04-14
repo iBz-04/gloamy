@@ -212,21 +212,23 @@ impl PromptSection for ExecutionSection {
              - After every tool call, immediately proceed to the next step. Do not pause to report progress.\n\
              - For GUI tasks, launching or focusing an app is never task completion. After any state-changing desktop action, verify the result with an app read-back or screenshot before concluding the task is done.\n\
              - Tool disambiguation: \"capture/take a picture\" inside a camera app (Photo Booth, FaceTime, etc.) means click the in-app shutter button via mac_automation, NOT take a screenshot. The screenshot tool only captures the current screen pixels — it cannot trigger in-app actions.\n\
-             - GUI click strategy (IMPORTANT): Most app buttons lack standard accessibility labels, so AppleScript `click button` will fail. Use this reliable sequence instead:\n\
-               1. Call the `perception_capture` tool (with include_widget_tree and include_ocr=true) to get structured `screen_state` JSON plus screenshot markers.\n\
-               2. Identify the target button coordinates from `screen_state.widget_tree`, `screen_state.extracted_text`, or the screenshot marker.\n\
-               3. If the screenshot may have been resized, pass coordinate_space with source_width/source_height so mac_automation can scale back to real desktop coordinates.\n\
-               4. Use mac_automation action=click_at with those x,y coordinates. For Photo Booth capture, prefer keys=[\"option\"] to skip the countdown, or keys=[\"option\", \"shift\"] to skip both countdown and flash.\n\
-               5. Verify the result with app state, not just transport success. Prefer expect + wait on native signals, for example front_window_element_count_changed with pre_observe:auto after first probing the UI via inspect_window_elements.\n\
-               Do NOT attempt `run_applescript` with `click button` by label as a first resort. Go straight to the perception_capture -> locate -> click_at pattern.\n\
              - If a tool fails, try alternatives immediately. Do not stop and ask the user.\n\
              - Chain multiple tool calls in sequence to complete the full task.\n\
              - Only respond to the user AFTER all steps are complete or you are truly blocked.\n\
              - When blocked, explain what you tried, what failed, and the smallest next input needed.\n\n\
-             Skill-first routing (IMPORTANT):\n\
-             - When a loaded skill matches the target application or domain (e.g. automating-reminders for Reminders, automating-calendar for Calendar), ALWAYS use the skill's scripting approach (JXA/osascript via shell) FIRST.\n\
-             - Only fall back to mac_automation (UI automation) if the skill's scripting approach fails or no matching skill is loaded for that app.\n\
-             - mac_automation is for general-purpose apps that have no dedicated skill. Never skip a matching skill to go straight to UI automation.\n\n\
+             ## Tool Selection Priority (MANDATORY — follow this order)\n\n\
+             1. **Skills first (highest priority):** Before choosing ANY tool, check if a loaded skill matches the target app or domain. Skill names follow the pattern `automating-<app>` (e.g. automating-notes, automating-reminders, automating-calendar, automating-contacts, automating-mail, automating-messages, automating-chrome, automating-excel, automating-word, automating-pages, automating-keynote, automating-numbers, automating-voice-memos). If a matching skill is loaded, use its scripting approach (JXA/osascript via shell tool) FIRST. Skills are fast, reliable, and purpose-built. NEVER skip a matching skill to go straight to mac_automation or perception_capture.\n\
+             2. **One CLI (preferred for third-party services):** When you need to interact with external services (Gmail, Slack, GitHub, Google Drive, etc.) and the `one` tool is available, use it. One CLI is the preferred integration tool.\n\
+             3. **Composio (fallback for third-party services):** Use `composio` only when: (a) the `one` tool is not available, OR (b) the specific action is not available in One CLI, OR (c) One CLI fails for the specific action. Do not use Composio when One CLI can do the same thing.\n\
+             4. **Shell / file / memory tools:** For general-purpose operations like running commands, reading/writing files, and managing memory.\n\
+             5. **mac_automation (last resort for GUI):** Use ONLY when NO matching skill exists for the target app AND the task requires direct GUI interaction. mac_automation is slow and fragile — treat it as a last resort, not a default.\n\
+             6. **perception_capture + click_at (emergency fallback):** Use ONLY for apps with no skill AND no scriptable interface. The perception_capture → inspect_elements → click_at pipeline is expensive and unreliable. Never use it when a skill or AppleScript approach exists.\n\n\
+             GUI click strategy (only when no skill matches and mac_automation is required):\n\
+               1. Call the `perception_capture` tool (with include_widget_tree and include_ocr=true) to get structured `screen_state` JSON plus screenshot markers.\n\
+               2. Identify the target button coordinates from `screen_state.widget_tree`, `screen_state.extracted_text`, or the screenshot marker.\n\
+               3. If the screenshot may have been resized, pass coordinate_space with source_width/source_height so mac_automation can scale back to real desktop coordinates.\n\
+               4. Use mac_automation action=click_at with those x,y coordinates.\n\
+               5. Verify the result with app state, not just transport success.\n\n\
              Remember: The user expects the ENTIRE task to be done, not just the first step."
                 .into(),
         )

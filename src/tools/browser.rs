@@ -506,6 +506,11 @@ impl BrowserTool {
             cmd.arg("--session").arg(session);
         }
 
+        // Show visible browser window when headless is disabled
+        if !self.native_headless {
+            cmd.arg("--headed");
+        }
+
         // Add --json for machine-readable output
         cmd.args(args).arg("--json");
 

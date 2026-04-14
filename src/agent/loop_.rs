@@ -4004,13 +4004,13 @@ pub async fn run(
     if config.composio.enabled {
         tool_descs.push((
             "composio",
-            "Execute actions on 1000+ apps via Composio (Gmail, Notion, GitHub, Slack, etc.). Use action='list' to discover, 'execute' to run (optionally with connected_account_id), 'connect' to OAuth.",
+            "Execute actions on 1000+ apps via Composio (Gmail, Notion, GitHub, Slack, etc.). Use action='list' to discover, 'execute' to run (optionally with connected_account_id), 'connect' to OAuth. IMPORTANT: Only use Composio as fallback — prefer the `one` tool for third-party services when available.",
         ));
     }
     if config.one.enabled {
         tool_descs.push((
             "one",
-            "Execute actions on 200+ apps via One CLI (Gmail, Slack, GitHub, etc.). Use list_connections, search_actions, get_action_knowledge, execute_action.",
+            "Execute actions on 200+ apps via One CLI (Gmail, Slack, GitHub, etc.). Use list_connections, search_actions, get_action_knowledge, execute_action. PREFERRED tool for third-party service integrations — use this before Composio.",
         ));
     }
     tool_descs.push((
@@ -4462,12 +4462,12 @@ pub async fn process_message(config: Config, message: &str) -> Result<String> {
         tool_descs.push(("browser_open", "Open approved URLs in browser."));
     }
     if config.composio.enabled {
-        tool_descs.push(("composio", "Execute actions on 1000+ apps via Composio."));
+        tool_descs.push(("composio", "Execute actions on 1000+ apps via Composio. Fallback only — prefer the `one` tool when available."));
     }
     if config.one.enabled {
         tool_descs.push((
             "one",
-            "Execute actions on 200+ apps via One CLI (list_connections, search_actions, get_action_knowledge, execute_action).",
+            "Execute actions on 200+ apps via One CLI (list_connections, search_actions, get_action_knowledge, execute_action). PREFERRED tool for third-party services — use before Composio.",
         ));
     }
     if config.peripherals.enabled && !config.peripherals.boards.is_empty() {

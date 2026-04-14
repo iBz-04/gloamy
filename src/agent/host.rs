@@ -29,11 +29,7 @@ struct ScreenStateDiff {
     capture_failed: bool,
 }
 
-impl ScreenStateDiff {
-    fn has_meaningful_change(&self) -> bool {
-        self.app_changed || self.widget_tree_changed || self.ocr_count_changed
-    }
-}
+impl ScreenStateDiff {}
 
 /// The HostAgent is the global planner and router in the AgentOS architecture.
 /// It decomposes tasks and dispatches them to appropriate AppAgents (Workers).
@@ -380,12 +376,6 @@ impl HostAgent {
                 "execution blocked by runtime policy or permissions: {}",
                 diagnostic.trim()
             ));
-        }
-
-        if result.output.trim().is_empty() && !state_diff.has_meaningful_change() {
-            return PostStepDecision::Replan(
-                "step produced no output and no detectable runtime state delta".to_string(),
-            );
         }
 
         if Self::signals_incomplete_progress(&diagnostic_lower) {

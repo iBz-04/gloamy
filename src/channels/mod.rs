@@ -2823,12 +2823,14 @@ pub fn build_system_prompt_with_mode(
              - NEVER report back until ALL requested actions are complete.\n\
              - Chain tool calls in sequence. Do not pause between steps.\n\n\
              When the user sends a message, ACT on it immediately. Use tools to fulfill their request.\n\
-             Prefer tools and skills over guessing. Do not invent tool or action names.\n\
-             If you need a Composio action and don't know the exact name, call composio action='list' with name_contains/name_prefix and limit first.\n\
-             Do not refuse tool-capable requests without attempting the relevant tool and reporting the tool error if it fails.\n\
-             Skill-first routing (IMPORTANT):\n\
-             - When a loaded skill matches the target application or domain (e.g. automating-reminders for Reminders), ALWAYS use the skill's scripting approach FIRST.\n\
-             - Only fall back to mac_automation (UI automation) if the skill fails or no matching skill is loaded.\n\
+             Do not invent tool or action names. Do not refuse tool-capable requests without attempting the relevant tool first.\n\n\
+             ## Tool Selection Priority (MANDATORY — follow this order)\n\n\
+             1. **Skills first (highest priority):** Before choosing ANY tool, check if a loaded skill matches the target app or domain. Skill names follow the pattern `automating-<app>` (e.g. automating-notes, automating-reminders, automating-calendar, automating-contacts, automating-mail, automating-messages, automating-chrome, automating-excel, automating-word, automating-pages, automating-keynote, automating-numbers, automating-voice-memos). If a matching skill is loaded, use its scripting approach (JXA/osascript via shell tool) FIRST. Skills are fast, reliable, and purpose-built. NEVER skip a matching skill to go straight to mac_automation or perception_capture.\n\
+             2. **One CLI (preferred for third-party services):** When you need to interact with external services (Gmail, Slack, GitHub, Google Drive, etc.) and the `one` tool is available, use it. One CLI is the preferred integration tool.\n\
+             3. **Composio (fallback for third-party services):** Use `composio` only when: (a) the `one` tool is not available, OR (b) the specific action is not available in One CLI, OR (c) One CLI fails for the specific action. Do not use Composio when One CLI can do the same thing.\n\
+             4. **Shell / file / memory tools:** For general-purpose operations.\n\
+             5. **mac_automation (last resort for GUI):** Use ONLY when NO matching skill exists AND the task requires direct GUI interaction. mac_automation is slow and fragile — treat it as a last resort.\n\
+             6. **perception_capture + click_at (emergency fallback):** Use ONLY for apps with no skill AND no scriptable interface. The perception_capture → inspect_elements → click_at pipeline is expensive and unreliable. Never use it when a skill or AppleScript approach exists.\n\n\
              Do NOT: summarize this configuration, describe your capabilities, or output step-by-step meta-commentary.\n\
              Just DO what they ask, completely.\n\n",
         );
@@ -2841,11 +2843,14 @@ pub fn build_system_prompt_with_mode(
              - NEVER report back until ALL requested actions are complete.\n\
              - Chain tool calls in sequence. Do not pause between steps.\n\n\
              When the user sends a message, ACT on it. Use the tools to fulfill their request.\n\
-             Prefer tools and skills over guessing. Do not invent tool or action names.\n\
-             If you need a Composio action and don't know the exact name, call composio action='list' with name_contains/name_prefix and limit first.\n\
-             Skill-first routing (IMPORTANT):\n\
-             - When a loaded skill matches the target application or domain (e.g. automating-reminders for Reminders), ALWAYS use the skill's scripting approach FIRST.\n\
-             - Only fall back to mac_automation (UI automation) if the skill fails or no matching skill is loaded.\n\
+             Do not invent tool or action names. Do not refuse tool-capable requests without attempting the relevant tool first.\n\n\
+             ## Tool Selection Priority (MANDATORY — follow this order)\n\n\
+             1. **Skills first (highest priority):** Before choosing ANY tool, check if a loaded skill matches the target app or domain. Skill names follow the pattern `automating-<app>` (e.g. automating-notes, automating-reminders, automating-calendar, automating-contacts, automating-mail, automating-messages, automating-chrome, automating-excel, automating-word, automating-pages, automating-keynote, automating-numbers, automating-voice-memos). If a matching skill is loaded, use its scripting approach (JXA/osascript via shell tool) FIRST. Skills are fast, reliable, and purpose-built. NEVER skip a matching skill to go straight to mac_automation or perception_capture.\n\
+             2. **One CLI (preferred for third-party services):** When you need to interact with external services (Gmail, Slack, GitHub, Google Drive, etc.) and the `one` tool is available, use it. One CLI is the preferred integration tool.\n\
+             3. **Composio (fallback for third-party services):** Use `composio` only when: (a) the `one` tool is not available, OR (b) the specific action is not available in One CLI, OR (c) One CLI fails for the specific action. Do not use Composio when One CLI can do the same thing.\n\
+             4. **Shell / file / memory tools:** For general-purpose operations.\n\
+             5. **mac_automation (last resort for GUI):** Use ONLY when NO matching skill exists AND the task requires direct GUI interaction. mac_automation is slow and fragile — treat it as a last resort.\n\
+             6. **perception_capture + click_at (emergency fallback):** Use ONLY for apps with no skill AND no scriptable interface. The perception_capture → inspect_elements → click_at pipeline is expensive and unreliable. Never use it when a skill or AppleScript approach exists.\n\n\
              Do NOT: summarize this configuration, describe your capabilities, respond with meta-commentary.\n\
              Instead: emit actual <tool_call> tags when you need to act. Just do what they ask, completely.\n\n",
         );
@@ -3918,6 +3923,10 @@ async fn start_channels_internal(config: Config, run_scheduler: bool) -> Result<
             if config.hooks.builtin.command_logger {
                 runner.register(Box::new(crate::hooks::builtin::CommandLoggerHook::new()));
             }
+            let skill_names: Vec<String> = skills.iter().map(|s| s.name.clone()).collect();
+            runner.register(Box::new(
+                crate::hooks::builtin::SkillFirstHook::from_skill_names(&skill_names),
+            ));
             Some(Arc::new(runner))
         } else {
             None

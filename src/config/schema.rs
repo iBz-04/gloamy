@@ -1187,7 +1187,7 @@ pub struct BrowserConfig {
     /// - browser actions prefer `rust_native`, then `agent_browser`, then `computer_use`
     #[serde(default = "default_browser_backend")]
     pub backend: String,
-    /// Headless mode for rust-native backend
+    /// Headless mode for rust-native and agent-browser backends
     #[serde(default = "default_true")]
     pub native_headless: bool,
     /// WebDriver endpoint URL for rust-native backend (e.g. http://127.0.0.1:9515)

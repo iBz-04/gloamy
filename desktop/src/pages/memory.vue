@@ -13,6 +13,16 @@ interface MemoryEntry {
   score: number | null
 }
 
+interface ApiMemoryEntry {
+  id?: unknown
+  key?: unknown
+  content?: unknown
+  category?: unknown
+  timestamp?: unknown
+  session_id?: unknown
+  score?: unknown
+}
+
 const auth = useAuthStore()
 const entries = ref<MemoryEntry[]>([])
 const loading = ref(true)
@@ -93,12 +103,39 @@ function categoryClass(category: string): string {
   return 'text-fuchsia-500'
 }
 
-function normalizeListResponse(response: MemoryEntry[] | { entries?: MemoryEntry[] }): MemoryEntry[] {
+function normalizeCategory(value: unknown): string {
+  if (typeof value === 'string') {
+    return value
+  }
+
+  if (value && typeof value === 'object') {
+    const custom = (value as { custom?: unknown }).custom
+    if (typeof custom === 'string' && custom.trim().length > 0) {
+      return custom
+    }
+  }
+
+  return 'core'
+}
+
+function normalizeEntry(input: ApiMemoryEntry): MemoryEntry {
+  return {
+    id: typeof input.id === 'string' ? input.id : '',
+    key: typeof input.key === 'string' ? input.key : '',
+    content: typeof input.content === 'string' ? input.content : '',
+    category: normalizeCategory(input.category),
+    timestamp: typeof input.timestamp === 'string' ? input.timestamp : '',
+    session_id: typeof input.session_id === 'string' ? input.session_id : null,
+    score: typeof input.score === 'number' ? input.score : null,
+  }
+}
+
+function normalizeListResponse(response: ApiMemoryEntry[] | { entries?: ApiMemoryEntry[] }): MemoryEntry[] {
   if (Array.isArray(response)) {
-    return response
+    return response.map(normalizeEntry)
   }
   if (response && Array.isArray(response.entries)) {
-    return response.entries
+    return response.entries.map(normalizeEntry)
   }
   return []
 }
@@ -111,7 +148,7 @@ async function fetchEntries(showLoading = true) {
   error.value = null
 
   try {
-    const response = await auth.fetchWithAuth<MemoryEntry[] | { entries?: MemoryEntry[] }>('/api/memory')
+    const response = await auth.fetchWithAuth<ApiMemoryEntry[] | { entries?: ApiMemoryEntry[] }>('/api/memory')
     entries.value = normalizeListResponse(response)
   }
   catch (err: unknown) {
