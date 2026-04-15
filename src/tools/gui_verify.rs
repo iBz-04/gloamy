@@ -13,8 +13,8 @@
 //! 4. Screenshot/OCR only as fallback (Phase 2)
 
 use super::traits::{
-    ExpectationResult, GuiActionReport, GuiExpectation, GuiExpectationKind, GuiObservation,
-    PreObservationStrategy, ReversibilityLevel, VerificationStatus, WaitStrategy,
+    ExpectationResult, FailureCause, GuiActionReport, GuiExpectation, GuiExpectationKind,
+    GuiObservation, PreObservationStrategy, ReversibilityLevel, VerificationStatus, WaitStrategy,
 };
 use crate::config::{GuiApprovalGate, GuiApprovalThreshold, GuiVerificationConfig};
 use crate::security::AutonomyLevel;
@@ -249,6 +249,9 @@ pub fn build_report_from_results(
         _ => None,
     };
 
+    let (process_score, outcome_success, failure_cause) =
+        compute_process_outcome_scores(execution_ok, &expectation_results, &verification_status);
+
     GuiActionReport {
         execution_ok,
         pre_observation,
@@ -257,7 +260,90 @@ pub fn build_report_from_results(
         confidence: aggregate_confidence(&expectation_results),
         state_diff,
         expectation_results,
+        process_score,
+        outcome_success,
+        failure_cause,
     }
+}
+
+/// Compute process score, outcome success, and overall failure cause.
+///
+/// Process score: How well did the agent execute (0.0–1.0)?
+/// - High if failures are environment blocks (agent did the right thing but was blocked)
+/// - Low if agent errors (wrong selector, bad action)
+///
+/// Outcome success: Did the task actually complete?
+///
+/// Failure cause: Why did it fail overall?
+fn compute_process_outcome_scores(
+    execution_ok: bool,
+    expectation_results: &[ExpectationResult],
+    verification_status: &VerificationStatus,
+) -> (Option<f64>, Option<bool>, FailureCause) {
+    if !execution_ok {
+        // Execution failed at transport level - process score is 0, outcome is failure
+        return (Some(0.0), Some(false), FailureCause::AgentError);
+    }
+
+    if expectation_results.is_empty() {
+        // No expectations - can't determine process/outcome
+        return (None, None, FailureCause::None);
+    }
+
+    // Count failure causes
+    let mut agent_errors = 0;
+    let mut environment_blocks = 0;
+    let mut evidence_absent = 0;
+    let mut hallucination_suspected = 0;
+    let mut total_failures = 0;
+
+    for result in expectation_results {
+        if result.status != VerificationStatus::Verified {
+            total_failures += 1;
+            match result.failure_cause {
+                FailureCause::AgentError => agent_errors += 1,
+                FailureCause::EnvironmentBlocked => environment_blocks += 1,
+                FailureCause::EvidenceAbsent => evidence_absent += 1,
+                FailureCause::HallucinationSuspected => hallucination_suspected += 1,
+                FailureCause::None => {}
+            }
+        }
+    }
+
+    // Process score: How well did the agent execute?
+    // High if failures are environment blocks, low if agent errors
+    let process_score = if total_failures == 0 {
+        Some(1.0)
+    } else if agent_errors == 0 && hallucination_suspected == 0 {
+        // All failures are environment blocks or evidence absent - agent did well
+        Some(0.8)
+    } else if agent_errors > 0 {
+        // Some agent errors - penalize proportionally
+        Some(1.0 - (agent_errors as f64 / expectation_results.len() as f64))
+    } else {
+        // Hallucination suspected - moderate penalty
+        Some(0.5)
+    };
+
+    // Outcome success: Did the task complete?
+    let outcome_success = Some(*verification_status == VerificationStatus::Verified);
+
+    // Overall failure cause: prioritize by severity
+    let failure_cause = if *verification_status == VerificationStatus::Verified {
+        FailureCause::None
+    } else if hallucination_suspected > 0 {
+        FailureCause::HallucinationSuspected
+    } else if environment_blocks > 0 {
+        FailureCause::EnvironmentBlocked
+    } else if agent_errors > 0 {
+        FailureCause::AgentError
+    } else if evidence_absent > 0 {
+        FailureCause::EvidenceAbsent
+    } else {
+        FailureCause::AgentError // Default
+    };
+
+    (process_score, outcome_success, failure_cause)
 }
 
 /// Build a simple observation from a JSON evidence blob.
@@ -515,6 +601,177 @@ fn reversibility_meets_threshold(
 
 // ── Per-expectation verification ────────────────────────────────
 
+/// Infer why a verification failed based on the expectation kind and evidence.
+fn infer_failure_cause(
+    kind: &GuiExpectationKind,
+    result: &ExpectationResult,
+    post_evidence: &Value,
+) -> FailureCause {
+    match result.status {
+        VerificationStatus::Verified => FailureCause::None,
+        VerificationStatus::Ambiguous => {
+            // Evidence is missing or incomplete
+            if result.actual.is_null() {
+                FailureCause::EvidenceAbsent
+            } else {
+                // Evidence exists but doesn't match - could be environment block
+                detect_environment_block(kind, result, post_evidence)
+            }
+        }
+        VerificationStatus::Failed => {
+            // Check if this looks like an environment block
+            detect_environment_block(kind, result, post_evidence)
+        }
+    }
+}
+
+/// Detect if a failure is due to environment blocks (login walls, CAPTCHAs, network errors, etc.)
+/// rather than agent errors.
+///
+/// Based on research from 2025-2026 on common web automation failure patterns:
+/// - Authentication errors (401, 403, login required, session expired)
+/// - CAPTCHAs (reCAPTCHA, hCaptcha, Cloudflare Turnstile, behavioral challenges)
+/// - Network failures (timeouts, 503, 504, connection errors)
+/// - Resource unavailability (out of stock, sold out, currently unavailable)
+fn detect_environment_block(
+    kind: &GuiExpectationKind,
+    result: &ExpectationResult,
+    post_evidence: &Value,
+) -> FailureCause {
+    let actual_str = result.actual.as_str().unwrap_or("");
+    let actual_lower = actual_str.to_ascii_lowercase();
+
+    // Check message field as well
+    let message_lower = result
+        .message
+        .as_ref()
+        .map(|s| s.to_ascii_lowercase())
+        .unwrap_or_default();
+
+    let combined = format!("{} {}", actual_lower, message_lower);
+
+    // Authentication and authorization blocks (401, 403, login walls, session expired)
+    if combined.contains("login")
+        || combined.contains("sign in")
+        || combined.contains("sign-in")
+        || combined.contains("authenticate")
+        || combined.contains("authentication required")
+        || combined.contains("authorization required")
+        || combined.contains("unauthorized")
+        || combined.contains("forbidden")
+        || combined.contains("access denied")
+        || combined.contains("session expired")
+        || combined.contains("session timeout")
+        || combined.contains("please log in")
+        || combined.contains("you must be logged in")
+        || combined.contains(" 401")
+        || combined.contains(" 403")
+        || combined.contains("http 401")
+        || combined.contains("http 403")
+    {
+        return FailureCause::EnvironmentBlocked;
+    }
+
+    // CAPTCHA challenges (reCAPTCHA, hCaptcha, Cloudflare, behavioral verification)
+    if combined.contains("captcha")
+        || combined.contains("recaptcha")
+        || combined.contains("hcaptcha")
+        || combined.contains("cloudflare")
+        || combined.contains("turnstile")
+        || combined.contains("verify you")
+        || combined.contains("verify that you")
+        || combined.contains("human verification")
+        || combined.contains("bot detection")
+        || combined.contains("security check")
+        || combined.contains("prove you're human")
+        || combined.contains("are you a robot")
+    {
+        return FailureCause::EnvironmentBlocked;
+    }
+
+    // Network and server errors (timeouts, 503, 504, connection failures)
+    if combined.contains("timeout")
+        || combined.contains("timed out")
+        || combined.contains("time out")
+        || combined.contains("network error")
+        || combined.contains("connection refused")
+        || combined.contains("connection failed")
+        || combined.contains("connection reset")
+        || combined.contains("connection timeout")
+        || combined.contains("service unavailable")
+        || combined.contains("server error")
+        || combined.contains("gateway timeout")
+        || combined.contains(" 503")
+        || combined.contains(" 504")
+        || combined.contains(" 502")
+        || combined.contains("http 503")
+        || combined.contains("http 504")
+        || combined.contains("http 502")
+        || combined.contains("too many requests")
+        || combined.contains(" 429")
+        || combined.contains("http 429")
+        || combined.contains("rate limit")
+    {
+        return FailureCause::EnvironmentBlocked;
+    }
+
+    // Resource unavailability (out of stock, sold out, not available)
+    if combined.contains("out of stock")
+        || combined.contains("sold out")
+        || combined.contains("currently unavailable")
+        || combined.contains("not available")
+        || combined.contains("no longer available")
+        || combined.contains("temporarily unavailable")
+        || combined.contains("item unavailable")
+        || combined.contains("product unavailable")
+        || combined.contains("back in stock")
+        || combined.contains("notify me")
+        || combined.contains("waitlist")
+    {
+        return FailureCause::EnvironmentBlocked;
+    }
+
+    // Check URL patterns for environment blocks
+    match kind {
+        GuiExpectationKind::UrlIs { url } | GuiExpectationKind::UrlHostIs { host: url } => {
+            let expected_lower = url.to_ascii_lowercase();
+            // If we expected a success page but got an error/login page
+            if (expected_lower.contains("success")
+                || expected_lower.contains("confirmation")
+                || expected_lower.contains("complete")
+                || expected_lower.contains("thank")
+                || expected_lower.contains("receipt"))
+                && (actual_lower.contains("error")
+                    || actual_lower.contains("failed")
+                    || actual_lower.contains("denied")
+                    || actual_lower.contains("login")
+                    || actual_lower.contains("signin")
+                    || actual_lower.contains("auth"))
+            {
+                return FailureCause::EnvironmentBlocked;
+            }
+        }
+        _ => {}
+    }
+
+    // Check window title for environment blocks
+    if let Some(title) = post_evidence.get("title").and_then(Value::as_str) {
+        let title_lower = title.to_ascii_lowercase();
+        if title_lower.contains("login")
+            || title_lower.contains("sign in")
+            || title_lower.contains("error")
+            || title_lower.contains("access denied")
+            || title_lower.contains("unauthorized")
+            || title_lower.contains("captcha")
+        {
+            return FailureCause::EnvironmentBlocked;
+        }
+    }
+
+    // Default: assume agent error (wrong selector, bad action, incorrect parameters)
+    FailureCause::AgentError
+}
+
 fn verify_single(
     kind: &GuiExpectationKind,
     pre_evidence: Option<&Value>,
@@ -566,6 +823,7 @@ fn verify_single(
         }
     };
     result.confidence = Some(confidence_for(kind, result.status));
+    result.failure_cause = infer_failure_cause(kind, &result, post_evidence);
     result
 }
 
@@ -1031,6 +1289,7 @@ fn expectation_result(
         actual,
         message,
         confidence: None,
+        failure_cause: FailureCause::None,
     }
 }
 
@@ -1715,6 +1974,7 @@ mod tests {
                     actual: Value::Null,
                     message: None,
                     confidence: Some(1.0),
+                    failure_cause: FailureCause::None,
                 },
                 ExpectationResult {
                     status: VerificationStatus::Verified,
@@ -1722,6 +1982,7 @@ mod tests {
                     actual: Value::Null,
                     message: None,
                     confidence: Some(0.9),
+                    failure_cause: FailureCause::None,
                 },
             ],
             &[
@@ -1952,6 +2213,140 @@ mod tests {
             describe_expectation(&expectation),
             "AX attribute 'AXTitle' equals 'Take Photo'"
         );
+    }
+
+    #[test]
+    fn failure_cause_detects_login_wall() {
+        let evidence = json!({"url": "https://example.com/login"});
+        let exps = vec![GuiExpectation {
+            kind: GuiExpectationKind::UrlIs {
+                url: "https://example.com/success".into(),
+            },
+            required: true,
+        }];
+        let (status, results) = verify_expectations(&exps, &evidence);
+        assert_eq!(status, VerificationStatus::Failed);
+        assert_eq!(results[0].failure_cause, FailureCause::EnvironmentBlocked);
+    }
+
+    #[test]
+    fn failure_cause_detects_captcha() {
+        let evidence = json!({"title": "Please verify you're human - reCAPTCHA"});
+        let exps = vec![GuiExpectation {
+            kind: GuiExpectationKind::WindowTitleContains {
+                substring: "Dashboard".into(),
+            },
+            required: true,
+        }];
+        let (status, results) = verify_expectations(&exps, &evidence);
+        assert_eq!(status, VerificationStatus::Failed);
+        assert_eq!(results[0].failure_cause, FailureCause::EnvironmentBlocked);
+    }
+
+    #[test]
+    fn failure_cause_detects_timeout() {
+        let evidence = json!({"url": "https://example.com/error?code=504"});
+        let exps = vec![GuiExpectation {
+            kind: GuiExpectationKind::UrlIs {
+                url: "https://example.com/success".into(),
+            },
+            required: true,
+        }];
+        let (status, results) = verify_expectations(&exps, &evidence);
+        assert_eq!(status, VerificationStatus::Failed);
+        assert_eq!(results[0].failure_cause, FailureCause::EnvironmentBlocked);
+    }
+
+    #[test]
+    fn failure_cause_detects_out_of_stock() {
+        let evidence = json!({"title": "Product Currently Unavailable"});
+        let exps = vec![GuiExpectation {
+            kind: GuiExpectationKind::WindowTitleContains {
+                substring: "Add to Cart".into(),
+            },
+            required: true,
+        }];
+        let (status, results) = verify_expectations(&exps, &evidence);
+        assert_eq!(status, VerificationStatus::Failed);
+        assert_eq!(results[0].failure_cause, FailureCause::EnvironmentBlocked);
+    }
+
+    #[test]
+    fn failure_cause_detects_agent_error_wrong_selector() {
+        let evidence = json!({"field_values": {"#email": "test@example.com"}});
+        let exps = vec![GuiExpectation {
+            kind: GuiExpectationKind::FieldValueEquals {
+                selector: "#username".into(),
+                value: "test@example.com".into(),
+            },
+            required: true,
+        }];
+        let (status, results) = verify_expectations(&exps, &evidence);
+        assert_eq!(status, VerificationStatus::Ambiguous);
+        assert_eq!(results[0].failure_cause, FailureCause::EvidenceAbsent);
+    }
+
+    #[test]
+    fn failure_cause_evidence_absent_when_null() {
+        let evidence = json!({});
+        let exps = vec![GuiExpectation {
+            kind: GuiExpectationKind::UrlIs {
+                url: "https://example.com/success".into(),
+            },
+            required: true,
+        }];
+        let (status, results) = verify_expectations(&exps, &evidence);
+        assert_eq!(status, VerificationStatus::Ambiguous);
+        assert_eq!(results[0].failure_cause, FailureCause::EvidenceAbsent);
+    }
+
+    #[test]
+    fn process_score_high_for_environment_blocks() {
+        let evidence = json!({"url": "https://example.com/login"});
+        let exps = vec![GuiExpectation {
+            kind: GuiExpectationKind::UrlIs {
+                url: "https://example.com/success".into(),
+            },
+            required: true,
+        }];
+        let report = build_report(true, None, None, &exps, &evidence);
+        assert_eq!(report.verification_status, VerificationStatus::Failed);
+        assert_eq!(report.failure_cause, FailureCause::EnvironmentBlocked);
+        assert_eq!(report.process_score, Some(0.8)); // High score - agent did right thing
+        assert_eq!(report.outcome_success, Some(false));
+    }
+
+    #[test]
+    fn process_score_low_for_agent_errors() {
+        let evidence = json!({"field_values": {"#name": "Bob"}});
+        let exps = vec![GuiExpectation {
+            kind: GuiExpectationKind::FieldValueEquals {
+                selector: "#name".into(),
+                value: "Alice".into(),
+            },
+            required: true,
+        }];
+        let report = build_report(true, None, None, &exps, &evidence);
+        assert_eq!(report.verification_status, VerificationStatus::Failed);
+        assert_eq!(report.failure_cause, FailureCause::AgentError);
+        assert_eq!(report.process_score, Some(0.0)); // Low score - agent made mistake
+        assert_eq!(report.outcome_success, Some(false));
+    }
+
+    #[test]
+    fn process_score_perfect_for_verified() {
+        let evidence = json!({"url": "https://example.com/success"});
+        let exps = vec![GuiExpectation {
+            kind: GuiExpectationKind::UrlIs {
+                url: "https://example.com/success".into(),
+            },
+            required: true,
+        }];
+        let report = build_report(true, None, None, &exps, &evidence);
+        assert_eq!(report.verification_status, VerificationStatus::Verified);
+        assert_eq!(report.failure_cause, FailureCause::None);
+        assert_eq!(report.process_score, Some(1.0));
+        assert_eq!(report.outcome_success, Some(true));
     }
 
     #[test]

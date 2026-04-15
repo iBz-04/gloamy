@@ -410,6 +410,40 @@ References:
 - [`docs/providers-reference.md`](docs/providers-reference.md)
 - [`docs/custom-providers.md`](docs/custom-providers.md)
 
+## Authentication
+
+Gloamy stores auth per provider and per profile, so you can keep separate accounts for different workflows and switch between them explicitly.
+
+Supported login flows:
+
+- **OpenAI Codex**
+  - Login with `gloamy auth login --provider openai-codex --device-code`
+  - Use browser / callback flow if you prefer a normal OAuth redirect
+  - Refresh tokens with `gloamy auth refresh --provider openai-codex --profile default`
+- **Gemini**
+  - Login with `gloamy auth login --provider gemini --profile default`
+  - Device-code flow is available for headless setups
+  - Refresh tokens with `gloamy auth refresh --provider gemini --profile default`
+- **Anthropic**
+  - Paste a subscription or setup token with `gloamy auth paste-token --provider anthropic --profile default --auth-kind authorization`
+  - `--auth-kind` can be omitted when Gloamy can auto-detect the token style
+
+Useful auth management commands:
+
+```bash
+gloamy auth status
+gloamy auth list
+gloamy auth use --provider openai-codex --profile work
+gloamy auth logout --provider anthropic --profile default
+```
+
+Notes:
+
+- `auth use` changes the active profile for a provider.
+- `auth status` shows active profiles, token kind, and expiry information.
+- `auth refresh` only applies to OAuth-based profiles like OpenAI Codex and Gemini.
+- `auth list` is helpful when you want to see all stored profiles before switching.
+
 ## Security Model
 
 Gloamy is designed to fail closed where practical.
@@ -509,6 +543,7 @@ Start from the docs hub:
 
 - Docs hub: [`docs/README.md`](docs/README.md)
 - Unified TOC: [`docs/SUMMARY.md`](docs/SUMMARY.md)
+- Feature overview: [`docs/feature-overview.md`](docs/feature-overview.md)
 - Getting started: [`docs/getting-started/README.md`](docs/getting-started/README.md)
 - Reference: [`docs/reference/README.md`](docs/reference/README.md)
 - Operations: [`docs/operations/README.md`](docs/operations/README.md)
@@ -555,3 +590,5 @@ Gloamy is licensed under [MIT](LICENSE).
 
 # Contact
 reach me @  `issakaibrahimrayamah@gmail.com`
+
+Ask questions in [GitHub Discussions](https://github.com/iBz-04/gloamy/discussions)

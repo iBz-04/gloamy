@@ -743,10 +743,14 @@ impl Agent {
 
         let mut tool_outcomes: Vec<crate::agent::lesson::ToolOutcome> = Vec::new();
         let mut execution_checkpoint_note = self.latest_checkpoint_note.clone();
+        let mut task_plan_note: Option<String> = None;
 
         for iteration in 0..self.config.max_tool_iterations {
             let mut messages = self.tool_dispatcher.to_provider_messages(&self.history);
             if let Some(note) = execution_checkpoint_note.as_deref() {
+                crate::agent::loop_::inject_ephemeral_system_note(&mut messages, note);
+            }
+            if let Some(note) = task_plan_note.as_deref() {
                 crate::agent::loop_::inject_ephemeral_system_note(&mut messages, note);
             }
             let response = match self
@@ -782,6 +786,9 @@ impl Agent {
             };
 
             let (text, calls) = self.tool_dispatcher.parse_response(&response);
+            if let Some(plan) = crate::agent::loop_::extract_task_plan(&text) {
+                task_plan_note = Some(format!("## Task Plan\n\n{plan}"));
+            }
             if calls.is_empty() {
                 let final_text = if text.is_empty() {
                     response.text.unwrap_or_default()

@@ -136,7 +136,6 @@ impl Default for SecurityPolicy {
                 "/proc".into(),
                 "/sys".into(),
                 "/var".into(),
-                "/tmp".into(),
                 // Sensitive dotfiles
                 "~/.ssh".into(),
                 "~/.gnupg".into(),
@@ -2383,7 +2382,7 @@ mod tests {
     fn checklist_default_forbidden_paths_comprehensive() {
         let p = SecurityPolicy::default();
         // Must contain all critical system dirs
-        for dir in ["/etc", "/root", "/proc", "/sys", "/dev", "/var", "/tmp"] {
+        for dir in ["/etc", "/root", "/proc", "/sys", "/dev", "/var"] {
             assert!(
                 p.forbidden_paths.iter().any(|f| f == dir),
                 "Default forbidden_paths must include {dir}"

@@ -202,20 +202,48 @@ impl PromptSection for ExecutionSection {
     fn build(&self, _ctx: &PromptContext<'_>) -> Result<String> {
         Ok(
             "## Execution Loop\n\n\
-             CRITICAL: When given a multi-step task, you MUST complete ALL steps before responding to the user.\n\
+             CRITICAL: When given ANY task — simple or complex — you MUST plan first, then execute ALL steps before responding.\n\n\
+             ### Step 1: Decompose before acting\n\
+             Before calling any tool, mentally list every step required to fully complete the task. Do this even for short tasks.\n\
+             Example: user says \"find Linear's contact email\" → internal plan:\n\
+               1. Web search for 'linear.app contact email'\n\
+               2. If not found in results, open browser and navigate to linear.app\n\
+               3. Find and navigate to the contact or support page\n\
+               4. Extract and return the email\n\
+             Execute ALL numbered steps before replying.\n\n\
+             ### Step 2: Execute the full plan autonomously\n\
+             - NEVER report back after a single step if there are more steps remaining.\n\
              - If the user says \"open X and do Y\", you must: (1) open X, (2) do Y. Do NOT stop after step 1.\n\
              - If the user says \"create A then B then C\", execute all three actions in sequence.\n\
-             - NEVER report back to the user until ALL requested actions are complete.\n\
-             - Do NOT ask for confirmation between steps unless explicitly required by security policy.\n\n\
-             Work like an autonomous operator: plan, act, observe, repair, validate, repeat.\n\
-             - Keep a short internal step list for multi-step tasks and execute ALL steps before responding.\n\
-             - After every tool call, immediately proceed to the next step. Do not pause to report progress.\n\
-             - For GUI tasks, launching or focusing an app is never task completion. After any state-changing desktop action, verify the result with an app read-back or screenshot before concluding the task is done.\n\
-             - Tool disambiguation: \"capture/take a picture\" inside a camera app (Photo Booth, FaceTime, etc.) means click the in-app shutter button via mac_automation, NOT take a screenshot. The screenshot tool only captures the current screen pixels — it cannot trigger in-app actions.\n\
+             - Do NOT ask for confirmation between steps unless explicitly required by security policy.\n\
              - If a tool fails, try alternatives immediately. Do not stop and ask the user.\n\
-             - Chain multiple tool calls in sequence to complete the full task.\n\
              - Only respond to the user AFTER all steps are complete or you are truly blocked.\n\
              - When blocked, explain what you tried, what failed, and the smallest next input needed.\n\n\
+             ### Navigation commands (MANDATORY)\n\
+             When the user says \"go to [page]\", \"navigate to [page]\", \"open [site]\", or \"go to contact\" — this is a DIRECT NAVIGATION command.\n\
+             - Immediately open the browser and navigate to that exact page or URL. Do NOT treat this as a web search.\n\
+             - \"go to contact\" = navigate to the contact page of the site currently under discussion.\n\
+             - \"go to [site]\" = open that site in the browser directly.\n\
+             - NEVER respond with search results when the user explicitly tells you to navigate somewhere.\n\n\
+             ### Research / information retrieval ladder (MANDATORY)\n\
+             When asked to find information from the web, follow this ladder in order. Move to the next rung ONLY if the current one fails:\n\
+               1. Web search (broad query)\n\
+               2. Web search (narrower, site-specific query)\n\
+               3. Navigate directly to the official site's homepage in browser\n\
+               4. Find and navigate to the most likely page (contact, about, support, pricing, docs)\n\
+               5. Extract the target data from that page\n\
+             Do NOT stop after rung 1 or 2 and report failure — continue down the ladder automatically.\n\n\
+             ### Verification rules (MANDATORY — apply to ALL automation, not just GUI)\n\
+             - **Never trust exit codes or script success messages alone.** Many macOS automation APIs (PyXA, AppleScript, JXA) exit 0 and print 'success' even when the operation silently did nothing. A shell returning exit code 0 does NOT mean the action actually completed.\n\
+             - **After any state-changing action** — creating a note, sending a message, writing a file, creating a calendar event, modifying contacts, etc. — you MUST verify the result by reading back the actual app state before telling the user it is done. Examples:\n\
+               - Created a note? → query Notes via `osascript -l JavaScript` to confirm the note exists with the expected title.\n\
+               - Created a calendar event? → query the calendar to confirm the event appears.\n\
+               - Wrote a file? → read the file back and check its contents.\n\
+               - Sent a message? → do not assume delivery; check sent state if the API allows.\n\
+             - **If the read-back confirms the action failed or produced no result:** do NOT report success. Try an alternative method (e.g. switch from PyXA to JXA, or use a different API).\n\
+             - **If the read-back output is empty or ambiguous:** treat it as a failure. Try again with a different approach.\n\
+             - **For GUI tasks specifically:** launching or focusing an app is never task completion. After any state-changing desktop action, verify the result with an app read-back or screenshot before concluding the task is done.\n\
+             - Tool disambiguation: \"capture/take a picture\" inside a camera app (Photo Booth, FaceTime, etc.) means click the in-app shutter button via mac_automation, NOT take a screenshot. The screenshot tool only captures the current screen pixels — it cannot trigger in-app actions.\n\n\
              ## Tool Selection Priority (MANDATORY — follow this order)\n\n\
              1. **Skills first (highest priority):** Before choosing ANY tool, check if a loaded skill matches the target app or domain. Skill names follow the pattern `automating-<app>` (e.g. automating-notes, automating-reminders, automating-calendar, automating-contacts, automating-mail, automating-messages, automating-chrome, automating-excel, automating-word, automating-pages, automating-keynote, automating-numbers, automating-voice-memos). If a matching skill is loaded, use its scripting approach (JXA/osascript via shell tool) FIRST. Skills are fast, reliable, and purpose-built. NEVER skip a matching skill to go straight to mac_automation or perception_capture.\n\
              2. **One CLI (preferred for third-party services):** When you need to interact with external services (Gmail, Slack, GitHub, Google Drive, etc.) and the `one` tool is available, use it. One CLI is the preferred integration tool.\n\
@@ -229,7 +257,14 @@ impl PromptSection for ExecutionSection {
                3. If the screenshot may have been resized, pass coordinate_space with source_width/source_height so mac_automation can scale back to real desktop coordinates.\n\
                4. Use mac_automation action=click_at with those x,y coordinates.\n\
                5. Verify the result with app state, not just transport success.\n\n\
-             Remember: The user expects the ENTIRE task to be done, not just the first step."
+             ### Plan tracking\n\
+             For any task requiring more than one tool call, start your response with a `<plan>` block that lists every required step:\n\
+             <plan>\n\
+             - [ ] Step 1 — description\n\
+             - [ ] Step 2 — description\n\
+             </plan>\n\
+             After each tool batch, emit an updated `<plan>` block with completed steps marked `[x]`. The runtime re-injects your latest plan as a system note before every LLM call so you always have the full task context, even in long runs.\n\n\
+             Remember: The user expects the ENTIRE task to be done — plan it, execute every step, then respond."
                 .into(),
         )
     }

@@ -21,7 +21,11 @@ Last refreshed: **February 18, 2026**.
 - [getting-started/macos-update-uninstall.md](getting-started/macos-update-uninstall.md)
 - [one-click-bootstrap.md](one-click-bootstrap.md)
 
-### 2) Command/Config References & Integrations
+### 2) Feature Overview
+
+- [feature-overview.md](feature-overview.md)
+
+### 3) Command/Config References & Integrations
 
 - [reference/README.md](reference/README.md)
 - [commands-reference.md](commands-reference.md)
@@ -37,7 +41,7 @@ Last refreshed: **February 18, 2026**.
 - [zai-glm-setup.md](zai-glm-setup.md)
 - [langgraph-integration.md](langgraph-integration.md)
 
-### 3) Operations & Deployment
+### 4) Operations & Deployment
 
 - [operations/README.md](operations/README.md)
 - [operations-runbook.md](operations-runbook.md)
@@ -46,7 +50,7 @@ Last refreshed: **February 18, 2026**.
 - [network-deployment.md](network-deployment.md)
 - [mattermost-setup.md](mattermost-setup.md)
 
-### 4) Security Design & Proposals
+### 5) Security Design & Proposals
 
 - [security/README.md](security/README.md)
 - [agnostic-security.md](agnostic-security.md)
@@ -56,7 +60,7 @@ Last refreshed: **February 18, 2026**.
 - [audit-logging.md](audit-logging.md)
 - [security-roadmap.md](security-roadmap.md)
 
-### 5) Hardware & Peripherals
+### 6) Hardware & Peripherals
 
 - [hardware/README.md](hardware/README.md)
 - [hardware-peripherals-design.md](hardware-peripherals-design.md)
@@ -67,13 +71,13 @@ Last refreshed: **February 18, 2026**.
 - [datasheets/arduino-uno.md](datasheets/arduino-uno.md)
 - [datasheets/esp32.md](datasheets/esp32.md)
 
-### 6) Contribution & CI
+### 7) Contribution & CI
 
 - [pr-workflow.md](pr-workflow.md)
 - [reviewer-playbook.md](reviewer-playbook.md)
 - [ci-map.md](ci-map.md)
 
-### 7) Project Status & Snapshot
+### 8) Project Status & Snapshot
 
 - [project/README.md](project/README.md)
 - [project-triage-snapshot-2026-02-18.md](project-triage-snapshot-2026-02-18.md)

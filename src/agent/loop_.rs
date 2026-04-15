@@ -13,6 +13,7 @@ use crate::providers::{
 use crate::runtime;
 use crate::security::SecurityPolicy;
 use crate::tools::{self, Tool};
+use crate::tools::{FailureCause, GuiActionReport};
 use crate::util::truncate_with_ellipsis;
 use anyhow::Result;
 use regex::{Regex, RegexSet};
@@ -161,7 +162,30 @@ pub(crate) fn inject_ephemeral_system_note(messages: &mut Vec<ChatMessage>, note
     messages.insert(insert_at, ChatMessage::system(trimmed.to_string()));
 }
 
+/// Classify GUI verification failures using structured failure attribution.
+fn classify_gui_failure(report: &GuiActionReport) -> &'static str {
+    match report.failure_cause {
+        FailureCause::AgentError => "gui_agent_error",
+        FailureCause::EnvironmentBlocked => "gui_environment_blocked",
+        FailureCause::EvidenceAbsent => "gui_evidence_absent",
+        FailureCause::HallucinationSuspected => "gui_hallucination_suspected",
+        FailureCause::None => {
+            // Fallback based on verification status
+            match report.verification_status {
+                tools::VerificationStatus::Ambiguous => "gui_ambiguous",
+                _ => "gui_verification_failed",
+            }
+        }
+    }
+}
+
 fn classify_tool_failure(output: &str) -> &'static str {
+    // Try to parse GuiActionReport from output for structured failure attribution
+    if let Ok(report) = serde_json::from_str::<GuiActionReport>(output) {
+        return classify_gui_failure(&report);
+    }
+
+    // Fallback to string parsing for non-GUI tools or when structured data isn't available
     let lower = output.to_ascii_lowercase();
 
     if lower.contains("unknown tool") {
@@ -279,6 +303,32 @@ fn recovery_hint_for_failure(classification: &str, tool_name: &str) -> String {
             1) take a screenshot to locate the control visually, \
             2) use mac_automation action=click_at with the pixel coordinates from the screenshot. \
             This works on all controls including custom ones (e.g. Photo Booth shutter, media buttons)."
+        ),
+        "gui_agent_error" => format!(
+            "{tool_name}: the action executed but verification failed due to incorrect parameters (wrong selector, bad value, or incorrect action). \
+            Inspect the expectation_results in the output to see which expectations failed and why, then retry with corrected parameters. \
+            This is an agent mistake, not an environment block."
+        ),
+        "gui_environment_blocked" => format!(
+            "{tool_name}: the action was blocked by the environment (login wall, CAPTCHA, session expired, network error, out-of-stock, or unavailable resource). \
+            Do NOT retry the same action - it will fail again. Instead: \
+            1) Take a screenshot to see what blocked the action, \
+            2) Adjust your approach (handle login, skip unavailable items, wait for network recovery), \
+            3) Report the block to the user if it cannot be resolved. \
+            This is NOT an agent mistake - the environment prevented completion."
+        ),
+        "gui_evidence_absent" => format!(
+            "{tool_name}: the action executed but verification could not complete because required evidence is missing from the post-action state. \
+            Try using pre_observe:auto or explicit evidence keys to ensure the backend collects the necessary state, \
+            or switch to a different verification approach (e.g., screenshot-based verification)."
+        ),
+        "gui_hallucination_suspected" => format!(
+            "{tool_name}: you claimed success but the evidence doesn't support it. \
+            Re-examine the post-action state carefully, verify your assumptions, and do not claim success without clear evidence."
+        ),
+        "gui_ambiguous" => format!(
+            "{tool_name}: verification result is ambiguous - cannot determine success or failure. \
+            Add more specific expectations or use pre_observe:auto to capture state changes."
         ),
         "gui_verification_failed" => format!(
             "{tool_name}: the GUI action executed but post-action verification failed. \
@@ -529,6 +579,18 @@ pub(crate) fn build_execution_checkpoint_note(items: &[ExecutionCheckpointItem])
     note.push_str("- Choose the smallest next action that resolves the current blocker or proves the change worked.");
 
     Some(note)
+}
+
+/// Extract the contents of a `<plan>...</plan>` block from an LLM response.
+/// Returns `None` when no block is present or the block is empty.
+pub(crate) fn extract_task_plan(text: &str) -> Option<String> {
+    let start = text.find("<plan>")?;
+    let end = text[start..].find("</plan>")?;
+    let inner = text[start + 6..start + end].trim();
+    if inner.is_empty() {
+        return None;
+    }
+    Some(inner.to_string())
 }
 
 /// Convert a tool registry to OpenAI function-calling format for native tool support.
@@ -2645,6 +2707,7 @@ pub(crate) async fn run_tool_call_loop(
     let mut continuation_guard_note: Option<String> = None;
     let mut unresolved_failed_steps: Vec<String> = Vec::new();
     let mut had_any_tool_execution = false;
+    let mut task_plan_note: Option<String> = None;
     let mut continuation_retries = 0usize;
     let mut has_recent_perception_capture = false;
 
@@ -2689,6 +2752,9 @@ pub(crate) async fn run_tool_call_loop(
         let mut prepared_messages =
             multimodal::prepare_messages_for_provider(history, multimodal_config).await?;
         if let Some(note) = execution_checkpoint_note.as_deref() {
+            inject_ephemeral_system_note(&mut prepared_messages.messages, note);
+        }
+        if let Some(note) = task_plan_note.as_deref() {
             inject_ephemeral_system_note(&mut prepared_messages.messages, note);
         }
         if let Some(note) = continuation_guard_note.take() {
@@ -2895,6 +2961,10 @@ pub(crate) async fn run_tool_call_loop(
         } else {
             parsed_text
         };
+
+        if let Some(plan) = extract_task_plan(&response_text) {
+            task_plan_note = Some(format!("## Task Plan\n\n{plan}"));
+        }
 
         // ── Progress: LLM responded ─────────────────────────────
         if let Some(ref tx) = on_delta {
@@ -7437,5 +7507,23 @@ Let me check the result."#;
             with_error,
             ClickAtPreflightMode::WidgetOnly
         ));
+    }
+
+    #[test]
+    fn extract_task_plan_returns_inner_content() {
+        let text = "Thinking...\n<plan>\n- [ ] Step 1\n- [ ] Step 2\n</plan>\nDone";
+        let result = extract_task_plan(text);
+        assert_eq!(result, Some("- [ ] Step 1\n- [ ] Step 2".to_string()));
+    }
+
+    #[test]
+    fn extract_task_plan_returns_none_without_tags() {
+        let text = "No plan here, just working...";
+        assert!(extract_task_plan(text).is_none());
+    }
+
+    #[test]
+    fn extract_task_plan_returns_none_for_empty_plan() {
+        assert!(extract_task_plan("<plan></plan>").is_none());
     }
 }

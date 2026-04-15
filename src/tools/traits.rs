@@ -76,6 +76,28 @@ pub enum VerificationStatus {
     Ambiguous,
 }
 
+/// Why a verification failed (for failure attribution).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum FailureCause {
+    /// Agent made a mistake (wrong selector, bad action, reasoning error).
+    AgentError,
+    /// Environment blocked the action (login wall, CAPTCHA, network failure, out-of-stock).
+    EnvironmentBlocked,
+    /// Cannot verify because evidence is missing or incomplete.
+    EvidenceAbsent,
+    /// Agent claimed success but evidence doesn't support it.
+    HallucinationSuspected,
+    /// Not applicable (expectation verified or not evaluated).
+    None,
+}
+
+impl Default for FailureCause {
+    fn default() -> Self {
+        Self::None
+    }
+}
+
 /// How to capture pre-action state for diffing.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub enum PreObservationStrategy {
@@ -233,6 +255,16 @@ pub struct GuiActionReport {
     /// Aggregate confidence across all expectations.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub confidence: Option<f64>,
+    /// Process score: how well did the agent execute (0.0–1.0)?
+    /// High if failures are environment blocks, low if agent errors.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub process_score: Option<f64>,
+    /// Outcome success: did the task actually complete?
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub outcome_success: Option<bool>,
+    /// Why the verification failed (for failure attribution).
+    #[serde(default, skip_serializing_if = "is_failure_cause_none")]
+    pub failure_cause: FailureCause,
 }
 
 /// Result of evaluating a single expectation.
@@ -246,6 +278,13 @@ pub struct ExpectationResult {
     /// Confidence score in [0.0, 1.0].
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub confidence: Option<f64>,
+    /// Why this expectation failed (for failure attribution).
+    #[serde(default, skip_serializing_if = "is_failure_cause_none")]
+    pub failure_cause: FailureCause,
+}
+
+fn is_failure_cause_none(cause: &FailureCause) -> bool {
+    *cause == FailureCause::None
 }
 
 /// Description of a tool for the LLM

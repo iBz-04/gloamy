@@ -88,11 +88,11 @@ pub fn ensure_started_detached(config: &BrowserConfig) {
 
 async fn bootstrap_services(config: BrowserConfig) {
     ensure_native_webdriver(&config).await;
-    warmup_agent_browser(&config).await;
+    warmup_agent_browser().await;
     ensure_embedded_computer_use_sidecar(&config).await;
 }
 
-async fn warmup_agent_browser(config: &BrowserConfig) {
+async fn warmup_agent_browser() {
     let mut version_cmd = Command::new("agent-browser");
     version_cmd.arg("--version");
     version_cmd.stdout(Stdio::piped());
@@ -120,31 +120,6 @@ async fn warmup_agent_browser(config: &BrowserConfig) {
         }
     }
 
-    let mut warmup_cmd = Command::new("agent-browser");
-    if let Some(session_name) = config.session_name.as_deref() {
-        warmup_cmd.arg("--session").arg(session_name);
-    }
-    warmup_cmd.arg("open").arg("about:blank").arg("--json");
-    warmup_cmd.stdout(Stdio::piped());
-    warmup_cmd.stderr(Stdio::piped());
-
-    match timeout(Duration::from_secs(20), warmup_cmd.output()).await {
-        Ok(Ok(output)) if output.status.success() => {
-            debug!("agent-browser warmup completed");
-        }
-        Ok(Ok(output)) => {
-            let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
-            if !stderr.is_empty() {
-                warn!("agent-browser warmup failed: {stderr}");
-            }
-        }
-        Ok(Err(err)) => {
-            warn!("agent-browser warmup failed: {err}");
-        }
-        Err(_) => {
-            warn!("agent-browser warmup timed out");
-        }
-    }
 }
 
 #[derive(Debug, Deserialize)]

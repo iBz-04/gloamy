@@ -104,9 +104,9 @@ pub use shell::ShellTool;
 pub use traits::Tool;
 #[allow(unused_imports)]
 pub use traits::{
-    ExpectationResult, GuiActionReport, GuiExpectation, GuiExpectationKind, GuiObservation,
-    PreObservationStrategy, ReversibilityLevel, ToolResult, ToolSpec, VerificationStatus,
-    WaitStrategy,
+    ExpectationResult, FailureCause, GuiActionReport, GuiExpectation, GuiExpectationKind,
+    GuiObservation, PreObservationStrategy, ReversibilityLevel, ToolResult, ToolSpec,
+    VerificationStatus, WaitStrategy,
 };
 pub use web_fetch::WebFetchTool;
 pub use web_search_tool::WebSearchTool;

@@ -1,6 +1,6 @@
 ---
 name: automating-notes
-description: Automates Apple Notes via JXA. Use when asked to "create notes programmatically", "automate Notes app", "JXA notes scripting", or "organize notes with automation". Covers accounts/folders/notes, HTML bodies, queries, moves, and Objective-C/UI fallbacks for Notes.app automation on macOS.
+description: Automates Apple Notes via JXA (osascript). Use when asked to "create notes programmatically", "automate Notes app", "JXA notes scripting", or "organize notes with automation". Covers accounts/folders/notes, HTML bodies, queries, moves, and Objective-C/UI fallbacks for Notes.app automation on macOS. ALWAYS use JXA via osascript as the primary method — PyXA silently fails on note creation and must NOT be used as the first approach.
 allowed-tools:
   - Bash
   - Read
@@ -27,7 +27,9 @@ allowed-tools:
 
 ## Quickstart (ensure path + create)
 
-**JXA (Legacy):**
+> **IMPORTANT:** Always use JXA via `osascript -l JavaScript` as the primary and recommended approach. PyXA's `.push()` silently no-ops on Notes without creating anything — never use it as first choice. Run the JXA inline or as a heredoc via the shell tool.
+
+**JXA (Recommended — use this first):**
 ```javascript
 const Notes = Application("Notes");
 
@@ -65,7 +67,7 @@ try {
 }
 ```
 
-**PyXA (Recommended Modern Approach):**
+**PyXA (Legacy — unreliable for note creation, avoid unless JXA fails):**
 ```python
 import PyXA
 

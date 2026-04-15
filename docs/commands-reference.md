@@ -75,28 +75,45 @@ Runtime notes:
 
 Authentication management for providers and services.
 
+- `gloamy auth login --provider <openai-codex|gemini> [--profile <NAME>] [--device-code]`
+- `gloamy auth paste-redirect --provider <openai-codex|gemini> [--profile <NAME>]`
+- `gloamy auth paste-token --provider anthropic [--profile <NAME>] [--auth-kind <authorization|api-key>]`
 - `gloamy auth status`
 - `gloamy auth use <provider> <profile>`
 - `gloamy auth refresh [--provider <ID>]`
 - `gloamy auth logout [--provider <ID>]`
+- `gloamy auth list`
 
 **Commands:**
 
 | Command | Purpose |
 |---------|---------|
+| `auth login` | Start OAuth login for OpenAI Codex or Gemini, optionally using device-code mode |
+| `auth paste-redirect` | Finish OAuth by pasting a redirect URL or code when browser callback capture is not available |
+| `auth paste-token` | Store an Anthropic setup token or API key under a named profile |
 | `auth status` | Show authentication status for all providers, active profile, and token expiry |
 | `auth use <provider> <profile>` | Set active authentication profile for a provider |
-| `auth refresh` | Refresh authentication tokens (OpenAI Codex, Gemini OAuth) |
+| `auth refresh` | Refresh authentication tokens for OAuth-based providers (OpenAI Codex, Gemini) |
 | `auth logout` | Remove authentication profile and clear stored tokens |
+| `auth list` | List stored auth profiles and show which one is active |
 
 **Examples:**
 
 ```bash
-gloamy auth status                    # View all auth status
-gloamy auth use openai personal       # Switch to 'personal' profile
-gloamy auth refresh --provider gemini # Refresh Gemini tokens
-gloamy auth logout --provider openai  # Clear OpenAI auth
+gloamy auth login --provider openai-codex --device-code
+gloamy auth login --provider gemini --profile default
+gloamy auth paste-token --provider anthropic --profile default --auth-kind authorization
+gloamy auth status
+gloamy auth use --provider openai-codex --profile personal
+gloamy auth refresh --provider gemini --profile default
+gloamy auth logout --provider anthropic --profile default
 ```
+
+Notes:
+
+- OpenAI Codex and Gemini use OAuth-backed profiles, so `auth refresh` can renew access tokens when the stored refresh token is valid.
+- Anthropic token auth is stored as a token profile and does not use OAuth refresh.
+- `auth use` selects the active profile for a provider; the runtime will prefer the active profile when one is set.
 
 ### `gateway` / `daemon`
 

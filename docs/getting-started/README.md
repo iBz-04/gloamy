@@ -17,7 +17,7 @@ For first-time setup and quick orientation.
 | I want guided prompts | `gloamy onboard --interactive` |
 | Config exists, just fix channels | `gloamy onboard --channels-only` |
 | Config exists, I intentionally want full overwrite | `gloamy onboard --force` |
-| Using subscription auth | See [Subscription Auth](../../README.md#subscription-auth-openai-codex--claude-code) |
+| Using subscription auth | See [Authentication](../../README.md#authentication) |
 
 ## Onboarding and Validation
 

@@ -11,6 +11,7 @@ Localization index: [i18n/README.md](i18n/README.md).
 | I want to… | Read this |
 |---|---|
 | Install and run Gloamy quickly | [README.md (Quick Start)](../README.md#quick-start) |
+| Understand the full feature set | [feature-overview.md](feature-overview.md) |
 | Bootstrap in one command | [one-click-bootstrap.md](one-click-bootstrap.md) |
 | Update or uninstall on macOS | [getting-started/macos-update-uninstall.md](getting-started/macos-update-uninstall.md) |
 | Find commands by task | [commands-reference.md](commands-reference.md) |
@@ -39,6 +40,7 @@ Localization index: [i18n/README.md](i18n/README.md).
 
 - Getting started: [getting-started/README.md](getting-started/README.md)
 - Reference catalogs: [reference/README.md](reference/README.md)
+- Feature overview: [feature-overview.md](feature-overview.md)
 - Operations & deployment: [operations/README.md](operations/README.md)
 - Security docs: [security/README.md](security/README.md)
 - Hardware/peripherals: [hardware/README.md](hardware/README.md)
