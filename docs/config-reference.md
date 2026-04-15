@@ -251,6 +251,7 @@ Notes:
 Notes:
 
 - When `enabled = true`, the runtime tracks per-request cost estimates and enforces daily/monthly limits.
+- `cost.prices` is seeded with a built-in catalog for common OpenAI, Anthropic, and Gemini text models; user entries extend and override that catalog.
 - At `warn_at_percent` threshold, a warning is emitted but requests continue.
 - When a limit is reached, requests are rejected unless `allow_override = true` and the `--override` flag is passed.
 

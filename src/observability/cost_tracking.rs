@@ -5,6 +5,36 @@ use std::any::Any;
 use std::collections::HashMap;
 use std::sync::Arc;
 
+fn matches_model_key(configured_key: &str, provider: &str, model: &str) -> bool {
+    let configured_lower = configured_key.trim().to_ascii_lowercase();
+    let provider_lower = provider.trim().to_ascii_lowercase();
+    let model_lower = model.trim().to_ascii_lowercase();
+
+    if configured_lower.is_empty() || model_lower.is_empty() {
+        return false;
+    }
+
+    if configured_lower == model_lower || model_lower.starts_with(&(configured_lower.clone() + "-")) {
+        return true;
+    }
+
+    let configured_tail = configured_lower
+        .split('/')
+        .next_back()
+        .unwrap_or(configured_lower.as_str());
+
+    if configured_tail == model_lower || model_lower.starts_with(&(configured_tail.to_string() + "-")) {
+        return true;
+    }
+
+    if provider_lower.is_empty() {
+        return false;
+    }
+
+    let provider_model = format!("{provider_lower}/{model_lower}");
+    configured_lower == provider_model || provider_model.starts_with(&(configured_lower + "-"))
+}
+
 /// Observer wrapper that intercepts `LlmResponse` events and records token
 /// usage to a [`CostTracker`], then delegates all events to an inner observer.
 pub struct CostTrackingObserver {
@@ -53,12 +83,7 @@ impl CostTrackingObserver {
 
         let model_lower = model_trimmed.to_ascii_lowercase();
         for (configured_key, pricing) in &self.prices {
-            if configured_key
-                .split('/')
-                .next_back()
-                .is_some_and(|tail| tail.eq_ignore_ascii_case(model_trimmed))
-                || configured_key.eq_ignore_ascii_case(&model_lower)
-            {
+            if matches_model_key(configured_key, provider_trimmed, &model_lower) {
                 return (pricing.input, pricing.output);
             }
         }
@@ -221,5 +246,63 @@ mod tests {
         assert_eq!(summary.total_tokens, 150);
         assert_eq!(summary.request_count, 1);
         assert!(summary.session_cost_usd.abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn matches_snapshot_suffix_to_base_model_price() {
+        let (_tmp, tracker) = test_tracker();
+        let mut prices = HashMap::new();
+        prices.insert(
+            "openai/gpt-5.4-mini".to_string(),
+            ModelPricing {
+                input: 0.75,
+                output: 4.5,
+            },
+        );
+        let obs = observer_with_prices(Arc::clone(&tracker), prices);
+
+        obs.record_event(&ObserverEvent::LlmResponse {
+            provider: "openai".into(),
+            model: "gpt-5.4-mini-2026-03-17".into(),
+            duration: Duration::from_millis(300),
+            success: true,
+            error_message: None,
+            input_tokens: Some(100),
+            output_tokens: Some(50),
+        });
+
+        let summary = tracker.get_summary().unwrap();
+        assert_eq!(summary.total_tokens, 150);
+        assert_eq!(summary.request_count, 1);
+        assert!((summary.session_cost_usd - 0.0003).abs() < 1e-10);
+    }
+
+    #[test]
+    fn matches_provider_prefixed_snapshot_suffix_to_base_model_price() {
+        let (_tmp, tracker) = test_tracker();
+        let mut prices = HashMap::new();
+        prices.insert(
+            "openai/gpt-5.4-mini".to_string(),
+            ModelPricing {
+                input: 0.75,
+                output: 4.5,
+            },
+        );
+        let obs = observer_with_prices(Arc::clone(&tracker), prices);
+
+        obs.record_event(&ObserverEvent::LlmResponse {
+            provider: "openai".into(),
+            model: "openai/gpt-5.4-mini-2026-03-17".into(),
+            duration: Duration::from_millis(300),
+            success: true,
+            error_message: None,
+            input_tokens: Some(100),
+            output_tokens: Some(50),
+        });
+
+        let summary = tracker.get_summary().unwrap();
+        assert_eq!(summary.total_tokens, 150);
+        assert_eq!(summary.request_count, 1);
+        assert!((summary.session_cost_usd - 0.0003).abs() < 1e-10);
     }
 }

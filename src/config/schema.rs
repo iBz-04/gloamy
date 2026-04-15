@@ -4,7 +4,7 @@ use crate::security::{AutonomyLevel, DomainMatcher};
 use anyhow::{Context, Result};
 use directories::UserDirs;
 use schemars::JsonSchema;
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize};
 use std::collections::HashMap;
 use std::io;
 use std::path::{Path, PathBuf};
@@ -772,7 +772,7 @@ pub struct CostConfig {
     pub allow_override: bool,
 
     /// Per-model pricing (USD per 1M tokens)
-    #[serde(default)]
+    #[serde(default = "get_default_pricing", deserialize_with = "deserialize_model_pricing_map")]
     pub prices: std::collections::HashMap<String, ModelPricing>,
 }
 
@@ -813,6 +813,16 @@ impl Default for CostConfig {
     }
 }
 
+fn deserialize_model_pricing_map<'de, D>(deserializer: D) -> std::result::Result<HashMap<String, ModelPricing>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let overrides = HashMap::<String, ModelPricing>::deserialize(deserializer)?;
+    let mut prices = get_default_pricing();
+    prices.extend(overrides);
+    Ok(prices)
+}
+
 /// Default pricing for popular models (USD per 1M tokens)
 fn get_default_pricing() -> std::collections::HashMap<String, ModelPricing> {
     let mut prices = std::collections::HashMap::new();
@@ -846,13 +856,62 @@ fn get_default_pricing() -> std::collections::HashMap<String, ModelPricing> {
             output: 1.25,
         },
     );
+    prices.insert(
+        "anthropic/claude-sonnet-4.6".into(),
+        ModelPricing {
+            input: 3.0,
+            output: 15.0,
+        },
+    );
+    prices.insert(
+        "anthropic/claude-sonnet-4-6".into(),
+        ModelPricing {
+            input: 3.0,
+            output: 15.0,
+        },
+    );
+    prices.insert(
+        "anthropic/claude-sonnet-4-5-20250929".into(),
+        ModelPricing {
+            input: 3.0,
+            output: 15.0,
+        },
+    );
+    prices.insert(
+        "anthropic/claude-haiku-4-5-20251001".into(),
+        ModelPricing {
+            input: 1.0,
+            output: 5.0,
+        },
+    );
+    prices.insert(
+        "anthropic.claude-sonnet-4-6".into(),
+        ModelPricing {
+            input: 3.0,
+            output: 15.0,
+        },
+    );
+    prices.insert(
+        "anthropic.claude-sonnet-4-5-20250929-v1:0".into(),
+        ModelPricing {
+            input: 3.0,
+            output: 15.0,
+        },
+    );
+    prices.insert(
+        "anthropic.claude-haiku-4-5-20251001-v1:0".into(),
+        ModelPricing {
+            input: 1.0,
+            output: 5.0,
+        },
+    );
 
     // OpenAI models
     prices.insert(
         "openai/gpt-4o".into(),
         ModelPricing {
-            input: 5.0,
-            output: 15.0,
+            input: 2.5,
+            output: 10.0,
         },
     );
     prices.insert(
@@ -869,6 +928,90 @@ fn get_default_pricing() -> std::collections::HashMap<String, ModelPricing> {
             output: 60.0,
         },
     );
+    prices.insert(
+        "openai/gpt-4.1".into(),
+        ModelPricing {
+            input: 2.0,
+            output: 8.0,
+        },
+    );
+    prices.insert(
+        "openai/gpt-4.1-mini".into(),
+        ModelPricing {
+            input: 0.4,
+            output: 1.6,
+        },
+    );
+    prices.insert(
+        "openai/gpt-4.1-nano".into(),
+        ModelPricing {
+            input: 0.1,
+            output: 0.4,
+        },
+    );
+    prices.insert(
+        "openai/gpt-5".into(),
+        ModelPricing {
+            input: 1.25,
+            output: 10.0,
+        },
+    );
+    prices.insert(
+        "openai/gpt-5-mini".into(),
+        ModelPricing {
+            input: 0.25,
+            output: 2.0,
+        },
+    );
+    prices.insert(
+        "openai/gpt-5-nano".into(),
+        ModelPricing {
+            input: 0.05,
+            output: 0.4,
+        },
+    );
+    prices.insert(
+        "openai/gpt-5.2".into(),
+        ModelPricing {
+            input: 1.75,
+            output: 14.0,
+        },
+    );
+    prices.insert(
+        "openai/gpt-5-codex".into(),
+        ModelPricing {
+            input: 1.25,
+            output: 10.0,
+        },
+    );
+    prices.insert(
+        "openai/gpt-5.2-codex".into(),
+        ModelPricing {
+            input: 1.75,
+            output: 14.0,
+        },
+    );
+    prices.insert(
+        "openai/gpt-5.4".into(),
+        ModelPricing {
+            input: 2.5,
+            output: 15.0,
+        },
+    );
+    prices.insert(
+        "openai/gpt-5.4-mini".into(),
+        ModelPricing {
+            input: 0.75,
+            output: 4.5,
+        },
+    );
+    prices.insert(
+        "openai/gpt-5.4-nano".into(),
+        ModelPricing {
+            input: 0.2,
+            output: 1.25,
+        },
+    );
 
     // Google models
     prices.insert(
@@ -883,6 +1026,27 @@ fn get_default_pricing() -> std::collections::HashMap<String, ModelPricing> {
         ModelPricing {
             input: 1.25,
             output: 5.0,
+        },
+    );
+    prices.insert(
+        "google/gemini-2.5-pro".into(),
+        ModelPricing {
+            input: 1.25,
+            output: 10.0,
+        },
+    );
+    prices.insert(
+        "google/gemini-2.5-flash".into(),
+        ModelPricing {
+            input: 0.30,
+            output: 2.50,
+        },
+    );
+    prices.insert(
+        "google/gemini-2.5-flash-lite".into(),
+        ModelPricing {
+            input: 0.10,
+            output: 0.40,
         },
     );
 
@@ -5527,6 +5691,58 @@ default_temperature = 0.7
         assert_eq!(parsed.memory.archive_after_days, 7);
         assert_eq!(parsed.memory.purge_after_days, 30);
         assert_eq!(parsed.memory.conversation_retention_days, 30);
+    }
+
+    #[test]
+    async fn cost_config_without_prices_keeps_default_catalog() {
+        let toml = r#"
+workspace_dir = "/tmp/ws"
+config_path = "/tmp/config.toml"
+default_temperature = 0.7
+
+[cost]
+enabled = true
+"#;
+
+        let parsed: Config = toml::from_str(toml).unwrap();
+
+        assert!(parsed.cost.enabled);
+        assert_eq!(
+            parsed.cost.prices.get("openai/gpt-5.4-mini").map(|p| (p.input, p.output)),
+            Some((0.75, 4.5))
+        );
+        assert_eq!(
+            parsed.cost.prices.get("anthropic/claude-sonnet-4.6").map(|p| (p.input, p.output)),
+            Some((3.0, 15.0))
+        );
+    }
+
+    #[test]
+    async fn cost_config_custom_prices_extend_default_catalog() {
+        let toml = r#"
+workspace_dir = "/tmp/ws"
+config_path = "/tmp/config.toml"
+default_temperature = 0.7
+
+[cost]
+enabled = true
+
+[cost.prices."openai/gpt-4o-mini"]
+input = 0.2
+output = 0.8
+"#;
+
+        let parsed: Config = toml::from_str(toml).unwrap();
+
+        assert!(parsed.cost.enabled);
+        assert_eq!(
+            parsed.cost.prices.get("openai/gpt-4o-mini").map(|p| (p.input, p.output)),
+            Some((0.2, 0.8))
+        );
+        assert_eq!(
+            parsed.cost.prices.get("openai/gpt-5-mini").map(|p| (p.input, p.output)),
+            Some((0.25, 2.0))
+        );
     }
 
     #[test]

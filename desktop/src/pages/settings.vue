@@ -6,6 +6,7 @@ import { useSettingsStore } from '@/stores/settings'
 import { useColorMode } from '@vueuse/core'
 import { open } from '@tauri-apps/plugin-shell'
 import { homeDir, join } from '@tauri-apps/api/path'
+import { invoke } from '@tauri-apps/api/core'
 
 const auth = useAuthStore()
 const settingsStore = useSettingsStore()
@@ -61,6 +62,91 @@ async function openConfigFile() {
 
 function openWebsite() {
   open('https://www.gloamy.co')
+}
+
+type PermissionStatus = 'granted' | 'denied' | 'unknown'
+
+interface Permission {
+  id: string
+  icon: string
+  name: string
+  description: string
+  settingsUrl: string
+  status: PermissionStatus
+}
+
+const showPermissionsModal = ref(false)
+const checking = ref(false)
+
+const permissions = ref<Permission[]>([
+  {
+    id: 'accessibility',
+    icon: 'hugeicons:computer-terminal-01',
+    name: 'Accessibility',
+    description: 'UI automation — clicking, typing, reading on-screen elements.',
+    settingsUrl: 'x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility',
+    status: 'unknown',
+  },
+  {
+    id: 'screen-recording',
+    icon: 'hugeicons:eye',
+    name: 'Screen Recording',
+    description: 'Capture screenshots and screen content for computer use.',
+    settingsUrl: 'x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture',
+    status: 'unknown',
+  },
+  {
+    id: 'automation',
+    icon: 'hugeicons:robot-01',
+    name: 'Automation',
+    description: 'Control apps via AppleScript and JXA — Reminders, Calendar, Finder.',
+    settingsUrl: 'x-apple.systempreferences:com.apple.preference.security?Privacy_Automation',
+    status: 'unknown',
+  },
+  {
+    id: 'full-disk-access',
+    icon: 'hugeicons:hard-drive',
+    name: 'Full Disk Access',
+    description: 'Read and write files across the filesystem, including protected locations.',
+    settingsUrl: 'x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles',
+    status: 'unknown',
+  },
+])
+
+async function refreshPermissions() {
+  checking.value = true
+  try {
+    const [accessibility, screenRecording] = await Promise.all([
+      invoke<boolean>('check_accessibility_permission').catch(() => null),
+      invoke<boolean>('check_screen_recording_permission').catch(() => null),
+    ])
+    permissions.value = permissions.value.map(p => {
+      if (p.id === 'accessibility' && accessibility !== null) {
+        return { ...p, status: (accessibility ? 'granted' : 'denied') as PermissionStatus }
+      }
+      if (p.id === 'screen-recording' && screenRecording !== null) {
+        return { ...p, status: (screenRecording ? 'granted' : 'denied') as PermissionStatus }
+      }
+      return p
+    })
+  }
+  finally {
+    checking.value = false
+  }
+}
+
+async function openPermissionsModal() {
+  showPermissionsModal.value = true
+  await refreshPermissions()
+}
+
+function statusDotClass(status: PermissionStatus): string {
+  if (status === 'granted') return 'bg-emerald-500'
+  return 'bg-muted-foreground/30'
+}
+
+function openPermissionSettings(url: string) {
+  open(url)
 }
 </script>
 
@@ -158,9 +244,9 @@ function openWebsite() {
           <Icon icon="hugeicons:settings-01" class="size-[15px] text-muted-foreground" />
           <h2 class="text-[13px] font-medium text-muted-foreground">Configuration</h2>
         </div>
-        <div class="flex items-center justify-between py-2 px-3 rounded-xl border border-border/50 hover:border-border/80 transition-colors">
+        <div class="flex items-center justify-between py-2 px-1">
           <div class="flex items-center gap-3">
-            <div class="size-8 rounded-lg bg-muted/40 flex items-center justify-center shrink-0">
+            <div class="size-8 flex items-center justify-center shrink-0">
               <Icon icon="hugeicons:file-edit" class="size-[16px] text-foreground/70" />
             </div>
             <div>
@@ -180,15 +266,43 @@ function openWebsite() {
 
       <hr class="border-border/30" />
 
+      <!-- Permissions Section -->
+      <section class="space-y-3">
+        <div class="flex items-center gap-2">
+          <Icon icon="hugeicons:shield-01" class="size-[15px] text-muted-foreground" />
+          <h2 class="text-[13px] font-medium text-muted-foreground">Permissions</h2>
+        </div>
+        <div class="flex items-center justify-between py-2 px-1">
+          <div class="flex items-center gap-3">
+            <div class="size-8 flex items-center justify-center shrink-0">
+              <Icon icon="hugeicons:shield-key" class="size-[16px] text-foreground/70" />
+            </div>
+            <div>
+              <p class="text-[13px] font-medium text-foreground">System Permissions</p>
+              <p class="text-[12px] text-muted-foreground mt-0.5">macOS permissions required for computer use and automation</p>
+            </div>
+          </div>
+          <button
+            @click="openPermissionsModal"
+            class="flex items-center gap-1.5 px-3 py-1.5 border border-border hover:border-foreground/30 text-foreground transition-colors rounded-lg text-[12px] font-medium shrink-0"
+          >
+            Manage
+            <Icon icon="hugeicons:arrow-right-01" class="size-[13px]" />
+          </button>
+        </div>
+      </section>
+
+      <hr class="border-border/30" />
+
       <!-- Account Section -->
       <section class="space-y-3">
         <div class="flex items-center gap-2">
           <Icon icon="hugeicons:user-account" class="size-[15px] text-muted-foreground" />
           <h2 class="text-[13px] font-medium text-muted-foreground">Account</h2>
         </div>
-        <div class="flex items-center justify-between py-2 px-3 rounded-xl border border-border/50 hover:border-border/80 transition-colors">
+        <div class="flex items-center justify-between py-2 px-1">
           <div class="flex items-center gap-3">
-            <div class="size-8 rounded-lg bg-muted/40 flex items-center justify-center shrink-0">
+            <div class="size-8 flex items-center justify-center shrink-0">
               <Icon icon="hugeicons:logout-02" class="size-[16px] text-foreground/70" />
             </div>
             <div>
@@ -214,9 +328,9 @@ function openWebsite() {
           <Icon icon="hugeicons:information-circle" class="size-[15px] text-muted-foreground" />
           <h2 class="text-[13px] font-medium text-muted-foreground">About</h2>
         </div>
-        <div class="flex items-center justify-between py-2 px-3 rounded-xl border border-border/50 hover:border-border/80 transition-colors">
+        <div class="flex items-center justify-between py-2 px-1">
           <div class="flex items-center gap-3">
-            <div class="size-8 rounded-lg bg-muted/40 flex items-center justify-center shrink-0">
+            <div class="size-8 flex items-center justify-center shrink-0">
               <Icon icon="hugeicons:globe" class="size-[16px] text-foreground/70" />
             </div>
             <div>
@@ -236,4 +350,76 @@ function openWebsite() {
 
     </div>
   </div>
+
+  <Teleport to="body">
+    <div
+      v-if="showPermissionsModal"
+      class="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-[1.5px] px-4"
+      @click.self="showPermissionsModal = false"
+    >
+      <div class="w-full max-w-lg rounded-[20px] border border-border/35 bg-background shadow-[0_20px_55px_-28px_rgba(0,0,0,0.72)] motion-safe:animate-in motion-safe:fade-in-0 motion-safe:zoom-in-95 motion-safe:duration-200 motion-safe:ease-out">
+
+        <!-- Modal header -->
+        <div class="flex items-center justify-between px-6 py-5 border-b border-border/30">
+          <div class="flex items-center gap-2">
+            <Icon icon="hugeicons:shield-key" class="size-[15px] text-muted-foreground" />
+            <h3 class="text-[14px] font-semibold text-foreground">System Permissions</h3>
+          </div>
+          <div class="flex items-center gap-1">
+            <button
+              @click="refreshPermissions"
+              class="p-1.5 rounded-lg hover:bg-muted/40 transition-colors text-muted-foreground hover:text-foreground"
+              title="Refresh status"
+            >
+              <Icon icon="hugeicons:refresh" class="size-3.5" :class="{ 'animate-spin': checking }" />
+            </button>
+            <button
+              @click="showPermissionsModal = false"
+              class="p-1.5 rounded-lg hover:bg-muted/40 transition-colors text-muted-foreground hover:text-foreground"
+            >
+              <Icon icon="hugeicons:cancel-01" class="size-4" />
+            </button>
+          </div>
+        </div>
+
+        <!-- Permission rows -->
+        <div class="px-6 py-5 space-y-6">
+          <div
+            v-for="perm in permissions"
+            :key="perm.id"
+            class="flex items-center justify-between"
+          >
+            <div class="flex items-center gap-3 min-w-0">
+              <div class="size-8 flex items-center justify-center shrink-0">
+                <Icon :icon="perm.icon" class="size-[15px] text-foreground/70" />
+              </div>
+              <div class="min-w-0">
+                <p class="text-[13px] font-medium text-foreground">{{ perm.name }}</p>
+                <p class="text-[11px] text-muted-foreground mt-0.5 leading-relaxed">{{ perm.description }}</p>
+              </div>
+            </div>
+            <div class="flex items-center gap-2.5 shrink-0 ml-4">
+              <span class="size-1.5 rounded-full" :class="statusDotClass(perm.status)" />
+              <button
+                @click="openPermissionSettings(perm.settingsUrl)"
+                class="flex items-center gap-1 px-2.5 py-1 text-[11px] font-medium border border-border/60 rounded-lg hover:border-foreground/30 text-foreground transition-colors whitespace-nowrap"
+              >
+                Open
+                <Icon icon="hugeicons:arrow-up-right-01" class="size-[11px]" />
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Footer note -->
+        <div class="px-6 pb-6 pt-2">
+          <p class="text-[11px] text-muted-foreground leading-relaxed">
+            Refresh after granting. Accessibility changes require a daemon restart.
+          </p>
+        </div>
+
+      </div>
+    </div>
+  </Teleport>
+
 </template>

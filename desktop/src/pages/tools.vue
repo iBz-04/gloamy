@@ -16,6 +16,39 @@ interface CliTool {
   category: string
 }
 
+interface ToolIcon {
+  icon: string
+  colorClass?: string
+}
+
+const toolIconMap: Record<string, ToolIcon> = {
+  browser: { icon: 'hugeicons:globe-02', colorClass: 'text-blue-500' },
+  'browser open': { icon: 'hugeicons:globe-02', colorClass: 'text-blue-500' },
+  'web fetch': { icon: 'hugeicons:globe-02', colorClass: 'text-blue-500' },
+  shell: { icon: 'hugeicons:computer-terminal-02', colorClass: 'text-emerald-500' },
+  'command': { icon: 'hugeicons:computer-terminal-02', colorClass: 'text-emerald-500' },
+  memory: { icon: 'hugeicons:archive', colorClass: 'text-violet-500' },
+  cron: { icon: 'hugeicons:calendar-03', colorClass: 'text-indigo-500' },
+  'cron add': { icon: 'hugeicons:calendar-03', colorClass: 'text-indigo-500' },
+  'cron update': { icon: 'hugeicons:calendar-03', colorClass: 'text-indigo-500' },
+  'cron remove': { icon: 'hugeicons:calendar-03', colorClass: 'text-rose-500' },
+  'file': { icon: 'hugeicons:file-01', colorClass: 'text-slate-400' },
+  'file read': { icon: 'hugeicons:file-01', colorClass: 'text-slate-400' },
+  'file write': { icon: 'hugeicons:file-02', colorClass: 'text-slate-400' },
+  git: { icon: 'hugeicons:git-branch', colorClass: 'text-orange-500' },
+  github: { icon: 'simple-icons:github' },
+  discord: { icon: 'simple-icons:discord', colorClass: 'text-[#5865F2]' },
+  slack: { icon: 'simple-icons:slack', colorClass: 'text-[#4A154B]' },
+  telegram: { icon: 'simple-icons:telegram', colorClass: 'text-[#26A5E4]' },
+  whatsapp: { icon: 'simple-icons:whatsapp', colorClass: 'text-[#25D366]' },
+  notion: { icon: 'simple-icons:notion' },
+  openai: { icon: 'simple-icons:openai' },
+  anthropic: { icon: 'simple-icons:anthropic' },
+  google: { icon: 'simple-icons:google', colorClass: 'text-[#8E75B2]' },
+  cli: { icon: 'hugeicons:computer-terminal-02', colorClass: 'text-cyan-500' },
+  default: { icon: 'hugeicons:puzzle', colorClass: 'text-primary' },
+}
+
 const auth = useAuthStore()
 const tools = ref<ToolSpec[]>([])
 const cliTools = ref<CliTool[]>([])
@@ -35,6 +68,74 @@ const filteredTools = computed(() => {
     || tool.description.toLowerCase().includes(query),
   )
 })
+
+function normalizeKey(value: string): string {
+  return value.trim().toLowerCase().replace(/[_/]+/g, ' ').replace(/\s+/g, ' ')
+}
+
+function resolveToolIcon(name: string, description: string): ToolIcon {
+  const nameKey = normalizeKey(name)
+  const descriptionKey = normalizeKey(description)
+
+  for (const [key, icon] of Object.entries(toolIconMap)) {
+    if (key === 'default') {
+      continue
+    }
+
+    if (nameKey.includes(key) || descriptionKey.includes(key)) {
+      return icon
+    }
+  }
+
+  if (nameKey.includes('cli') || descriptionKey.includes('cli')) {
+    return toolIconMap.cli
+  }
+
+  return toolIconMap.default
+}
+
+function resolveCliToolIcon(name: string, category: string): ToolIcon {
+  const nameKey = normalizeKey(name)
+  const categoryKey = normalizeKey(category)
+
+  if (categoryKey.includes('shell') || categoryKey.includes('terminal')) {
+    return toolIconMap.shell
+  }
+  if (nameKey.includes('cron')) {
+    if (nameKey.includes('remove')) {
+      return toolIconMap['cron remove']
+    }
+    if (nameKey.includes('update')) {
+      return toolIconMap['cron update']
+    }
+    if (nameKey.includes('add')) {
+      return toolIconMap['cron add']
+    }
+    return toolIconMap.cron
+  }
+  if (categoryKey.includes('network')) {
+    return toolIconMap.browser
+  }
+  if (categoryKey.includes('file')) {
+    return toolIconMap.file
+  }
+
+  for (const [key, icon] of Object.entries(toolIconMap)) {
+    if (key === 'default' || key === 'cli') {
+      continue
+    }
+
+    if (nameKey.includes(key) || categoryKey.includes(key)) {
+      return icon
+    }
+  }
+
+  return toolIconMap.cli
+}
+
+function iconClass(icon: ToolIcon): string {
+  return icon.colorClass ?? 'text-primary'
+}
 
 const filteredCliTools = computed(() => {
   const query = searchQuery.value.trim().toLowerCase()
@@ -169,9 +270,16 @@ onMounted(() => {
                 @click="toggleExpanded(tool.name)"
               >
                 <div class="flex items-start justify-between gap-3">
-                  <div class="min-w-0">
-                    <p class="text-[13px] font-medium text-foreground truncate">{{ tool.name }}</p>
-                    <p class="text-[12px] text-muted-foreground mt-1 line-clamp-2">{{ tool.description }}</p>
+                  <div class="min-w-0 flex items-start gap-2.5">
+                    <Icon
+                      :icon="resolveToolIcon(tool.name, tool.description).icon"
+                      class="mt-0.5 size-4 shrink-0"
+                      :class="iconClass(resolveToolIcon(tool.name, tool.description))"
+                    />
+                    <div class="min-w-0">
+                      <p class="text-[13px] font-medium text-foreground truncate">{{ tool.name }}</p>
+                      <p class="text-[12px] text-muted-foreground mt-1 line-clamp-2">{{ tool.description }}</p>
+                    </div>
                   </div>
                   <Icon :icon="expandedTool === tool.name ? 'hugeicons:arrow-up-01' : 'hugeicons:arrow-down-01'" class="size-4 text-muted-foreground flex-shrink-0 mt-0.5" />
                 </div>
@@ -196,7 +304,7 @@ onMounted(() => {
           </div>
 
           <div v-else class="border border-border/40 rounded-xl overflow-hidden">
-            <div class="grid grid-cols-[180px_1fr_120px_120px] gap-4 px-4 py-3 bg-card/30 border-b border-border/30 text-[12px] font-medium text-muted-foreground">
+            <div class="grid grid-cols-[160px_1fr_1.5fr_120px] gap-4 px-4 py-3 bg-card/30 border-b border-border/30 text-[12px] font-medium text-muted-foreground">
               <div>Name</div>
               <div>Path</div>
               <div>Version</div>
@@ -206,11 +314,18 @@ onMounted(() => {
             <div
               v-for="tool in filteredCliTools"
               :key="`${tool.name}-${tool.path}`"
-              class="grid grid-cols-[180px_1fr_120px_120px] gap-4 px-4 py-3 border-b border-border/20 last:border-b-0 text-[12px] items-center"
+              class="grid grid-cols-[160px_1fr_1.5fr_120px] gap-4 px-4 py-3 border-b border-border/20 last:border-b-0 text-[12px] items-center"
             >
-              <div class="text-foreground font-medium truncate">{{ tool.name }}</div>
+              <div class="flex items-center gap-2 min-w-0">
+                <Icon
+                  :icon="resolveCliToolIcon(tool.name, tool.category).icon"
+                  class="size-3.5 shrink-0"
+                  :class="iconClass(resolveCliToolIcon(tool.name, tool.category))"
+                />
+                <div class="text-foreground font-medium truncate">{{ tool.name }}</div>
+              </div>
               <div class="text-muted-foreground font-mono truncate" :title="tool.path">{{ tool.path }}</div>
-              <div class="text-muted-foreground">{{ tool.version || '—' }}</div>
+              <div class="text-muted-foreground truncate" :title="tool.version || ''">{{ tool.version || '—' }}</div>
               <div class="text-muted-foreground truncate">{{ tool.category }}</div>
             </div>
           </div>

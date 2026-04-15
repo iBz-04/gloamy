@@ -290,6 +290,24 @@ The daemon starts:
 
 Use this mode when you want Telegram or other channels to stay online.
 
+### Service
+
+Use the service commands when you want Gloamy to run as an OS-managed background service:
+
+```bash
+gloamy service install
+gloamy service start
+gloamy service restart
+gloamy service status
+```
+
+This is the right choice for always-on use and boot persistence.
+
+- `gloamy service install` registers the service with your OS
+- `gloamy service start` starts the installed service
+- `gloamy service restart` reloads it after config changes
+- `gloamy daemon` runs the runtime directly in your terminal without OS service management
+
 ### Gateway
 
 Run only the local gateway:
@@ -345,7 +363,8 @@ Typical flow:
 Important operational note:
 
 - `gloamy agent` is for direct CLI use
-- `gloamy daemon` is what you run for persistent channel operation
+- `gloamy daemon` is what you run for persistent channel operation in the foreground
+- `gloamy service` is what you run when you want the OS to manage the daemon and start it on boot
 
 Canonical reference: [`docs/channels-reference.md`](docs/channels-reference.md)
 
@@ -536,6 +555,8 @@ If you are working on docs, start here:
 
 - [`docs/README.md`](docs/README.md)
 - [`docs/SUMMARY.md`](docs/SUMMARY.md)
+
+If you want Gloamy to stay running after reboot, use `gloamy service install` and `gloamy service start` instead of running `cargo run -- daemon` manually.
 
 ## Documentation Map
 

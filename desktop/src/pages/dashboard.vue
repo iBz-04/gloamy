@@ -17,6 +17,7 @@ interface CostTimelinePointResponse {
 
 const TREND_HISTORY_KEY = 'dashboard-token-timeline-v3'
 const TIMELINE_REFRESH_INTERVAL_MS = 60_000
+const MAX_VISIBLE_TREND_POINTS = 90
 
 const auth = useAuthStore()
 const status = ref<StatusResponse | null>(null)
@@ -100,8 +101,20 @@ const healthProgressColor = computed(() => {
   return `rgb(${r}, ${g}, ${b})`
 })
 
-const trendChangePercent = computed(() => {
+const visibleTrendHistory = computed(() => {
   const history = trendHistory.value
+  if (history.length === 0) return []
+
+  const firstNonZeroIndex = history.findIndex(point => point.value > 0)
+  const trimmed = firstNonZeroIndex === -1
+    ? history
+    : history.slice(firstNonZeroIndex)
+
+  return trimmed.slice(-MAX_VISIBLE_TREND_POINTS)
+})
+
+const trendChangePercent = computed(() => {
+  const history = visibleTrendHistory.value
   if (history.length < 2) return 0
   const first = history[0]?.value ?? 0
   const last = history[history.length - 1]?.value ?? 0
@@ -186,8 +199,8 @@ async function fetchData(showLoading = false) {
 }
 
 const sparklinePoints = computed(() => {
-  if (trendHistory.value.length === 0) return ''
-  const values = trendHistory.value.map(point => Math.max(Math.floor(point.value), 0))
+  if (visibleTrendHistory.value.length === 0) return ''
+  const values = visibleTrendHistory.value.map(point => Math.max(Math.floor(point.value), 0))
   const data: number[] = values.length === 1
     ? [values[0] ?? 0, values[0] ?? 0]
     : values
@@ -306,7 +319,7 @@ onUnmounted(() => {
           </div>
           <div class="text-[24px] font-medium text-foreground tracking-tight leading-none">{{ cost.total_tokens.toLocaleString() }}</div>
           <div class="flex items-center gap-1.5 mt-1 mb-3">
-            <span class="text-[12px] text-emerald-500">↑ {{ trendHistory.length }}</span>
+            <span class="text-[12px] text-emerald-500">↑ {{ visibleTrendHistory.length }}</span>
             <span class="text-[12px] text-muted-foreground">daily samples</span>
           </div>
           <svg viewBox="0 0 600 160" class="w-full h-[200px]" preserveAspectRatio="none">
