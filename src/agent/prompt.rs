@@ -202,23 +202,21 @@ impl PromptSection for ExecutionSection {
     fn build(&self, _ctx: &PromptContext<'_>) -> Result<String> {
         Ok(
             "## Execution Loop\n\n\
-             CRITICAL: When given ANY task — simple or complex — you MUST plan first, then execute ALL steps before responding.\n\n\
-             ### Step 1: Decompose before acting\n\
-             Before calling any tool, mentally list every step required to fully complete the task. Do this even for short tasks.\n\
+             CRITICAL: When given ANY task — simple or complex — execute decisively, keep going until the task is finished, and only pause when a runtime safety gate or missing information truly blocks progress.\n\n\
+             ### Step 1: Make a quick internal plan\n\
+             Before calling tools, mentally decompose the task into the smallest useful steps. Keep the plan lightweight; do not over-serialize routine work.\n\
              Example: user says \"find Linear's contact email\" → internal plan:\n\
-               1. Web search for 'linear.app contact email'\n\
-               2. If not found in results, open browser and navigate to linear.app\n\
-               3. Find and navigate to the contact or support page\n\
-               4. Extract and return the email\n\
-             Execute ALL numbered steps before replying.\n\n\
-             ### Step 2: Execute the full plan autonomously\n\
-             - NEVER report back after a single step if there are more steps remaining.\n\
-             - If the user says \"open X and do Y\", you must: (1) open X, (2) do Y. Do NOT stop after step 1.\n\
-             - If the user says \"create A then B then C\", execute all three actions in sequence.\n\
-             - Do NOT ask for confirmation between steps unless explicitly required by security policy.\n\
-             - If a tool fails, try alternatives immediately. Do not stop and ask the user.\n\
-             - Only respond to the user AFTER all steps are complete or you are truly blocked.\n\
-             - When blocked, explain what you tried, what failed, and the smallest next input needed.\n\n\
+               1. Search the web for the official contact/support page\n\
+               2. Open the most likely official page if search is inconclusive\n\
+               3. Extract the email and verify it came from the page\n\
+             ### Step 2: Act without needless interruption\n\
+             - Do not stop after the first step when more steps are clearly required.\n\
+             - If the user says \"open X and do Y\", do both in sequence unless a safety gate blocks one of them.\n\
+             - If the user says \"create A then B then C\", carry out the whole chain.\n\
+             - Prefer reasonable assumptions for routine decisions instead of asking the user to micromanage execution.\n\
+             - If a tool fails, try a practical alternative immediately. Do not stop unless the alternatives are exhausted or unsafe.\n\
+             - Only ask for confirmation when the runtime security policy or explicit user instruction requires it.\n\
+             - When blocked, explain what failed, why it is blocked, and the smallest next input that would unblock progress.\n\n\
              ### Navigation commands (MANDATORY)\n\
              When the user says \"go to [page]\", \"navigate to [page]\", \"open [site]\", or \"go to contact\" — this is a DIRECT NAVIGATION command.\n\
              - Immediately open the browser and navigate to that exact page or URL. Do NOT treat this as a web search.\n\
@@ -258,13 +256,13 @@ impl PromptSection for ExecutionSection {
                4. Use mac_automation action=click_at with those x,y coordinates.\n\
                5. Verify the result with app state, not just transport success.\n\n\
              ### Plan tracking\n\
-             For any task requiring more than one tool call, start your response with a `<plan>` block that lists every required step:\n\
+             For any task requiring more than one tool call, start your response with a `<plan>` block that lists the near-term steps you intend to take:\n\
              <plan>\n\
              - [ ] Step 1 — description\n\
              - [ ] Step 2 — description\n\
              </plan>\n\
              After each tool batch, emit an updated `<plan>` block with completed steps marked `[x]`. The runtime re-injects your latest plan as a system note before every LLM call so you always have the full task context, even in long runs.\n\n\
-             Remember: The user expects the ENTIRE task to be done — plan it, execute every step, then respond."
+             Remember: the user expects the whole task to be done. Move quickly, verify state changes, and keep working until complete."
                 .into(),
         )
     }

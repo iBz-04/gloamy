@@ -4214,17 +4214,48 @@ fn setup_channels() -> Result<ChannelsConfig> {
                 println!();
                 println!("  {}", style("WhatsApp Setup").white().bold());
 
+                #[cfg(not(feature = "whatsapp-web"))]
+                {
+                    println!(
+                        "  {} {}",
+                        style("Note:").yellow().bold(),
+                        style("WhatsApp Web (QR/pair-code) is not available in this build.").dim()
+                    );
+                    println!(
+                        "  {} {}",
+                        style("→").dim(),
+                        style("To enable it: cargo install gloamy --features whatsapp-web").dim()
+                    );
+                    println!(
+                        "  {} {}",
+                        style("→").dim(),
+                        style("Proceeding with WhatsApp Business Cloud API (webhook) only.").dim()
+                    );
+                    println!();
+                }
+
+                #[cfg(feature = "whatsapp-web")]
                 let mode_options = vec![
                     "WhatsApp Web (QR / pair-code, no Meta Business API)",
                     "WhatsApp Business Cloud API (webhook)",
                 ];
+                #[cfg(not(feature = "whatsapp-web"))]
+                let mode_options = vec![
+                    "WhatsApp Business Cloud API (webhook)",
+                ];
+
                 let mode_idx = Select::new()
                     .with_prompt("  Choose WhatsApp mode")
                     .items(&mode_options)
                     .default(0)
                     .interact()?;
 
-                if mode_idx == 0 {
+                #[cfg(feature = "whatsapp-web")]
+                let web_mode_idx = 0usize;
+                #[cfg(not(feature = "whatsapp-web"))]
+                let web_mode_idx = usize::MAX; // never matches
+
+                if mode_idx == web_mode_idx {
                     println!("  {}", style("Mode: WhatsApp Web").dim());
                     print_bullet("1. Build with --features whatsapp-web");
                     print_bullet(

@@ -482,6 +482,7 @@ Operational guidance:
 - use allowlists for channels instead of wide-open routing
 - keep secrets in config or environment variables, not in workspace files
 - review tool and command permissions before enabling broad autonomy
+- `allowed_commands` is runtime-updatable through config reload, so you can tighten or widen shell access without restarting the daemon
 
 References:
 

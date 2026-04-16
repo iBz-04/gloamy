@@ -63,7 +63,56 @@ allow_public_bind = true
 [autonomy]
 level = "full"
 workspace_only = false
-allowed_commands = ["*"]
+allowed_commands = [
+    "git",
+    "npm",
+    "cargo",
+    "ls",
+    "cat",
+    "grep",
+    "find",
+    "echo",
+    "pwd",
+    "wc",
+    "head",
+    "tail",
+    "date",
+    "curl",
+    "jq",
+    "one",
+    "osascript",
+    "sleep",
+    "open",
+    "python3",
+    "pandoc",
+    "libreoffice",
+    "wkhtmltopdf",
+    "enscript",
+    "ps2pdf",
+    "which",
+    "sed",
+    "awk",
+    "sort",
+    "uniq",
+    "cut",
+    "tr",
+    "xargs",
+    "tee",
+    "mkdir",
+    "rm",
+    "cp",
+    "mv",
+    "touch",
+    "chmod",
+    "tar",
+    "zip",
+    "unzip",
+    "file",
+    "base64",
+    "md5",
+    "shasum",
+]
+# Note: osascript and sleep are included for macOS automation skills
 require_approval_for_medium_risk = false
 block_high_risk_commands = false
 max_actions_per_hour = 500

@@ -225,6 +225,15 @@ struct ChannelRuntimeDefaults {
     reliability: crate::config::ReliabilityConfig,
 }
 
+#[derive(Debug, Clone)]
+struct RuntimeConfigReload {
+    defaults: ChannelRuntimeDefaults,
+    allowed_commands: Vec<String>,
+    max_actions_per_hour: u32,
+    require_approval_for_medium_risk: bool,
+    block_high_risk_commands: bool,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct ConfigFileStamp {
     modified: SystemTime,
@@ -630,6 +639,12 @@ fn channel_delivery_instructions(channel_name: &str) -> Option<&'static str> {
     }
 }
 
+fn completion_integrity_instructions() -> &'static str {
+    "Completion integrity contract:\n\
+     - Do not claim success with phrases like 'Done', 'Sent', 'Completed', or 'Finished' unless the exact user-requested outcome was actually produced and delivered.\n\
+     - If a required step failed or was blocked, explicitly say the task is incomplete, name the blocker, and state the next concrete action."
+}
+
 fn build_channel_system_prompt(
     base_prompt: &str,
     channel_name: &str,
@@ -643,6 +658,13 @@ fn build_channel_system_prompt(
         } else {
             prompt = format!("{prompt}\n\n{instructions}");
         }
+    }
+
+    let integrity = completion_integrity_instructions();
+    if prompt.is_empty() {
+        prompt = integrity.to_string();
+    } else {
+        prompt = format!("{prompt}\n\n{integrity}");
     }
 
     if !reply_target.is_empty() {
@@ -836,7 +858,7 @@ fn decrypt_optional_secret_for_runtime_reload(
     Ok(())
 }
 
-async fn load_runtime_defaults_from_config_file(path: &Path) -> Result<(ChannelRuntimeDefaults, u32)> {
+async fn load_runtime_defaults_from_config_file(path: &Path) -> Result<RuntimeConfigReload> {
     let contents = tokio::fs::read_to_string(path)
         .await
         .with_context(|| format!("Failed to read {}", path.display()))?;
@@ -850,8 +872,13 @@ async fn load_runtime_defaults_from_config_file(path: &Path) -> Result<(ChannelR
     }
 
     parsed.apply_env_overrides();
-    let max_actions = parsed.autonomy.max_actions_per_hour;
-    Ok((runtime_defaults_from_config(&parsed), max_actions))
+    Ok(RuntimeConfigReload {
+        defaults: runtime_defaults_from_config(&parsed),
+        allowed_commands: parsed.autonomy.allowed_commands.clone(),
+        max_actions_per_hour: parsed.autonomy.max_actions_per_hour,
+        require_approval_for_medium_risk: parsed.autonomy.require_approval_for_medium_risk,
+        block_high_risk_commands: parsed.autonomy.block_high_risk_commands,
+    })
 }
 
 async fn maybe_apply_runtime_config_update(ctx: &ChannelRuntimeContext) -> Result<()> {
@@ -881,7 +908,8 @@ async fn maybe_apply_runtime_config_update(ctx: &ChannelRuntimeContext) -> Resul
         store.get(&config_path).and_then(|s| s.security.clone())
     };
 
-    let (next_defaults, new_max_actions) = load_runtime_defaults_from_config_file(&config_path).await?;
+    let next_reload = load_runtime_defaults_from_config_file(&config_path).await?;
+    let next_defaults = next_reload.defaults.clone();
     let next_default_provider = providers::create_resilient_provider_with_options(
         &next_defaults.default_provider,
         next_defaults.api_key.as_deref(),
@@ -922,10 +950,19 @@ async fn maybe_apply_runtime_config_update(ctx: &ChannelRuntimeContext) -> Resul
     }
 
     if let Some(security) = existing_security {
-        security.set_max_actions_per_hour(new_max_actions);
+        let allowed_commands_count = next_reload.allowed_commands.len();
+        security.set_allowed_commands(next_reload.allowed_commands);
+        security.set_max_actions_per_hour(next_reload.max_actions_per_hour);
+        security.set_command_risk_policy(
+            next_reload.require_approval_for_medium_risk,
+            next_reload.block_high_risk_commands,
+        );
         tracing::info!(
-            max_actions_per_hour = new_max_actions,
-            "Updated security rate limit from config"
+            allowed_commands = allowed_commands_count,
+            max_actions_per_hour = next_reload.max_actions_per_hour,
+            require_approval_for_medium_risk = next_reload.require_approval_for_medium_risk,
+            block_high_risk_commands = next_reload.block_high_risk_commands,
+            "Updated security policy from config"
         );
     }
 
@@ -2273,7 +2310,7 @@ async fn process_channel_message(
             // added during run_tool_call_loop, so the LLM retains awareness
             // of what it did on subsequent turns.
             let tool_summary = extract_tool_context_summary(&history, history_len_before_tools);
-            let history_response = if tool_summary.is_empty() || msg.channel == "telegram" {
+            let history_response = if tool_summary.is_empty() {
                 delivered_response.clone()
             } else {
                 format!("{tool_summary}\n{delivered_response}")

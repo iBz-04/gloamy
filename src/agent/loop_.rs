@@ -21,9 +21,9 @@ use sha2::{Digest, Sha256};
 use std::collections::HashSet;
 use std::fmt::Write;
 use std::io::Write as _;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::{Arc, LazyLock};
-use std::time::{Duration, Instant};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use tokio_util::sync::CancellationToken;
 use uuid::Uuid;
 
@@ -36,6 +36,20 @@ const DEFAULT_MAX_TOOL_ITERATIONS: usize = 50;
 /// Safety bound for runtime-enforced continuation retries when the model tries
 /// to terminate while work is still unresolved.
 const MAX_RUNTIME_CONTINUATION_RETRIES: usize = 2;
+/// Maximum additional retries after a synthesized corrective guideline is injected.
+const MAX_PROMPT_EVOLUTION_RETRIES: usize = 1;
+/// Upper bound for persisted strategic prompt-evolution guidelines.
+const PROMPT_EVOLUTION_MAX_STRATEGIC_GUIDELINES: usize = 16;
+/// A rule that keeps failing this many times without recovery is dropped.
+const PROMPT_EVOLUTION_MAX_FAILURES_BEFORE_DROP: u32 = 3;
+/// Strategic rules older than this window are pruned as stale guidance.
+const PROMPT_EVOLUTION_RULE_TTL_SECS: i64 = 30 * 24 * 60 * 60;
+/// Tactical guideline path (overwritten with the latest corrective hint).
+const PROMPT_EVOLUTION_TACTICAL_FILE: &str = "memories/tactical/current.md";
+/// Strategic guideline path (deduplicated, bounded rolling set).
+const PROMPT_EVOLUTION_STRATEGIC_FILE: &str = "memories/strategic/guidelines.md";
+/// Prompt-evolution control state (scores, stage, failure history).
+const PROMPT_EVOLUTION_STATE_FILE: &str = "memories/strategic/state.json";
 
 /// Minimum user-message length (in chars) for auto-save to memory.
 /// Matches the channel-side constant in `channels/mod.rs`.
@@ -363,6 +377,728 @@ fn response_indicates_tool_abandonment(response: &str) -> bool {
     abandonment_markers
         .iter()
         .any(|marker| lower.contains(marker))
+}
+
+fn response_claims_task_completion(response: &str) -> bool {
+    let lower = response.trim().to_ascii_lowercase();
+    if lower.is_empty() {
+        return false;
+    }
+
+    let negation_markers = [
+        "not done",
+        "not sent",
+        "not complete",
+        "not completed",
+        "can't",
+        "cannot",
+        "unable",
+        "blocked",
+        "failed",
+        "error",
+    ];
+    if negation_markers.iter().any(|marker| lower.contains(marker)) {
+        return false;
+    }
+
+    let completion_prefixes = [
+        "done",
+        "sent",
+        "completed",
+        "complete",
+        "finished",
+        "all set",
+        "ready",
+        "uploaded",
+        "converted",
+    ];
+
+    if completion_prefixes
+        .iter()
+        .any(|prefix| lower.starts_with(prefix))
+    {
+        return true;
+    }
+
+    let completion_phrases = [
+        "task completed",
+        "completed successfully",
+        "successfully completed",
+        "sent successfully",
+        "here is the pdf",
+        "i sent it",
+    ];
+
+    completion_phrases
+        .iter()
+        .any(|phrase| lower.contains(phrase))
+}
+
+fn parse_requested_output_extension(content: &str) -> Option<&'static str> {
+    let lower = content.to_ascii_lowercase();
+    let action_markers = [
+        "make",
+        "convert",
+        "generate",
+        "export",
+        "create",
+        "save",
+        "turn",
+        "send",
+        "deliver",
+        "need",
+        "want",
+        "into",
+        "as ",
+    ];
+
+    let has_action_marker = action_markers.iter().any(|marker| lower.contains(marker));
+    if !has_action_marker {
+        return None;
+    }
+
+    let candidates: [(&str, &[&str]); 6] = [
+        ("pdf", &["pdf"]),
+        ("docx", &["docx", "word document", "word file"]),
+        ("md", &["markdown", ".md", " md "]),
+        ("json", &["json"]),
+        ("csv", &["csv"]),
+        ("txt", &["txt", "text file", "plain text"]),
+    ];
+
+    for (extension, keywords) in candidates {
+        if keywords.iter().any(|keyword| lower.contains(keyword)) {
+            return Some(extension);
+        }
+    }
+
+    None
+}
+
+fn latest_requested_output_extension(history: &[ChatMessage]) -> Option<&'static str> {
+    let mut requested_extension = None;
+    for msg in history {
+        if msg.role != "user" || msg.content.starts_with("[Tool results]") {
+            continue;
+        }
+        if let Some(extension) = parse_requested_output_extension(&msg.content) {
+            requested_extension = Some(extension);
+        }
+    }
+
+    requested_extension
+}
+
+fn contains_artifact_reference_for_extension(text: &str, extension: &str) -> bool {
+    let lower = text.to_ascii_lowercase();
+    let needle = format!(".{extension}");
+    let mut search_start = 0usize;
+
+    while let Some(found_idx) = lower[search_start..].find(&needle) {
+        let start = search_start + found_idx;
+        let end = start + needle.len();
+        let next = lower[end..].chars().next();
+        if next.is_none_or(|ch| !ch.is_ascii_alphanumeric()) {
+            return true;
+        }
+        search_start = end;
+    }
+
+    false
+}
+
+fn json_value_contains_artifact_extension(value: &serde_json::Value, extension: &str) -> bool {
+    match value {
+        serde_json::Value::String(s) => contains_artifact_reference_for_extension(s, extension),
+        serde_json::Value::Array(items) => {
+            items
+                .iter()
+                .any(|item| json_value_contains_artifact_extension(item, extension))
+        }
+        serde_json::Value::Object(map) => map
+            .values()
+            .any(|value| json_value_contains_artifact_extension(value, extension)),
+        _ => false,
+    }
+}
+
+fn history_contains_artifact_extension(history: &[ChatMessage], extension: &str) -> bool {
+    history.iter().rev().take(24).any(|msg| match msg.role.as_str() {
+        "assistant" | "tool" => contains_artifact_reference_for_extension(&msg.content, extension),
+        "user" => msg.content.starts_with("[Tool results]")
+            && contains_artifact_reference_for_extension(&msg.content, extension),
+        _ => false,
+    })
+}
+
+fn unresolved_steps_completion_guard_message(unresolved_failed_steps: &[String]) -> String {
+    format!(
+        "Task is still incomplete: required step(s) are failing ({}) and completion claims were suppressed. Please retry with another approach or update policy/access constraints.",
+        unresolved_failed_steps.join(", ")
+    )
+}
+
+fn prompt_evolution_workspace_root() -> Option<PathBuf> {
+    std::env::current_dir().ok()
+}
+
+fn prompt_evolution_now_secs() -> i64 {
+    match SystemTime::now().duration_since(UNIX_EPOCH) {
+        Ok(duration) => duration.as_secs() as i64,
+        Err(_) => 0,
+    }
+}
+
+fn normalize_prompt_guideline(guideline: &str) -> String {
+    guideline
+        .trim()
+        .trim_end_matches(['.', ';', ':'])
+        .to_ascii_lowercase()
+}
+
+fn prompt_evolution_reason_key(
+    guard_event: &str,
+    requested_output_extension: Option<&str>,
+    unresolved_failed_steps: &[String],
+) -> String {
+    match guard_event {
+        "runtime_output_completion_guard" => {
+            let extension = requested_output_extension.unwrap_or("unknown");
+            format!("completion_claim_without_artifact:{extension}")
+        }
+        "runtime_false_completion_guard" => {
+            if unresolved_failed_steps.is_empty() {
+                "completion_claim_with_unresolved_steps:unknown".to_string()
+            } else {
+                let mut steps: Vec<String> = unresolved_failed_steps
+                    .iter()
+                    .map(|step| step.trim().to_ascii_lowercase())
+                    .filter(|step| !step.is_empty())
+                    .collect();
+                steps.sort();
+                steps.dedup();
+                format!("completion_claim_with_unresolved_steps:{}", steps.join("+"))
+            }
+        }
+        _ => guard_event.to_string(),
+    }
+}
+
+fn prompt_evolution_rule_id(guideline: &str, guard_event: &str, reason_key: &str) -> String {
+    let normalized = normalize_prompt_guideline(guideline);
+    let mut hasher = Sha256::new();
+    hasher.update(normalized.as_bytes());
+    hasher.update(b"|");
+    hasher.update(guard_event.trim().to_ascii_lowercase().as_bytes());
+    hasher.update(b"|");
+    hasher.update(reason_key.trim().to_ascii_lowercase().as_bytes());
+    format!("{:x}", hasher.finalize())
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
+enum PromptEvolutionRuleStage {
+    Tactical,
+    Strategic,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+struct PromptEvolutionRule {
+    id: String,
+    guideline: String,
+    guard_event: String,
+    reason_key: String,
+    stage: PromptEvolutionRuleStage,
+    successes: u32,
+    failures: u32,
+    created_at_unix: i64,
+    updated_at_unix: i64,
+}
+
+#[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
+struct PromptEvolutionState {
+    active_tactical_rule_id: Option<String>,
+    rules: Vec<PromptEvolutionRule>,
+}
+
+fn prompt_evolution_rule_score(rule: &PromptEvolutionRule) -> i32 {
+    rule.successes as i32 - rule.failures as i32
+}
+
+fn prompt_evolution_rule_expired(rule: &PromptEvolutionRule, now: i64) -> bool {
+    now.saturating_sub(rule.updated_at_unix) > PROMPT_EVOLUTION_RULE_TTL_SECS
+}
+
+fn dedupe_recent_guidelines(guidelines: &[String], max_items: usize) -> Vec<String> {
+    let mut seen = HashSet::new();
+    let mut deduped = Vec::new();
+
+    for guideline in guidelines.iter().rev() {
+        let trimmed = guideline.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+
+        let key = normalize_prompt_guideline(trimmed);
+        if key.is_empty() || !seen.insert(key) {
+            continue;
+        }
+
+        deduped.push(trimmed.to_string());
+        if deduped.len() >= max_items {
+            break;
+        }
+    }
+
+    deduped.reverse();
+    deduped
+}
+
+fn read_markdown_guidelines(path: &Path) -> Vec<String> {
+    let Ok(content) = std::fs::read_to_string(path) else {
+        return Vec::new();
+    };
+
+    content
+        .lines()
+        .filter_map(|line| {
+            let trimmed = line.trim();
+            if trimmed.is_empty() || trimmed.starts_with('#') {
+                return None;
+            }
+
+            let normalized = trimmed.strip_prefix("- ").unwrap_or(trimmed).trim();
+            if normalized.is_empty() {
+                None
+            } else {
+                Some(normalized.to_string())
+            }
+        })
+        .collect()
+}
+
+fn write_markdown_guidelines(path: &Path, title: &str, guidelines: &[String]) -> std::io::Result<()> {
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+
+    let mut content = format!("# {title}\n\n");
+    for guideline in guidelines {
+        let _ = writeln!(content, "- {guideline}");
+    }
+
+    std::fs::write(path, content)
+}
+
+fn sanitize_prompt_evolution_state(mut state: PromptEvolutionState) -> PromptEvolutionState {
+    let now = prompt_evolution_now_secs();
+    let mut deduped: std::collections::HashMap<String, PromptEvolutionRule> =
+        std::collections::HashMap::new();
+
+    for rule in state.rules.drain(..) {
+        let trimmed_guideline = rule.guideline.trim();
+        if trimmed_guideline.is_empty() || prompt_evolution_rule_expired(&rule, now) {
+            continue;
+        }
+
+        let entry = deduped.entry(rule.id.clone()).or_insert(rule.clone());
+        if rule.updated_at_unix > entry.updated_at_unix {
+            *entry = rule;
+        }
+    }
+
+    let mut rules: Vec<PromptEvolutionRule> = deduped.into_values().collect();
+    rules.sort_by(|left, right| {
+        prompt_evolution_rule_score(right)
+            .cmp(&prompt_evolution_rule_score(left))
+            .then_with(|| right.updated_at_unix.cmp(&left.updated_at_unix))
+    });
+
+    let mut strategic_kept = 0usize;
+    let mut compacted = Vec::new();
+    for rule in rules {
+        match rule.stage {
+            PromptEvolutionRuleStage::Strategic => {
+                if prompt_evolution_rule_score(&rule) < 0 {
+                    continue;
+                }
+                if strategic_kept >= PROMPT_EVOLUTION_MAX_STRATEGIC_GUIDELINES {
+                    continue;
+                }
+                strategic_kept += 1;
+                compacted.push(rule);
+            }
+            PromptEvolutionRuleStage::Tactical => {
+                compacted.push(rule);
+            }
+        }
+    }
+
+    state.rules = compacted;
+    if let Some(active_id) = state.active_tactical_rule_id.as_deref() {
+        let exists = state.rules.iter().any(|rule| {
+            rule.id == active_id && matches!(rule.stage, PromptEvolutionRuleStage::Tactical)
+        });
+        if !exists {
+            state.active_tactical_rule_id = None;
+        }
+    }
+
+    state
+}
+
+fn load_prompt_evolution_state(workspace_root: &Path) -> PromptEvolutionState {
+    let path = workspace_root.join(PROMPT_EVOLUTION_STATE_FILE);
+    let state = std::fs::read_to_string(&path)
+        .ok()
+        .and_then(|content| serde_json::from_str::<PromptEvolutionState>(&content).ok())
+        .unwrap_or_default();
+    sanitize_prompt_evolution_state(state)
+}
+
+fn save_prompt_evolution_state(workspace_root: &Path, state: &PromptEvolutionState) {
+    let path = workspace_root.join(PROMPT_EVOLUTION_STATE_FILE);
+    let compacted = sanitize_prompt_evolution_state(state.clone());
+    if let Some(parent) = path.parent() {
+        if let Err(err) = std::fs::create_dir_all(parent) {
+            tracing::warn!(
+                path = %path.display(),
+                error = %err,
+                "Failed to create prompt-evolution state directory"
+            );
+            return;
+        }
+    }
+
+    let serialized = match serde_json::to_string_pretty(&compacted) {
+        Ok(value) => value,
+        Err(err) => {
+            tracing::warn!(error = %err, "Failed to serialize prompt-evolution state");
+            return;
+        }
+    };
+
+    if let Err(err) = std::fs::write(&path, serialized) {
+        tracing::warn!(
+            path = %path.display(),
+            error = %err,
+            "Failed to persist prompt-evolution state"
+        );
+        return;
+    }
+
+    sync_prompt_evolution_markdown(workspace_root, &compacted);
+}
+
+fn sync_prompt_evolution_markdown(workspace_root: &Path, state: &PromptEvolutionState) {
+    let tactical_path = workspace_root.join(PROMPT_EVOLUTION_TACTICAL_FILE);
+    let strategic_path = workspace_root.join(PROMPT_EVOLUTION_STRATEGIC_FILE);
+
+    let tactical = state
+        .active_tactical_rule_id
+        .as_deref()
+        .and_then(|active_id| {
+            state.rules.iter().find(|rule| {
+                rule.id == active_id && matches!(rule.stage, PromptEvolutionRuleStage::Tactical)
+            })
+        })
+        .map(|rule| vec![rule.guideline.clone()])
+        .unwrap_or_default();
+
+    if let Err(err) = write_markdown_guidelines(&tactical_path, "Tactical Prompt Evolution", &tactical)
+    {
+        tracing::warn!(
+            path = %tactical_path.display(),
+            error = %err,
+            "Failed to persist tactical prompt-evolution markdown"
+        );
+    }
+
+    let mut strategic_rules: Vec<&PromptEvolutionRule> = state
+        .rules
+        .iter()
+        .filter(|rule| matches!(rule.stage, PromptEvolutionRuleStage::Strategic))
+        .collect();
+    strategic_rules.sort_by(|left, right| {
+        prompt_evolution_rule_score(right)
+            .cmp(&prompt_evolution_rule_score(left))
+            .then_with(|| right.updated_at_unix.cmp(&left.updated_at_unix))
+    });
+
+    let strategic: Vec<String> = strategic_rules
+        .into_iter()
+        .take(PROMPT_EVOLUTION_MAX_STRATEGIC_GUIDELINES)
+        .map(|rule| rule.guideline.clone())
+        .collect();
+    if let Err(err) =
+        write_markdown_guidelines(&strategic_path, "Strategic Prompt Evolution", &strategic)
+    {
+        tracing::warn!(
+            path = %strategic_path.display(),
+            error = %err,
+            "Failed to persist strategic prompt-evolution markdown"
+        );
+    }
+}
+
+fn apply_prompt_evolution_failure_to_state(
+    state: &mut PromptEvolutionState,
+    guard_event: &str,
+    reason_key: &str,
+    guideline: &str,
+    now: i64,
+) -> Option<String> {
+    let trimmed = guideline.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+
+    let rule_id = prompt_evolution_rule_id(trimmed, guard_event, reason_key);
+    let existing_idx = state.rules.iter().position(|rule| rule.id == rule_id);
+
+    if let Some(idx) = existing_idx {
+        let rule = &mut state.rules[idx];
+        rule.guideline = trimmed.to_string();
+        rule.guard_event = guard_event.to_string();
+        rule.reason_key = reason_key.to_string();
+        rule.updated_at_unix = now;
+        rule.failures = rule.failures.saturating_add(1);
+        if matches!(rule.stage, PromptEvolutionRuleStage::Strategic)
+            && rule.failures > rule.successes
+        {
+            rule.stage = PromptEvolutionRuleStage::Tactical;
+        }
+    } else {
+        state.rules.push(PromptEvolutionRule {
+            id: rule_id.clone(),
+            guideline: trimmed.to_string(),
+            guard_event: guard_event.to_string(),
+            reason_key: reason_key.to_string(),
+            stage: PromptEvolutionRuleStage::Tactical,
+            successes: 0,
+            failures: 1,
+            created_at_unix: now,
+            updated_at_unix: now,
+        });
+    }
+
+    state.active_tactical_rule_id = Some(rule_id.clone());
+
+    if let Some(rule) = state.rules.iter().find(|rule| rule.id == rule_id) {
+        if rule.failures >= PROMPT_EVOLUTION_MAX_FAILURES_BEFORE_DROP && rule.successes == 0 {
+            state.rules.retain(|rule| rule.id != rule_id);
+            if state
+                .active_tactical_rule_id
+                .as_deref()
+                .is_some_and(|active| active == rule_id)
+            {
+                state.active_tactical_rule_id = None;
+            }
+            return None;
+        }
+    }
+
+    Some(rule_id)
+}
+
+fn apply_prompt_evolution_recovery_to_state(
+    state: &mut PromptEvolutionState,
+    rule_id: &str,
+    verified_recovery: bool,
+    now: i64,
+) -> bool {
+    let Some(idx) = state.rules.iter().position(|rule| rule.id == rule_id) else {
+        return false;
+    };
+
+    let mut promoted = false;
+    {
+        let rule = &mut state.rules[idx];
+        rule.updated_at_unix = now;
+        if verified_recovery {
+            rule.successes = rule.successes.saturating_add(1);
+            rule.failures = rule.failures.saturating_sub(1);
+            rule.stage = PromptEvolutionRuleStage::Strategic;
+            promoted = true;
+        } else {
+            rule.failures = rule.failures.saturating_add(1);
+            if matches!(rule.stage, PromptEvolutionRuleStage::Strategic)
+                && rule.failures > rule.successes
+            {
+                rule.stage = PromptEvolutionRuleStage::Tactical;
+            }
+        }
+    }
+
+    if state
+        .active_tactical_rule_id
+        .as_deref()
+        .is_some_and(|active| active == rule_id)
+    {
+        state.active_tactical_rule_id = None;
+    }
+
+    if let Some(rule) = state.rules.iter().find(|rule| rule.id == rule_id) {
+        if rule.failures >= PROMPT_EVOLUTION_MAX_FAILURES_BEFORE_DROP && rule.successes == 0 {
+            state.rules.retain(|rule| rule.id != rule_id);
+        }
+    }
+
+    promoted
+}
+
+fn synthesize_prompt_evolution_guideline(
+    guard_event: &str,
+    requested_output_extension: Option<&str>,
+    unresolved_failed_steps: &[String],
+) -> Option<String> {
+    match guard_event {
+        "runtime_output_completion_guard" => {
+            let extension = requested_output_extension?;
+            Some(format!(
+                "When the user requests .{extension} output, keep executing tools until a .{extension} artifact is present in tool results; never claim completion before objective evidence exists."
+            ))
+        }
+        "runtime_false_completion_guard" => {
+            let failing_steps = if unresolved_failed_steps.is_empty() {
+                "active failing steps".to_string()
+            } else {
+                unresolved_failed_steps.join(", ")
+            };
+            Some(format!(
+                "Do not claim completion while unresolved failed steps remain ({failing_steps}); retry with an alternative tool path or explicitly report the blocker."
+            ))
+        }
+        _ => None,
+    }
+}
+
+fn persist_prompt_evolution_guideline(
+    guard_event: &str,
+    reason_key: &str,
+    guideline: &str,
+) -> Option<String> {
+    let trimmed = guideline.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+
+    let Some(workspace_root) = prompt_evolution_workspace_root() else {
+        return None;
+    };
+
+    let mut state = load_prompt_evolution_state(&workspace_root);
+    let now = prompt_evolution_now_secs();
+    let rule_id =
+        apply_prompt_evolution_failure_to_state(&mut state, guard_event, reason_key, trimmed, now);
+    save_prompt_evolution_state(&workspace_root, &state);
+    rule_id
+}
+
+fn mark_prompt_evolution_recovery(rule_id: &str, verified_recovery: bool) -> bool {
+    let Some(workspace_root) = prompt_evolution_workspace_root() else {
+        return false;
+    };
+
+    let mut state = load_prompt_evolution_state(&workspace_root);
+    let now = prompt_evolution_now_secs();
+    let promoted =
+        apply_prompt_evolution_recovery_to_state(&mut state, rule_id, verified_recovery, now);
+    save_prompt_evolution_state(&workspace_root, &state);
+    promoted
+}
+
+fn load_prompt_evolution_note() -> Option<String> {
+    let workspace_root = prompt_evolution_workspace_root()?;
+    let state = load_prompt_evolution_state(&workspace_root);
+
+    let tactical_rule = state
+        .active_tactical_rule_id
+        .as_deref()
+        .and_then(|active_id| {
+            state.rules.iter().find(|rule| {
+                rule.id == active_id && matches!(rule.stage, PromptEvolutionRuleStage::Tactical)
+            })
+        });
+
+    let mut strategic_rules: Vec<&PromptEvolutionRule> = state
+        .rules
+        .iter()
+        .filter(|rule| matches!(rule.stage, PromptEvolutionRuleStage::Strategic))
+        .collect();
+    strategic_rules.sort_by(|left, right| {
+        prompt_evolution_rule_score(right)
+            .cmp(&prompt_evolution_rule_score(left))
+            .then_with(|| right.updated_at_unix.cmp(&left.updated_at_unix))
+    });
+
+    if tactical_rule.is_none() && strategic_rules.is_empty() {
+        return None;
+    }
+
+    let mut note = String::from("## Prompt Evolution Memory\n\n");
+    note.push_str(
+        "- Advisory guidance only: objective runtime guards and tool evidence always take precedence.\n",
+    );
+
+    if let Some(tactical_rule) = tactical_rule {
+        let _ = writeln!(
+            note,
+            "- Tactical candidate (unverified): {} [reason: {}]",
+            tactical_rule.guideline,
+            tactical_rule.reason_key
+        );
+    }
+
+    let strategic_preview: Vec<&PromptEvolutionRule> = strategic_rules
+        .iter()
+        .take(5)
+        .copied()
+        .collect();
+    if !strategic_preview.is_empty() {
+        note.push_str("- Strategic reminders:\n");
+        for rule in strategic_preview {
+            let _ = writeln!(
+                note,
+                "  - {} [reason: {}, score: {}]",
+                rule.guideline,
+                rule.reason_key,
+                prompt_evolution_rule_score(rule)
+            );
+        }
+    }
+
+    note.push_str(
+        "- If objective evidence is missing, keep executing tools and avoid final completion language.",
+    );
+
+    Some(note)
+}
+
+fn build_prompt_evolution_retry_note(guard_message: &str, guideline: Option<&str>) -> String {
+    let mut note = String::from("## Runtime Corrective Guideline\n\n");
+    let _ = writeln!(note, "- {guard_message}");
+    if let Some(guideline) = guideline {
+        let _ = writeln!(note, "- Learned fix: {guideline}");
+    }
+    note.push_str("- This fix is provisional until a verified recovery succeeds.\n");
+    note.push_str("- Continue now with concrete tool actions; do not finalize this turn.\n");
+    note.push_str(
+        "- Only claim completion after the required artifact or recovery evidence is present.",
+    );
+    note
+}
+
+fn prompt_evolution_recovery_verified(
+    guard_event: Option<&str>,
+    produced_requested_artifact: bool,
+    unresolved_failed_steps: &[String],
+) -> bool {
+    match guard_event {
+        Some("runtime_output_completion_guard") => produced_requested_artifact,
+        Some("runtime_false_completion_guard") => unresolved_failed_steps.is_empty(),
+        _ => false,
+    }
 }
 
 fn build_runtime_continuation_note(
@@ -2709,7 +3445,14 @@ pub(crate) async fn run_tool_call_loop(
     let mut had_any_tool_execution = false;
     let mut task_plan_note: Option<String> = None;
     let mut continuation_retries = 0usize;
+    let mut prompt_evolution_retries = 0usize;
+    let mut prompt_evolution_active_rule_id: Option<String> = None;
+    let mut prompt_evolution_active_guard_event: Option<String> = None;
     let mut has_recent_perception_capture = false;
+    let mut prompt_evolution_note = load_prompt_evolution_note();
+    let requested_output_extension = latest_requested_output_extension(history);
+    let mut produced_requested_artifact = requested_output_extension
+        .is_some_and(|extension| history_contains_artifact_extension(history, extension));
 
     for iteration in 0..max_iterations {
         if cancellation_token
@@ -2759,6 +3502,9 @@ pub(crate) async fn run_tool_call_loop(
         }
         if let Some(note) = continuation_guard_note.take() {
             inject_ephemeral_system_note(&mut prepared_messages.messages, &note);
+        }
+        if let Some(note) = prompt_evolution_note.as_deref() {
+            inject_ephemeral_system_note(&mut prepared_messages.messages, note);
         }
 
         // ── Progress: LLM thinking ────────────────────────────
@@ -2996,6 +3742,17 @@ pub(crate) async fn run_tool_call_loop(
                         .to_string(),
                 );
             }
+            if requested_output_extension.is_some()
+                && !produced_requested_artifact
+                && response_claims_task_completion(&display_text)
+            {
+                continuation_reasons.push(
+                    format!(
+                        "User explicitly requested .{} output, but no matching artifact is present yet.",
+                        requested_output_extension.unwrap_or_default()
+                    ),
+                );
+            }
 
             if continuation_retries < MAX_RUNTIME_CONTINUATION_RETRIES
                 && !continuation_reasons.is_empty()
@@ -3019,6 +3776,180 @@ pub(crate) async fn run_tool_call_loop(
                     }),
                 );
                 continue;
+            }
+
+            if had_any_tool_execution
+                && !unresolved_failed_steps.is_empty()
+                && response_claims_task_completion(&display_text)
+            {
+                let guard_message =
+                    unresolved_steps_completion_guard_message(&unresolved_failed_steps);
+                let reason_key = prompt_evolution_reason_key(
+                    "runtime_false_completion_guard",
+                    requested_output_extension,
+                    &unresolved_failed_steps,
+                );
+                let synthesized_guideline = synthesize_prompt_evolution_guideline(
+                    "runtime_false_completion_guard",
+                    requested_output_extension,
+                    &unresolved_failed_steps,
+                );
+                let persisted_rule_id = synthesized_guideline.as_deref().and_then(|guideline| {
+                    persist_prompt_evolution_guideline(
+                        "runtime_false_completion_guard",
+                        &reason_key,
+                        guideline,
+                    )
+                });
+                prompt_evolution_active_rule_id = persisted_rule_id.clone();
+                prompt_evolution_active_guard_event = Some("runtime_false_completion_guard".into());
+                runtime_trace::record_event(
+                    "runtime_false_completion_guard",
+                    Some(channel_name),
+                    Some(provider_name),
+                    Some(model),
+                    Some(&turn_id),
+                    Some(false),
+                    Some(&guard_message),
+                    serde_json::json!({
+                        "iteration": iteration + 1,
+                        "model_response": scrub_credentials(&display_text),
+                        "unresolved_failed_steps": unresolved_failed_steps.clone(),
+                        "reason_key": reason_key,
+                        "synthesized_guideline": synthesized_guideline.clone(),
+                        "prompt_evolution_rule_id": persisted_rule_id,
+                    }),
+                );
+
+                if prompt_evolution_retries < MAX_PROMPT_EVOLUTION_RETRIES {
+                    prompt_evolution_retries += 1;
+                    prompt_evolution_note = load_prompt_evolution_note();
+                    continuation_guard_note = Some(build_prompt_evolution_retry_note(
+                        &guard_message,
+                        synthesized_guideline.as_deref(),
+                    ));
+                    runtime_trace::record_event(
+                        "runtime_prompt_evolution_retry",
+                        Some(channel_name),
+                        Some(provider_name),
+                        Some(model),
+                        Some(&turn_id),
+                        Some(false),
+                        Some("guard-triggered retry with synthesized corrective guideline"),
+                        serde_json::json!({
+                            "iteration": iteration + 1,
+                            "retry": prompt_evolution_retries,
+                            "guard_event": "runtime_false_completion_guard",
+                        }),
+                    );
+                    continue;
+                }
+
+                anyhow::bail!(guard_message);
+            }
+
+            if requested_output_extension.is_some()
+                && !produced_requested_artifact
+                && response_claims_task_completion(&display_text)
+            {
+                let extension = requested_output_extension.unwrap_or_default();
+                let guard_message = format!(
+                    "Task is still incomplete: requested .{} output was not produced (no matching artifact found).",
+                    extension
+                );
+                let reason_key = prompt_evolution_reason_key(
+                    "runtime_output_completion_guard",
+                    requested_output_extension,
+                    &unresolved_failed_steps,
+                );
+                let synthesized_guideline = synthesize_prompt_evolution_guideline(
+                    "runtime_output_completion_guard",
+                    requested_output_extension,
+                    &unresolved_failed_steps,
+                );
+                let persisted_rule_id = synthesized_guideline.as_deref().and_then(|guideline| {
+                    persist_prompt_evolution_guideline(
+                        "runtime_output_completion_guard",
+                        &reason_key,
+                        guideline,
+                    )
+                });
+                prompt_evolution_active_rule_id = persisted_rule_id.clone();
+                prompt_evolution_active_guard_event =
+                    Some("runtime_output_completion_guard".into());
+                runtime_trace::record_event(
+                    "runtime_output_completion_guard",
+                    Some(channel_name),
+                    Some(provider_name),
+                    Some(model),
+                    Some(&turn_id),
+                    Some(false),
+                    Some(&guard_message),
+                    serde_json::json!({
+                        "iteration": iteration + 1,
+                        "model_response": scrub_credentials(&display_text),
+                        "requested_output_extension": extension,
+                        "produced_requested_artifact": produced_requested_artifact,
+                        "reason_key": reason_key,
+                        "synthesized_guideline": synthesized_guideline.clone(),
+                        "prompt_evolution_rule_id": persisted_rule_id,
+                    }),
+                );
+
+                if prompt_evolution_retries < MAX_PROMPT_EVOLUTION_RETRIES {
+                    prompt_evolution_retries += 1;
+                    prompt_evolution_note = load_prompt_evolution_note();
+                    continuation_guard_note = Some(build_prompt_evolution_retry_note(
+                        &guard_message,
+                        synthesized_guideline.as_deref(),
+                    ));
+                    runtime_trace::record_event(
+                        "runtime_prompt_evolution_retry",
+                        Some(channel_name),
+                        Some(provider_name),
+                        Some(model),
+                        Some(&turn_id),
+                        Some(false),
+                        Some("guard-triggered retry with synthesized corrective guideline"),
+                        serde_json::json!({
+                            "iteration": iteration + 1,
+                            "retry": prompt_evolution_retries,
+                            "guard_event": "runtime_output_completion_guard",
+                            "requested_output_extension": extension,
+                        }),
+                    );
+                    continue;
+                }
+
+                anyhow::bail!(guard_message);
+            }
+
+            if prompt_evolution_retries > 0 {
+                if let Some(rule_id) = prompt_evolution_active_rule_id.as_deref() {
+                    let verified_recovery = prompt_evolution_recovery_verified(
+                        prompt_evolution_active_guard_event.as_deref(),
+                        produced_requested_artifact,
+                        &unresolved_failed_steps,
+                    );
+                    let promoted = mark_prompt_evolution_recovery(rule_id, verified_recovery);
+
+                    runtime_trace::record_event(
+                        "runtime_prompt_evolution_resolution",
+                        Some(channel_name),
+                        Some(provider_name),
+                        Some(model),
+                        Some(&turn_id),
+                        Some(verified_recovery),
+                        None,
+                        serde_json::json!({
+                            "iteration": iteration + 1,
+                            "rule_id": rule_id,
+                            "guard_event": prompt_evolution_active_guard_event,
+                            "verified_recovery": verified_recovery,
+                            "promoted": promoted,
+                        }),
+                    );
+                }
             }
 
             runtime_trace::record_event(
@@ -3432,6 +4363,23 @@ pub(crate) async fn run_tool_call_loop(
 
         for (idx, entry) in ordered_results.into_iter().enumerate() {
             if let Some((tool_name, tool_call_id, outcome)) = entry {
+                if let Some(extension) = requested_output_extension {
+                    if outcome.success
+                        && (contains_artifact_reference_for_extension(&outcome.output, extension)
+                            || effective_calls
+                                .get(idx)
+                                .and_then(|call| call.as_ref())
+                                .is_some_and(|call| {
+                                    json_value_contains_artifact_extension(
+                                        &call.arguments,
+                                        extension,
+                                    )
+                                }))
+                    {
+                        produced_requested_artifact = true;
+                    }
+                }
+
                 // Record tool outcome for self-learning lesson extraction
                 if let Some(sink) = tool_outcomes_sink.as_mut() {
                     sink.push(crate::agent::lesson::ToolOutcome {
@@ -4665,6 +5613,203 @@ mod tests {
         assert!(scrubbed.contains("\"api_key\": \"sk-1*[REDACTED]\""));
         assert!(scrubbed.contains("public"));
     }
+
+    #[test]
+    fn response_claims_task_completion_detects_success_acks() {
+        assert!(response_claims_task_completion("Done."));
+        assert!(response_claims_task_completion("Sent."));
+        assert!(response_claims_task_completion("Completed successfully."));
+    }
+
+    #[test]
+    fn response_claims_task_completion_ignores_incomplete_or_failure_language() {
+        assert!(!response_claims_task_completion(
+            "I couldn't complete that due to policy restrictions."
+        ));
+        assert!(!response_claims_task_completion("Not done yet."));
+        assert!(!response_claims_task_completion("Error: command failed."));
+    }
+
+    #[test]
+    fn unresolved_steps_completion_guard_message_lists_steps() {
+        let msg = unresolved_steps_completion_guard_message(&["shell".into(), "telegram".into()]);
+        assert!(msg.contains("shell, telegram"));
+        assert!(msg.contains("Task is still incomplete"));
+    }
+
+    #[test]
+    fn artifact_reference_detection_requires_extension_token() {
+        assert!(contains_artifact_reference_for_extension(
+            "/Users/ibz/.gloamy/workspace/gloamy_vc_report.pdf"
+            ,"pdf"
+        ));
+        assert!(contains_artifact_reference_for_extension("gloamy_vc_report.PDF", "pdf"));
+        assert!(!contains_artifact_reference_for_extension("please convert this to pdf", "pdf"));
+    }
+
+    #[test]
+    fn latest_requested_output_extension_carries_goal_across_turns() {
+        let history = vec![
+            ChatMessage::system("system"),
+            ChatMessage::user("please make this a pdf"),
+            ChatMessage::assistant("working"),
+            ChatMessage::user("send it"),
+            ChatMessage::assistant("working"),
+        ];
+        assert_eq!(latest_requested_output_extension(&history), Some("pdf"));
+
+        let history_override = vec![
+            ChatMessage::system("system"),
+            ChatMessage::user("please make this a pdf"),
+            ChatMessage::assistant("ok"),
+            ChatMessage::user("save it as txt instead"),
+            ChatMessage::assistant("ok"),
+        ];
+        assert_eq!(latest_requested_output_extension(&history_override), Some("txt"));
+
+        let history_no_pdf = vec![
+            ChatMessage::system("system"),
+            ChatMessage::user("send it"),
+            ChatMessage::assistant("ok"),
+        ];
+        assert_eq!(latest_requested_output_extension(&history_no_pdf), None);
+    }
+
+    #[test]
+    fn json_value_contains_artifact_extension_detects_nested_paths() {
+        let args = serde_json::json!({
+            "command": "wkhtmltopdf input.html /tmp/out.pdf",
+            "meta": {"target": "report.pdf"}
+        });
+        assert!(json_value_contains_artifact_extension(&args, "pdf"));
+    }
+
+    #[test]
+    fn synthesize_prompt_evolution_guideline_mentions_requested_extension() {
+        let guideline = synthesize_prompt_evolution_guideline(
+            "runtime_output_completion_guard",
+            Some("pdf"),
+            &[],
+        )
+        .expect("output guard should synthesize a guideline");
+        assert!(guideline.contains(".pdf"));
+        assert!(guideline.contains("objective evidence"));
+    }
+
+    #[test]
+    fn dedupe_recent_guidelines_keeps_latest_unique_rules() {
+        let guidelines = vec![
+            "Rule A".to_string(),
+            "rule a.".to_string(),
+            "Rule B".to_string(),
+            "Rule C".to_string(),
+            "Rule B".to_string(),
+        ];
+
+        let deduped = dedupe_recent_guidelines(&guidelines, 3);
+        assert_eq!(deduped.len(), 3);
+        assert_eq!(normalize_prompt_guideline(&deduped[0]), "rule a");
+        assert_eq!(normalize_prompt_guideline(&deduped[1]), "rule c");
+        assert_eq!(normalize_prompt_guideline(&deduped[2]), "rule b");
+    }
+
+    #[test]
+    fn build_prompt_evolution_retry_note_includes_learned_fix() {
+        let note =
+            build_prompt_evolution_retry_note("Task incomplete", Some("Use pdflatex output"));
+        assert!(note.contains("Task incomplete"));
+        assert!(note.contains("Use pdflatex output"));
+    }
+
+    #[test]
+    fn prompt_evolution_reason_key_is_reason_based_not_only_goal_based() {
+        let key = prompt_evolution_reason_key(
+            "runtime_false_completion_guard",
+            None,
+            &["shell".into(), "telegram".into()],
+        );
+        assert!(key.contains("completion_claim_with_unresolved_steps"));
+        assert!(key.contains("shell+telegram"));
+    }
+
+    #[test]
+    fn prompt_evolution_stays_tactical_until_verified_recovery() {
+        let mut state = PromptEvolutionState::default();
+        let rule_id = apply_prompt_evolution_failure_to_state(
+            &mut state,
+            "runtime_output_completion_guard",
+            "completion_claim_without_artifact:pdf",
+            "Require objective .pdf artifact before completion claims.",
+            100,
+        )
+        .expect("initial failure should create tactical rule");
+
+        let rule = state
+            .rules
+            .iter()
+            .find(|rule| rule.id == rule_id)
+            .expect("rule should exist");
+        assert!(matches!(rule.stage, PromptEvolutionRuleStage::Tactical));
+        assert_eq!(rule.successes, 0);
+        assert_eq!(rule.failures, 1);
+
+        let promoted =
+            apply_prompt_evolution_recovery_to_state(&mut state, &rule_id, true, 101);
+        assert!(promoted, "verified recovery should promote tactical rule");
+
+        let rule = state
+            .rules
+            .iter()
+            .find(|rule| rule.id == rule_id)
+            .expect("rule should still exist");
+        assert!(matches!(rule.stage, PromptEvolutionRuleStage::Strategic));
+        assert_eq!(rule.successes, 1);
+    }
+
+    #[test]
+    fn prompt_evolution_drops_rule_after_repeated_unverified_failures() {
+        let mut state = PromptEvolutionState::default();
+        let mut last = Some(String::new());
+        for tick in 0..PROMPT_EVOLUTION_MAX_FAILURES_BEFORE_DROP {
+            last = apply_prompt_evolution_failure_to_state(
+                &mut state,
+                "runtime_output_completion_guard",
+                "completion_claim_without_artifact:pdf",
+                "Require objective .pdf artifact before completion claims.",
+                200 + tick as i64,
+            );
+        }
+
+        assert!(last.is_none(), "rule should be dropped after repeated failures");
+        assert!(state.rules.is_empty());
+        assert!(state.active_tactical_rule_id.is_none());
+    }
+
+    #[test]
+    fn prompt_evolution_recovery_verification_is_guard_specific() {
+        assert!(prompt_evolution_recovery_verified(
+            Some("runtime_output_completion_guard"),
+            true,
+            &[]
+        ));
+        assert!(!prompt_evolution_recovery_verified(
+            Some("runtime_output_completion_guard"),
+            false,
+            &[]
+        ));
+
+        assert!(!prompt_evolution_recovery_verified(
+            Some("runtime_false_completion_guard"),
+            true,
+            &["shell".into()]
+        ));
+        assert!(prompt_evolution_recovery_verified(
+            Some("runtime_false_completion_guard"),
+            true,
+            &[]
+        ));
+    }
+
     use crate::memory::{Memory, MemoryCategory, SqliteMemory};
     use crate::observability::NoopObserver;
     use crate::providers::traits::ProviderCapabilities;

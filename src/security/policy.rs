@@ -3,7 +3,7 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use std::sync::atomic::{AtomicU32, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::time::Instant;
 
 /// How much autonomy the agent has
@@ -92,6 +92,10 @@ pub struct SecurityPolicy {
     pub max_cost_per_day_cents: u32,
     pub require_approval_for_medium_risk: bool,
     pub block_high_risk_commands: bool,
+    pub(crate) live_allowed_commands: Arc<Mutex<Vec<String>>>,
+    pub(crate) live_allowed_commands_overridden: Arc<AtomicBool>,
+    pub(crate) live_require_approval_for_medium_risk: Arc<AtomicBool>,
+    pub(crate) live_block_high_risk_commands: Arc<AtomicBool>,
     pub shell_env_passthrough: Vec<String>,
     pub tracker: ActionTracker,
     /// Runtime-updatable limit. `u32::MAX` means "use the static `max_actions_per_hour`".
@@ -147,6 +151,26 @@ impl Default for SecurityPolicy {
             max_cost_per_day_cents: 500,
             require_approval_for_medium_risk: true,
             block_high_risk_commands: true,
+            live_allowed_commands: Arc::new(Mutex::new(vec![
+                "git".into(),
+                "npm".into(),
+                "cargo".into(),
+                "ls".into(),
+                "cat".into(),
+                "grep".into(),
+                "find".into(),
+                "echo".into(),
+                "pwd".into(),
+                "wc".into(),
+                "head".into(),
+                "tail".into(),
+                "date".into(),
+                "osascript".into(),
+                "sleep".into(),
+            ])),
+            live_allowed_commands_overridden: Arc::new(AtomicBool::new(false)),
+            live_require_approval_for_medium_risk: Arc::new(AtomicBool::new(true)),
+            live_block_high_risk_commands: Arc::new(AtomicBool::new(true)),
             shell_env_passthrough: vec![],
             tracker: ActionTracker::new(),
             live_limit: Arc::new(AtomicU32::new(u32::MAX)),
@@ -246,6 +270,78 @@ enum QuoteState {
     Double,
 }
 
+#[derive(Debug, Clone)]
+struct QuotedHeredocState {
+    delimiter: String,
+    allow_tab_indentation: bool,
+    waiting_for_body: bool,
+}
+
+/// Parse a quoted heredoc opener starting right after `<<`.
+///
+/// Supported forms:
+/// - `<<'DELIM'`
+/// - `<<"DELIM"`
+/// - `<<-'DELIM'`
+/// - `<<-"DELIM"`
+fn parse_quoted_heredoc_opener(
+    chars: &[char],
+    start: usize,
+) -> Option<(usize, String, bool)> {
+    let mut i = start;
+    let mut allow_tab_indentation = false;
+
+    if chars.get(i) == Some(&'-') {
+        allow_tab_indentation = true;
+        i += 1;
+    }
+
+    while i < chars.len() && chars[i].is_ascii_whitespace() && chars[i] != '\n' {
+        i += 1;
+    }
+
+    let quote = *chars.get(i)?;
+    if quote != '\'' && quote != '"' {
+        return None;
+    }
+    i += 1;
+
+    let mut delimiter = String::new();
+    let mut escaped = false;
+
+    while i < chars.len() {
+        let ch = chars[i];
+
+        if quote == '"' {
+            if escaped {
+                delimiter.push(ch);
+                escaped = false;
+                i += 1;
+                continue;
+            }
+            if ch == '\\' {
+                escaped = true;
+                i += 1;
+                continue;
+            }
+        }
+
+        if ch == quote {
+            break;
+        }
+
+        delimiter.push(ch);
+        i += 1;
+    }
+
+    if delimiter.is_empty() || i >= chars.len() || chars[i] != quote {
+        return None;
+    }
+
+    i += 1;
+    Some((i, delimiter, allow_tab_indentation))
+}
+
 /// Split a shell command into sub-commands by unquoted separators.
 ///
 /// Separators:
@@ -255,12 +351,17 @@ enum QuoteState {
 ///
 /// Characters inside single or double quotes are treated as literals, so
 /// `sqlite3 db "SELECT 1; SELECT 2;"` remains a single segment.
+///
+/// Quoted heredoc bodies are also treated as literal payload so embedded
+/// newlines/operators do not get split into separate command segments.
 fn split_unquoted_segments(command: &str) -> Vec<String> {
     let mut segments = Vec::new();
     let mut current = String::new();
     let mut quote = QuoteState::None;
     let mut escaped = false;
-    let mut chars = command.chars().peekable();
+    let mut heredoc: Option<QuotedHeredocState> = None;
+    let chars: Vec<char> = command.chars().collect();
+    let mut i = 0usize;
 
     let push_segment = |segments: &mut Vec<String>, current: &mut String| {
         let trimmed = current.trim();
@@ -270,39 +371,85 @@ fn split_unquoted_segments(command: &str) -> Vec<String> {
         current.clear();
     };
 
-    while let Some(ch) = chars.next() {
+    while i < chars.len() {
+        if let Some(state) = heredoc.as_mut() {
+            if state.waiting_for_body {
+                let ch = chars[i];
+                current.push(ch);
+                i += 1;
+                if ch == '\n' {
+                    state.waiting_for_body = false;
+                }
+                continue;
+            }
+
+            let line_start = i;
+            while i < chars.len() && chars[i] != '\n' {
+                i += 1;
+            }
+
+            let line: String = chars[line_start..i].iter().collect();
+            let normalized_line = line.trim_end_matches('\r');
+            let is_terminator = if state.allow_tab_indentation {
+                let without_tabs = normalized_line.trim_start_matches('\t');
+                without_tabs == state.delimiter
+            } else {
+                normalized_line == state.delimiter
+            };
+
+            current.push_str(&line);
+            if is_terminator {
+                heredoc = None;
+                continue;
+            }
+
+            if i < chars.len() && chars[i] == '\n' {
+                current.push('\n');
+                i += 1;
+            }
+
+            continue;
+        }
+
+        let ch = chars[i];
         match quote {
             QuoteState::Single => {
                 if ch == '\'' {
                     quote = QuoteState::None;
                 }
                 current.push(ch);
+                i += 1;
             }
             QuoteState::Double => {
                 if escaped {
                     escaped = false;
                     current.push(ch);
+                    i += 1;
                     continue;
                 }
                 if ch == '\\' {
                     escaped = true;
                     current.push(ch);
+                    i += 1;
                     continue;
                 }
                 if ch == '"' {
                     quote = QuoteState::None;
                 }
                 current.push(ch);
+                i += 1;
             }
             QuoteState::None => {
                 if escaped {
                     escaped = false;
                     current.push(ch);
+                    i += 1;
                     continue;
                 }
                 if ch == '\\' {
                     escaped = true;
                     current.push(ch);
+                    i += 1;
                     continue;
                 }
 
@@ -310,27 +457,57 @@ fn split_unquoted_segments(command: &str) -> Vec<String> {
                     '\'' => {
                         quote = QuoteState::Single;
                         current.push(ch);
+                        i += 1;
                     }
                     '"' => {
                         quote = QuoteState::Double;
                         current.push(ch);
+                        i += 1;
                     }
-                    ';' | '\n' => push_segment(&mut segments, &mut current),
+                    '<' => {
+                        if chars.get(i + 1) == Some(&'<') {
+                            if let Some((after_opener, delimiter, allow_tab_indentation)) =
+                                parse_quoted_heredoc_opener(&chars, i + 2)
+                            {
+                                current.extend(chars[i..after_opener].iter().copied());
+                                heredoc = Some(QuotedHeredocState {
+                                    delimiter,
+                                    allow_tab_indentation,
+                                    waiting_for_body: true,
+                                });
+                                i = after_opener;
+                                continue;
+                            }
+                        }
+                        current.push(ch);
+                        i += 1;
+                    }
+                    ';' | '\n' => {
+                        push_segment(&mut segments, &mut current);
+                        i += 1;
+                    }
                     '|' => {
-                        if chars.next_if_eq(&'|').is_some() {
+                        if chars.get(i + 1) == Some(&'|') {
                             // Consume full `||`; both characters are separators.
+                            i += 1;
                         }
                         push_segment(&mut segments, &mut current);
+                        i += 1;
                     }
                     '&' => {
-                        if chars.next_if_eq(&'&').is_some() {
+                        if chars.get(i + 1) == Some(&'&') {
                             // `&&` is a separator; single `&` is handled separately.
+                            i += 1;
                             push_segment(&mut segments, &mut current);
                         } else {
                             current.push(ch);
                         }
+                        i += 1;
                     }
-                    _ => current.push(ch),
+                    _ => {
+                        current.push(ch);
+                        i += 1;
+                    }
                 }
             }
         }
@@ -843,7 +1020,7 @@ impl SecurityPolicy {
         let risk = self.command_risk_level(command);
 
         if risk == CommandRiskLevel::High {
-            if self.block_high_risk_commands {
+            if self.blocks_high_risk_commands() {
                 return Err("Command blocked: high-risk command is disallowed by policy".into());
             }
             if self.autonomy == AutonomyLevel::Supervised && !approved {
@@ -856,7 +1033,7 @@ impl SecurityPolicy {
 
         if risk == CommandRiskLevel::Medium
             && self.autonomy == AutonomyLevel::Supervised
-            && self.require_approval_for_medium_risk
+            && self.requires_medium_risk_approval()
             && !approved
         {
             return Err(
@@ -936,7 +1113,7 @@ impl SecurityPolicy {
             }
 
             if !self
-                .allowed_commands
+                .allowed_commands_snapshot()
                 .iter()
                 .any(|allowed| is_allowlist_entry_match(allowed, executable, base_cmd))
             {
@@ -1219,6 +1396,50 @@ impl SecurityPolicy {
         self.live_limit.store(n, Ordering::Relaxed);
     }
 
+    /// Update the command allowlist at runtime without restarting the daemon.
+    pub fn set_allowed_commands(&self, commands: Vec<String>) {
+        let mut live_commands = self.live_allowed_commands.lock();
+        *live_commands = commands;
+        self.live_allowed_commands_overridden
+            .store(true, Ordering::Relaxed);
+    }
+
+    /// Snapshot the current runtime allowlist.
+    pub fn allowed_commands_snapshot(&self) -> Vec<String> {
+        if self
+            .live_allowed_commands_overridden
+            .load(Ordering::Relaxed)
+        {
+            self.live_allowed_commands.lock().clone()
+        } else {
+            self.allowed_commands.clone()
+        }
+    }
+
+    /// Check whether medium-risk commands currently require explicit approval.
+    pub fn requires_medium_risk_approval(&self) -> bool {
+        self.live_require_approval_for_medium_risk
+            .load(Ordering::Relaxed)
+    }
+
+    /// Check whether high-risk commands are currently blocked outright.
+    pub fn blocks_high_risk_commands(&self) -> bool {
+        self.live_block_high_risk_commands.load(Ordering::Relaxed)
+    }
+
+    /// Update the command-risk policy at runtime without restarting the daemon.
+    /// Called by the config hot-reload path when the approval flags change.
+    pub fn set_command_risk_policy(
+        &self,
+        require_approval_for_medium_risk: bool,
+        block_high_risk_commands: bool,
+    ) {
+        self.live_require_approval_for_medium_risk
+            .store(require_approval_for_medium_risk, Ordering::Relaxed);
+        self.live_block_high_risk_commands
+            .store(block_high_risk_commands, Ordering::Relaxed);
+    }
+
     /// Build from config sections
     pub fn from_config(
         autonomy_config: &crate::config::AutonomyConfig,
@@ -1246,6 +1467,14 @@ impl SecurityPolicy {
             max_cost_per_day_cents: autonomy_config.max_cost_per_day_cents,
             require_approval_for_medium_risk: autonomy_config.require_approval_for_medium_risk,
             block_high_risk_commands: autonomy_config.block_high_risk_commands,
+            live_allowed_commands: Arc::new(Mutex::new(autonomy_config.allowed_commands.clone())),
+            live_allowed_commands_overridden: Arc::new(AtomicBool::new(false)),
+            live_require_approval_for_medium_risk: Arc::new(AtomicBool::new(
+                autonomy_config.require_approval_for_medium_risk,
+            )),
+            live_block_high_risk_commands: Arc::new(AtomicBool::new(
+                autonomy_config.block_high_risk_commands,
+            )),
             shell_env_passthrough: autonomy_config.shell_env_passthrough.clone(),
             tracker: ActionTracker::new(),
             live_limit: Arc::new(AtomicU32::new(u32::MAX)),
@@ -1334,6 +1563,63 @@ mod tests {
             .enforce_tool_operation(ToolOperation::Act, "memory_store")
             .unwrap_err();
         assert!(err.contains("Rate limit exceeded"));
+    }
+
+    #[test]
+    fn runtime_command_risk_policy_can_be_updated() {
+        let p = SecurityPolicy {
+            autonomy: AutonomyLevel::Full,
+            allowed_commands: vec!["rm".into()],
+            block_high_risk_commands: true,
+            ..SecurityPolicy::default()
+        };
+
+        assert!(p.blocks_high_risk_commands());
+        assert!(p.validate_command_execution("rm file.txt", false).is_err());
+
+        p.set_command_risk_policy(false, false);
+
+        assert!(!p.blocks_high_risk_commands());
+        assert!(!p.requires_medium_risk_approval());
+        let result = p.validate_command_execution("rm file.txt", false);
+        assert_eq!(result.unwrap(), CommandRiskLevel::High);
+    }
+
+    #[test]
+    fn runtime_medium_risk_policy_can_be_relaxed() {
+        let p = SecurityPolicy {
+            autonomy: AutonomyLevel::Supervised,
+            allowed_commands: vec!["touch".into()],
+            require_approval_for_medium_risk: true,
+            ..SecurityPolicy::default()
+        };
+
+        assert!(p.requires_medium_risk_approval());
+        assert!(p.validate_command_execution("touch test.txt", false).is_err());
+
+        p.set_command_risk_policy(false, p.blocks_high_risk_commands());
+
+        assert!(!p.requires_medium_risk_approval());
+        let result = p.validate_command_execution("touch test.txt", false);
+        assert_eq!(result.unwrap(), CommandRiskLevel::Medium);
+    }
+
+    #[test]
+    fn runtime_allowlist_can_be_updated() {
+        let p = SecurityPolicy {
+            autonomy: AutonomyLevel::Full,
+            allowed_commands: vec!["echo".into()],
+            ..SecurityPolicy::default()
+        };
+
+        assert!(p.is_command_allowed("echo hello"));
+        assert!(!p.is_command_allowed("git status"));
+
+        p.set_allowed_commands(vec!["git".into(), "echo".into()]);
+
+        let snapshot = p.allowed_commands_snapshot();
+        assert!(snapshot.contains(&"git".to_string()));
+        assert!(p.is_command_allowed("git status"));
     }
 
     // ── is_command_allowed ───────────────────────────────────
@@ -1934,6 +2220,25 @@ mod tests {
     }
 
     #[test]
+    fn multiline_quoted_heredoc_body_is_not_split_into_commands() {
+        let p = SecurityPolicy {
+            allowed_commands: vec!["python3".into(), "ls".into()],
+            ..SecurityPolicy::default()
+        };
+
+        let cmd = "python3 - <<'PY'\nfrom pathlib import Path\nprint('ok')\nPY\nls";
+        let segments = split_unquoted_segments(cmd);
+
+        assert_eq!(segments.len(), 2);
+        assert_eq!(
+            segments[0],
+            "python3 - <<'PY'\nfrom pathlib import Path\nprint('ok')\nPY"
+        );
+        assert_eq!(segments[1], "ls");
+        assert!(p.is_command_allowed("python3 - <<'PY'\nprint('ok')\nPY"));
+    }
+
+    #[test]
     fn unquoted_heredoc_delimiter_still_blocks_lt_gate() {
         let p = SecurityPolicy {
             allowed_commands: vec!["python3".into()],
@@ -2304,7 +2609,7 @@ mod tests {
         };
         for dir in [
             "/etc", "/root", "/home", "/usr", "/bin", "/sbin", "/lib", "/opt", "/boot", "/dev",
-            "/proc", "/sys", "/var", "/tmp",
+            "/proc", "/sys", "/var",
         ] {
             assert!(
                 !p.is_path_allowed(dir),

@@ -10,6 +10,8 @@ For current runtime behavior, start here:
 - Operations runbook: [../operations-runbook.md](../operations-runbook.md)
 - Troubleshooting: [../troubleshooting.md](../troubleshooting.md)
 
+The autonomy config reference documents the runtime-updatable command allowlist and other policy knobs.
+
 ## Proposal / Roadmap Docs
 
 The following docs are explicitly proposal-oriented and may include hypothetical CLI/config examples:

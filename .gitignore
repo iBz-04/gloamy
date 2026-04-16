@@ -4,6 +4,10 @@ firmware/*/target
 *.db-shm
 *.db-wal
 *.db-journal
+# Numeric SQLite files (no .db extension)
+[0-9]
+[0-9]-shm
+[0-9]-wal
 .DS_Store
 ._*
 .wt-pr37/

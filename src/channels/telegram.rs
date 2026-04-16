@@ -51,6 +51,10 @@ fn truncate_str_to_telegram_chars(text: &str, max_chars: usize) -> &str {
 }
 
 fn split_message_for_telegram(message: &str) -> Vec<String> {
+    if message.trim().is_empty() {
+        return Vec::new();
+    }
+
     if message.chars().count() <= TELEGRAM_MAX_MESSAGE_LENGTH {
         return vec![message.to_string()];
     }
@@ -2211,7 +2215,7 @@ impl Channel for TelegramChannel {
         }
 
         let (chat_id, thread_id) = Self::parse_reply_target(&message.recipient);
-        let initial_text = if message.content.is_empty() {
+        let initial_text = if message.content.trim().is_empty() {
             "...".to_string()
         } else {
             message.content.clone()
@@ -2259,6 +2263,12 @@ impl Channel for TelegramChannel {
     ) -> anyhow::Result<()> {
         let (chat_id, _) = Self::parse_reply_target(recipient);
 
+        let safe_text = if text.trim().is_empty() {
+            "..."
+        } else {
+            text
+        };
+
         // Rate-limit edits per chat
         {
             let last_edits = self.last_draft_edit.lock();
@@ -2271,7 +2281,7 @@ impl Channel for TelegramChannel {
         }
 
         // Truncate to Telegram's character limit (not raw UTF-8 byte length).
-        let display_text = truncate_str_to_telegram_chars(text, TELEGRAM_MAX_MESSAGE_LENGTH);
+        let display_text = truncate_str_to_telegram_chars(safe_text, TELEGRAM_MAX_MESSAGE_LENGTH);
 
         let message_id_parsed = match message_id.parse::<i64>() {
             Ok(id) => id,
@@ -2333,7 +2343,8 @@ impl Channel for TelegramChannel {
 
         // If we have attachments, delete the draft and send fresh messages
         // (Telegram editMessageText can't add attachments)
-        if !attachments.is_empty() {
+        // Also delete the draft if the resulting message and attachments are empty.
+        if !attachments.is_empty() || (text_without_markers.trim().is_empty() && attachments.is_empty()) {
             // Delete the draft message
             if let Some(id) = msg_id {
                 let _ = self
@@ -2348,7 +2359,7 @@ impl Channel for TelegramChannel {
             }
 
             // Send text without markers
-            if !text_without_markers.is_empty() {
+            if !text_without_markers.trim().is_empty() {
                 self.send_text_chunks(&text_without_markers, &chat_id, thread_id.as_deref())
                     .await?;
             }
@@ -3404,8 +3415,7 @@ mod tests {
     #[test]
     fn telegram_split_empty_message() {
         let chunks = split_message_for_telegram("");
-        assert_eq!(chunks.len(), 1);
-        assert_eq!(chunks[0], "");
+        assert_eq!(chunks.len(), 0);
     }
 
     #[test]
