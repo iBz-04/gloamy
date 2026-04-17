@@ -685,6 +685,46 @@ enum MemoryCommands {
     },
 }
 
+/// Probe host capabilities (OCR binary + macOS TCC trust) and normalize the
+/// loaded config so the agent never gets stuck behind an unsatisfiable gate
+/// or produces silent fake successes from a CGEventPost that the kernel
+/// dropped.
+///
+/// Called from `main` after `apply_env_overrides` so every subcommand sees
+/// the same adjusted config and the same startup diagnostics.
+async fn normalize_runtime_capabilities(config: &mut crate::config::Config) {
+    let ocr_available = perception::ocr::is_tesseract_available();
+    if let Some(notice) = config
+        .gui_verification
+        .normalize_for_runtime(ocr_available)
+    {
+        warn!("{}", notice);
+    }
+
+    if cfg!(target_os = "macos") {
+        let trust = perception::macos_trust::trust_status().await;
+        if !trust.accessibility {
+            warn!(
+                "macOS Accessibility permission is NOT granted for this process. \
+                 mac_automation click_at / move_mouse will be refused (without it \
+                 CGEventPost silently no-ops and the agent thinks it clicked). {}",
+                perception::macos_trust::ACCESSIBILITY_REMEDIATION
+            );
+        }
+        if !trust.screen_recording {
+            warn!(
+                "macOS Screen Recording permission is NOT granted for this process. \
+                 screenshot / perception_capture will be refused (without it \
+                 screencapture returns a black frame). {}",
+                perception::macos_trust::SCREEN_RECORDING_REMEDIATION
+            );
+        }
+        if trust.all_granted() {
+            info!("macOS privacy trust: Accessibility ✓, Screen Recording ✓");
+        }
+    }
+}
+
 #[tokio::main]
 #[allow(clippy::too_many_lines)]
 async fn main() -> Result<()> {
@@ -778,6 +818,7 @@ async fn main() -> Result<()> {
     // All other commands need config loaded first
     let mut config = Config::load_or_init().await?;
     config.apply_env_overrides();
+    normalize_runtime_capabilities(&mut config).await;
     observability::runtime_trace::init_from_config(&config.observability, &config.workspace_dir);
     if config.security.otp.enabled {
         let config_dir = config

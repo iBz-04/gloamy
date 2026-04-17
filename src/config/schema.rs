@@ -1467,6 +1467,40 @@ impl Default for GuiVerificationConfig {
     }
 }
 
+impl GuiVerificationConfig {
+    /// Adjust this config to match what the host can actually enforce.
+    ///
+    /// The `widget_and_ocr` preflight mode requires the `tesseract` binary to
+    /// extract OCR text. If tesseract is absent, the preflight gate becomes
+    /// unsatisfiable and every `mac_automation click_at` gets denied forever
+    /// — a silent deadlock seen by users as "the agent refuses to click".
+    ///
+    /// When `ocr_available` is `false` and the mode is `widget_and_ocr`, this
+    /// method downgrades it to `widget_only` and returns an actionable
+    /// warning string for the caller to log. Other modes are left untouched:
+    /// `widget_only` does not depend on OCR, and `none` is explicitly opt-out.
+    ///
+    /// Returns `None` when no change was needed.
+    #[must_use = "the returned warning should be surfaced to the operator"]
+    pub fn normalize_for_runtime(&mut self, ocr_available: bool) -> Option<String> {
+        if ocr_available {
+            return None;
+        }
+        if self.click_at_preflight != ClickAtPreflightMode::WidgetAndOcr {
+            return None;
+        }
+        self.click_at_preflight = ClickAtPreflightMode::WidgetOnly;
+        Some(
+            "gui_verification.click_at_preflight downgraded from widget_and_ocr to widget_only \
+             because the `tesseract` binary is not installed. Without OCR the preflight gate \
+             would deny every mac_automation click_at indefinitely. Install tesseract (e.g. \
+             `brew install tesseract`) to restore the stricter default, or set \
+             gui_verification.click_at_preflight explicitly in your config to silence this."
+                .to_string(),
+        )
+    }
+}
+
 // ── HTTP request tool ───────────────────────────────────────────
 
 /// HTTP request tool configuration (`[http_request]` section).
@@ -6746,6 +6780,48 @@ default_temperature = 0.7
             GuiApprovalThreshold::Irreversible
         );
         assert_eq!(config.approval_timeout_secs, 120);
+    }
+
+    #[test]
+    async fn normalize_for_runtime_downgrades_when_ocr_missing() {
+        let mut cfg = GuiVerificationConfig::default();
+        assert_eq!(cfg.click_at_preflight, ClickAtPreflightMode::WidgetAndOcr);
+
+        let warning = cfg.normalize_for_runtime(false);
+        assert_eq!(cfg.click_at_preflight, ClickAtPreflightMode::WidgetOnly);
+        let warning = warning.expect("expected an operator warning");
+        assert!(warning.contains("tesseract"));
+        assert!(warning.contains("widget_and_ocr"));
+        assert!(warning.contains("widget_only"));
+    }
+
+    #[test]
+    async fn normalize_for_runtime_noop_when_ocr_available() {
+        let mut cfg = GuiVerificationConfig::default();
+        assert!(cfg.normalize_for_runtime(true).is_none());
+        assert_eq!(cfg.click_at_preflight, ClickAtPreflightMode::WidgetAndOcr);
+    }
+
+    #[test]
+    async fn normalize_for_runtime_leaves_explicit_modes_alone() {
+        // widget_only and none are intentional operator choices; missing OCR
+        // should not alter them.
+        let mut widget_only = GuiVerificationConfig {
+            click_at_preflight: ClickAtPreflightMode::WidgetOnly,
+            ..GuiVerificationConfig::default()
+        };
+        assert!(widget_only.normalize_for_runtime(false).is_none());
+        assert_eq!(
+            widget_only.click_at_preflight,
+            ClickAtPreflightMode::WidgetOnly
+        );
+
+        let mut none_mode = GuiVerificationConfig {
+            click_at_preflight: ClickAtPreflightMode::None,
+            ..GuiVerificationConfig::default()
+        };
+        assert!(none_mode.normalize_for_runtime(false).is_none());
+        assert_eq!(none_mode.click_at_preflight, ClickAtPreflightMode::None);
     }
 
     #[test]

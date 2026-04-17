@@ -24,17 +24,40 @@ impl PerceptionProvider for MacOsPerceptionProvider {
     }
 
     async fn capture_state(&self) -> anyhow::Result<ScreenState> {
+        // Budgeted widget-tree capture. Every `elem.role()` / `elem.name()` /
+        // `elem.uiElements()` call crosses the JXA ↔ AX bridge, so a naïve
+        // full-depth dump of a Microsoft Office window can take 10+ seconds.
+        //
+        // We cap three axes to keep p95 capture under ~3s:
+        //   - recursion depth      (MAX_DEPTH)
+        //   - total node count     (MAX_NODES)
+        //   - wall-clock budget    (TIME_BUDGET_MS)
+        //
+        // When any limit is reached we return the partial tree with a
+        // `truncated: true` flag on the affected node so downstream code can
+        // still ground coordinates and the preflight gate still sees a valid
+        // widget_tree. Invisible / zero-size elements are skipped entirely
+        // since they cannot be clicked.
         let script = r#"
+var LIMITS = { maxDepth: 5, maxNodes: 400, timeBudgetMs: 2500 };
+var START = Date.now();
+var STATE = { count: 0, truncated: false };
+
+function budgetExceeded() {
+    return STATE.count >= LIMITS.maxNodes
+        || (Date.now() - START) > LIMITS.timeBudgetMs;
+}
+
 function getBounds(elem) {
     try {
         var pos = elem.position();
         var size = elem.size();
         if (pos && size) {
-            return { 
-                x: Math.round(pos[0]), 
-                y: Math.round(pos[1]), 
-                width: Math.round(size[0]), 
-                height: Math.round(size[1]) 
+            return {
+                x: Math.round(pos[0]),
+                y: Math.round(pos[1]),
+                width: Math.round(size[0]),
+                height: Math.round(size[1])
             };
         }
     } catch(e) {}
@@ -42,31 +65,55 @@ function getBounds(elem) {
 }
 
 function dumpNode(elem, depth) {
-    if (depth > 8) return null; // Limit recursion depth to prevent hangs
-    
+    if (depth > LIMITS.maxDepth) { STATE.truncated = true; return null; }
+    if (budgetExceeded()) { STATE.truncated = true; return null; }
+
     var role = ""; try { role = elem.role(); } catch(e) {}
     if (!role) role = "unknown";
 
-    var name = null; try { var rawName = elem.name(); if (typeof rawName === 'string' && rawName.length > 0) name = rawName; } catch(e) {}
-    var value = null; try { var val = elem.value(); if ((typeof val === 'string' && val.length > 0) || typeof val === 'number') value = val.toString(); } catch(e) {}
-    
-    var bounds = getBounds(elem);
-    
-    var children = [];
+    var name = null;
     try {
-        var uiElements = elem.uiElements();
-        if (uiElements) {
-            for (var i = 0; i < uiElements.length; i++) {
-                var childNode = dumpNode(uiElements[i], depth + 1);
-                if (childNode) children.push(childNode);
-            }
+        var rawName = elem.name();
+        if (typeof rawName === 'string' && rawName.length > 0) name = rawName;
+    } catch(e) {}
+
+    var value = null;
+    try {
+        var val = elem.value();
+        if ((typeof val === 'string' && val.length > 0) || typeof val === 'number') {
+            value = val.toString();
         }
     } catch(e) {}
-    
-    // Generate a pseudo-ID based on role and name
+
+    var bounds = getBounds(elem);
+
+    // Skip invisible / zero-size elements — they cannot be clicked and only
+    // inflate the traversal budget.
+    if (bounds && (bounds.width <= 0 || bounds.height <= 0) && depth > 0) {
+        return null;
+    }
+
+    STATE.count += 1;
+
+    var children = [];
+    if (!budgetExceeded()) {
+        try {
+            var uiElements = elem.uiElements();
+            if (uiElements) {
+                for (var i = 0; i < uiElements.length; i++) {
+                    if (budgetExceeded()) { STATE.truncated = true; break; }
+                    var childNode = dumpNode(uiElements[i], depth + 1);
+                    if (childNode) children.push(childNode);
+                }
+            }
+        } catch(e) {}
+    } else {
+        STATE.truncated = true;
+    }
+
     var id = role;
     if (name) { id += "_" + name.replace(/[^a-zA-Z0-9]/g, "_").substring(0, 20); }
-    
+
     return {
         id: id,
         role: role,
@@ -86,7 +133,9 @@ function run() {
             var windows = frontProc.windows;
             if (windows && windows.length > 0) {
                 var win = windows[0];
-                return JSON.stringify(dumpNode(win, 0));
+                var tree = dumpNode(win, 0);
+                if (tree && STATE.truncated) { tree.truncated = true; }
+                return JSON.stringify(tree);
             }
         } catch(e) {}
     }
@@ -95,8 +144,12 @@ function run() {
 run();
 "#;
 
+        // Hard outer timeout slightly above the in-script budget to allow for
+        // osascript startup (~300ms) + JXA compilation. If this fires, the
+        // in-script budget already failed to bail, which is a bug worth
+        // surfacing.
         let result = tokio::time::timeout(
-            Duration::from_secs(15),
+            Duration::from_secs(6),
             tokio::process::Command::new("osascript")
                 .arg("-l")
                 .arg("JavaScript")

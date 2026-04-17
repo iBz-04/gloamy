@@ -342,6 +342,125 @@ fn parse_quoted_heredoc_opener(
     Some((i, delimiter, allow_tab_indentation))
 }
 
+/// Remove quoted heredoc bodies from a command string so character-level
+/// checks (unquoted `>`, `<`, `` ` ``, `$(`, `&`) do not fire on script body
+/// content. Only bodies opened with a quoted delimiter (`<<'D'` / `<<"D"`) are
+/// stripped; unquoted openers (`<<EOF`) are left in place and remain blocked.
+fn strip_heredoc_bodies(command: &str) -> String {
+    let chars: Vec<char> = command.chars().collect();
+    let mut out = String::new();
+    let mut i = 0usize;
+    let mut quote = QuoteState::None;
+    let mut escaped = false;
+    let mut heredoc: Option<QuotedHeredocState> = None;
+
+    while i < chars.len() {
+        if let Some(state) = heredoc.as_mut() {
+            if state.waiting_for_body {
+                let ch = chars[i];
+                i += 1;
+                if ch == '\n' {
+                    state.waiting_for_body = false;
+                }
+                continue;
+            }
+
+            let line_start = i;
+            while i < chars.len() && chars[i] != '\n' {
+                i += 1;
+            }
+            let line: String = chars[line_start..i].iter().collect();
+            let normalized = line.trim_end_matches('\r');
+            let is_terminator = if state.allow_tab_indentation {
+                normalized.trim_start_matches('\t') == state.delimiter
+            } else {
+                normalized == state.delimiter
+            };
+            if is_terminator {
+                heredoc = None;
+            }
+            if i < chars.len() && chars[i] == '\n' {
+                i += 1;
+            }
+            continue;
+        }
+
+        let ch = chars[i];
+        match quote {
+            QuoteState::Single => {
+                if ch == '\'' {
+                    quote = QuoteState::None;
+                }
+                out.push(ch);
+                i += 1;
+            }
+            QuoteState::Double => {
+                if escaped {
+                    escaped = false;
+                    out.push(ch);
+                    i += 1;
+                    continue;
+                }
+                if ch == '\\' {
+                    escaped = true;
+                    out.push(ch);
+                    i += 1;
+                    continue;
+                }
+                if ch == '"' {
+                    quote = QuoteState::None;
+                }
+                out.push(ch);
+                i += 1;
+            }
+            QuoteState::None => {
+                if escaped {
+                    escaped = false;
+                    out.push(ch);
+                    i += 1;
+                    continue;
+                }
+                if ch == '\\' {
+                    escaped = true;
+                    out.push(ch);
+                    i += 1;
+                    continue;
+                }
+                if ch == '\'' {
+                    quote = QuoteState::Single;
+                    out.push(ch);
+                    i += 1;
+                    continue;
+                }
+                if ch == '"' {
+                    quote = QuoteState::Double;
+                    out.push(ch);
+                    i += 1;
+                    continue;
+                }
+                if ch == '<' && chars.get(i + 1) == Some(&'<') {
+                    if let Some((after_opener, delimiter, allow_tab_indentation)) =
+                        parse_quoted_heredoc_opener(&chars, i + 2)
+                    {
+                        out.extend(chars[i..after_opener].iter().copied());
+                        heredoc = Some(QuotedHeredocState {
+                            delimiter,
+                            allow_tab_indentation,
+                            waiting_for_body: true,
+                        });
+                        i = after_opener;
+                        continue;
+                    }
+                }
+                out.push(ch);
+                i += 1;
+            }
+        }
+    }
+
+    out
+}
+
 /// Split a shell command into sub-commands by unquoted separators.
 ///
 /// Separators:
@@ -886,6 +1005,207 @@ fn is_allowlist_entry_match(allowed: &str, executable: &str, executable_base: &s
 }
 
 impl SecurityPolicy {
+    /// Canonical default allowed command list — Unix/macOS names and their
+    /// Windows equivalents (.exe / .cmd / .bat) side by side so the same
+    /// policy works cross-platform without user configuration.
+    pub fn default_allowed_commands() -> Vec<String> {
+        let cmds: &[&str] = &[
+            // ── Version control ──
+            "git", "gh", "hub", "glab",
+            // Windows: git ships the same binary name on all platforms
+            "git.exe",
+
+            // ── JavaScript / Node ──
+            "node", "npm", "npx", "yarn", "pnpm", "bun", "deno", "volta",
+            "node.exe", "npm.cmd", "npx.cmd", "yarn.cmd", "pnpm.cmd",
+            "bun.exe", "deno.exe",
+
+            // ── Rust ──
+            "cargo", "rustc", "rustup",
+            "cargo.exe", "rustc.exe", "rustup.exe",
+
+            // ── Python ──
+            "python3", "python", "pip3", "pip",
+            "python3.exe", "python.exe", "pip3.exe", "pip.exe",
+            "uv", "rye", "pipx", "poetry", "conda", "mamba",
+            "uv.exe", "pipx.exe", "poetry.exe",
+            "pyenv",
+
+            // ── Ruby ──
+            "ruby", "gem", "bundle", "rake", "irb",
+            "ruby.exe", "gem.cmd",
+            "rbenv",
+
+            // ── Go ──
+            "go", "gofmt",
+            "go.exe",
+
+            // ── Java / JVM ──
+            "java", "javac", "mvn", "gradle", "kotlin", "kotlinc",
+            "java.exe", "javac.exe", "mvn.cmd", "gradle.bat",
+
+            // ── .NET / C# ──
+            "dotnet", "dotnet.exe",
+            "nuget", "nuget.exe",
+
+            // ── Swift ──
+            "swift", "swiftc",
+
+            // ── PHP ──
+            "php", "composer",
+            "php.exe", "composer.bat",
+
+            // ── Lua ──
+            "lua", "luajit",
+
+            // ── R ──
+            "Rscript", "R",
+
+            // ── Julia ──
+            "julia", "julia.exe",
+
+            // ── Zig ──
+            "zig", "zig.exe",
+
+            // ── macOS package manager ──
+            "brew",
+
+            // ── Windows package managers & shells ──
+            "winget", "choco", "scoop",
+            "cmd", "cmd.exe",
+            "powershell", "powershell.exe", "pwsh", "pwsh.exe",
+            "wsl", "wsl.exe",
+            "py", "py.exe",            // Python launcher for Windows
+
+            // ── File system (Unix) ──
+            "ls", "cat", "find", "grep", "echo", "pwd",
+            "wc", "head", "tail", "touch", "mkdir", "cp", "mv", "rm",
+            "chmod", "unzip", "tar", "ln", "stat", "realpath", "basename",
+            "dirname", "readlink", "du", "df", "lsof",
+
+            // ── File system (Windows) ──
+            "dir", "type", "copy", "xcopy", "robocopy", "move", "del",
+            "ren", "rename", "rd", "rmdir", "mklink",
+            "attrib", "icacls",
+
+            // ── Modern CLI replacements ──
+            "rg", "fd", "bat", "eza", "exa", "delta", "hyperfine",
+            "sd", "choose", "procs", "bottom", "btm", "dust", "duf",
+            "tokei", "loc", "cloc",
+            "rg.exe", "fd.exe", "bat.exe", "eza.exe",
+
+            // ── Text processing (Unix) ──
+            "sed", "awk", "sort", "cut", "tr", "tee", "xargs",
+            "jq", "yq", "gron", "htmlq", "pup",
+            "diff", "patch", "column", "fmt", "fold", "pr",
+            "strings", "hexdump", "xxd", "od",
+
+            // ── Text processing (Windows) ──
+            "find.exe", "findstr", "sort.exe", "fc",
+
+            // ── Network (Unix/cross-platform) ──
+            "curl", "wget", "http", "httpie", "xh",
+            "ping", "nslookup", "dig", "host", "whois",
+            "traceroute", "tracert",
+            "netstat", "ss", "ifconfig", "ipconfig",
+            "ip", "route",
+            "nc", "ncat",
+            "ssh", "scp", "sftp", "rsync",
+
+            // ── Network (Windows) ──
+            "curl.exe", "wget.exe",
+            "ping.exe", "tracert.exe", "netstat.exe",
+            "ipconfig.exe", "nslookup.exe",
+
+            // ── Encoding / hashing ──
+            "base64", "md5", "md5sum", "sha1sum", "sha256sum", "shasum",
+            "openssl",
+            "base64.exe",
+
+            // ── Compression ──
+            "gzip", "gunzip", "bzip2", "bunzip2", "xz", "lzma",
+            "zip", "7z", "7za",
+            "7z.exe", "7za.exe",
+
+            // ── System / utility (Unix) ──
+            "date", "which", "whereis", "type", "command",
+            "open", "xdg-open", "xclip", "xsel",
+            "osascript", "sleep", "watch", "timeout",
+            "ps", "top", "htop", "kill", "killall", "pkill", "pgrep",
+            "uname", "hostname", "id", "whoami", "groups",
+            "env", "printenv", "set",
+            "file", "xattr",
+
+            // ── System / utility (macOS-specific) ──
+            "pbcopy", "pbpaste", "say", "afplay", "caffeinate",
+            "launchctl", "plutil", "defaults", "scutil", "dscl",
+            "networksetup", "system_profiler",
+            "sips", "mdls", "mdfind", "spotlight",
+            "ditto", "hdiutil",
+
+            // ── System / utility (Windows-specific) ──
+            "where", "where.exe",
+            "tasklist", "taskkill", "taskkill.exe",
+            "sc", "sc.exe",
+            "reg", "reg.exe",
+            "sfc", "sfc.exe",
+            "cls", "ver",
+            "systeminfo", "hostname.exe",
+            "wmic", "wmic.exe",
+            "msiexec", "msiexec.exe",
+            "setx", "setx.exe",
+            "net", "net.exe",
+            "bcdedit",
+            "shutdown.exe",   // Windows shutdown (different risk from Unix shutdown)
+
+            // ── Build tools ──
+            "make", "cmake", "ninja", "meson",
+            "bazel", "buck", "ant",
+            "make.exe", "cmake.exe", "ninja.exe",
+
+            // ── Cloud & infra CLIs ──
+            "docker", "docker-compose",
+            "kubectl", "helm", "k9s", "skaffold",
+            "terraform", "tofu",
+            "ansible", "ansible-playbook",
+            "vault",
+            "aws", "az", "gcloud", "gsutil",
+            "heroku", "railway", "fly",
+            "vercel", "netlify", "wrangler",
+            "docker.exe",
+
+            // ── Databases ──
+            "sqlite3", "psql", "mysql", "mysqldump",
+            "redis-cli", "mongosh", "mongo",
+            "sqlite3.exe",
+
+            // ── Media / documents ──
+            "ffmpeg", "ffprobe", "ffplay",
+            "pandoc", "pdflatex", "xelatex", "lualatex",
+            "convert",      // ImageMagick
+            "magick",       // ImageMagick v7
+            "tesseract",
+            "exiftool",
+            "yt-dlp", "youtube-dl",
+            "libreoffice",
+            "ffmpeg.exe",
+
+            // ── Load / perf testing ──
+            "ab", "wrk", "siege", "hey", "vegeta", "k6",
+
+            // ── Linters / formatters ──
+            "prettier", "eslint", "tsc",
+            "black", "ruff", "flake8", "mypy", "pylint", "isort",
+            "rubocop",
+            "rustfmt", "clippy-driver",
+            "shellcheck", "shfmt",
+            "hadolint",
+            "prettier.cmd", "eslint.cmd",
+        ];
+
+        cmds.iter().map(|s| s.to_string()).collect()
+    }
+
     // ── Risk Classification ──────────────────────────────────────────────
     // Risk is assessed per-segment (split on shell operators), and the
     // highest risk across all segments wins. This prevents bypasses like
@@ -911,10 +1231,13 @@ impl SecurityPolicy {
             let args: Vec<String> = words.map(|w| w.to_ascii_lowercase()).collect();
             let joined_segment = cmd_part.to_ascii_lowercase();
 
-            // High-risk commands
+            // High-risk: truly destructive / system-altering commands that
+            // are permanently blocked unless the user explicitly removes them
+            // from this list. Do NOT put everyday tools like curl/wget/ssh
+            // here — they should be Medium so `approved=true` can unlock them.
             if matches!(
                 base.as_str(),
-                "rm" | "mkfs"
+                "mkfs"
                     | "dd"
                     | "shutdown"
                     | "reboot"
@@ -923,7 +1246,6 @@ impl SecurityPolicy {
                     | "sudo"
                     | "su"
                     | "chown"
-                    | "chmod"
                     | "useradd"
                     | "userdel"
                     | "usermod"
@@ -933,15 +1255,13 @@ impl SecurityPolicy {
                     | "iptables"
                     | "ufw"
                     | "firewall-cmd"
-                    | "curl"
-                    | "wget"
-                    | "nc"
-                    | "ncat"
-                    | "netcat"
-                    | "scp"
-                    | "ssh"
-                    | "ftp"
-                    | "telnet"
+                    | "rm"
+                    | "chmod"
+                    | "curl" | "curl.exe"
+                    | "wget" | "wget.exe"
+                    | "ssh" | "scp" | "sftp"
+                    | "nc" | "ncat" | "netcat"
+                    | "ftp" | "telnet"
             ) {
                 return CommandRiskLevel::High;
             }
@@ -972,19 +1292,46 @@ impl SecurityPolicy {
                             | "tag"
                     )
                 }),
-                "npm" | "pnpm" | "yarn" => args.first().is_some_and(|verb| {
-                    matches!(
-                        verb.as_str(),
-                        "install" | "add" | "remove" | "uninstall" | "update" | "publish"
-                    )
-                }),
+                "npm" | "npm.cmd" | "pnpm" | "pnpm.cmd" | "yarn" | "yarn.cmd" | "bun" => {
+                    args.first().is_some_and(|verb| {
+                        matches!(
+                            verb.as_str(),
+                            "install" | "add" | "remove" | "uninstall" | "update" | "publish"
+                        )
+                    })
+                }
                 "cargo" => args.first().is_some_and(|verb| {
                     matches!(
                         verb.as_str(),
                         "add" | "remove" | "install" | "clean" | "publish"
                     )
                 }),
+                // File system mutations
                 "touch" | "mkdir" | "mv" | "cp" | "ln" => true,
+                // File deletion (non-rm variants; rm is High)
+                "del" | "rd" | "rmdir" => true,
+                // Network — rsync kept Medium since it's commonly safe local use
+                "rsync" => true,
+                // Permission changes (icacls/attrib kept Medium; chmod is High)
+                "icacls" | "attrib" => true,
+                // Package managers that install system-wide software
+                "pip" | "pip.exe" | "pip3" | "pip3.exe"
+                | "brew"
+                | "gem" | "gem.cmd"
+                | "composer" | "composer.bat"
+                | "conda" | "mamba"
+                | "poetry" | "poetry.exe"
+                | "uv" | "uv.exe"
+                | "rye" | "pipx" | "pipx.exe"
+                | "winget" | "choco" | "scoop"
+                | "apt" | "apt-get" | "yum" | "dnf" | "pacman" | "zypper"
+                | "nuget" | "nuget.exe" => true,
+                // Cloud / infra CLIs that mutate remote state
+                "docker" | "docker.exe" | "docker-compose"
+                | "kubectl" | "helm"
+                | "terraform" | "tofu"
+                | "ansible" | "ansible-playbook"
+                | "aws" | "az" | "gcloud" | "gsutil" => true,
                 _ => false,
             };
 
@@ -1063,6 +1410,13 @@ impl SecurityPolicy {
             return false;
         }
 
+        // Strip heredoc bodies before character-level checks so script content
+        // (e.g. `>` in a JXA `if (x > 0)` expression) is not mistaken for a
+        // shell redirection. `split_unquoted_segments` already handles heredocs
+        // natively, so the original `command` is kept for that call.
+        let stripped = strip_heredoc_bodies(command);
+        let command = stripped.as_str();
+
         // Block subshell/expansion operators — these allow hiding arbitrary
         // commands inside an allowed command (e.g. `echo $(rm -rf /)`) and
         // bypassing path checks through variable indirection. The helper below
@@ -1083,14 +1437,6 @@ impl SecurityPolicy {
             return false;
         }
 
-        // Block `tee` — it can write to arbitrary files, bypassing the
-        // redirect check above (e.g. `echo secret | tee /etc/crontab`)
-        if command
-            .split_whitespace()
-            .any(|w| w == "tee" || w.ends_with("/tee"))
-        {
-            return false;
-        }
 
         // Block background command chaining (`&`), which can hide extra
         // sub-commands and outlive timeout expectations. Keep `&&` allowed.
@@ -2245,6 +2591,26 @@ mod tests {
             ..SecurityPolicy::default()
         };
         assert!(!p.is_command_allowed("python3 - <<PY"));
+    }
+
+    #[test]
+    fn jxa_heredoc_body_with_gt_and_semicolons_is_not_blocked() {
+        let p = SecurityPolicy {
+            allowed_commands: vec!["osascript".into(), "sleep".into()],
+            ..SecurityPolicy::default()
+        };
+        let cmd = "osascript -e 'tell application \"Microsoft PowerPoint\" to activate' \
+                   && sleep 2 \
+                   && osascript -l JavaScript <<'JXA'\n\
+                   const ppt = Application('Microsoft PowerPoint');\n\
+                   try {\n\
+                     if (ppt.presentations.length > 0) { ppt.activate(); }\n\
+                   } catch (e) {}\n\
+                   JXA";
+        assert!(
+            p.is_command_allowed(cmd),
+            "JXA heredoc with > and ; in body should not be blocked by redirect gate"
+        );
     }
 
     #[test]

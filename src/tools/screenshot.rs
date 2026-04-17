@@ -55,6 +55,24 @@ impl ScreenshotTool {
 
     /// Execute the screenshot capture and return the result.
     async fn capture(&self, args: serde_json::Value) -> anyhow::Result<ToolResult> {
+        // Refuse early on macOS when Screen Recording trust is missing —
+        // otherwise `screencapture -x` happily writes a solid black PNG and
+        // the agent mistakes that for a successful capture.
+        if cfg!(target_os = "macos")
+            && !crate::perception::macos_trust::has_screen_recording_trust().await
+        {
+            return Ok(ToolResult {
+                success: false,
+                output: String::new(),
+                error: Some(format!(
+                    "Screenshot refused: macOS Screen Recording permission is not granted \
+                     to the process running gloamy. `screencapture` would return a black \
+                     frame. {}",
+                    crate::perception::macos_trust::SCREEN_RECORDING_REMEDIATION
+                )),
+            });
+        }
+
         let timestamp = chrono::Utc::now().format("%Y%m%d_%H%M%S");
         let filename = args
             .get("filename")

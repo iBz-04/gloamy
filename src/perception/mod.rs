@@ -1,4 +1,5 @@
 pub mod macos;
+pub mod macos_trust;
 pub mod ocr;
 pub mod traits;
 

@@ -296,7 +296,9 @@ fn recovery_hint_for_failure(classification: &str, tool_name: &str) -> String {
             "{tool_name}: choose another available tool or inspect the tool list/schema before retrying"
         ),
         "permission_or_policy" => format!(
-            "{tool_name}: try a less-privileged path first; ask for approval only if no safe alternative exists"
+            "{tool_name}: the command was blocked by the security policy. \
+            Try a less-privileged or already-allowed alternative (e.g. if pip was blocked, check if pip3 is allowed; if brew install is blocked, use an existing binary). \
+            Do NOT substitute a pre-existing workspace file from a prior session as the output of the current task — if the task genuinely cannot be completed, report the block and stop."
         ),
         "transient_or_rate_limit" => format!(
             "{tool_name}: retry with backoff, narrower scope, or an alternate provider/tool"
@@ -4190,8 +4192,14 @@ pub(crate) async fn run_tool_call_loop(
                     continue;
                 }
 
-                // Every click_at consumes one preflight snapshot.
-                perception_preflight_available = false;
+                // In stricter modes every click_at consumes the preflight
+                // snapshot (1:1 click-to-capture contract). In WidgetOnly
+                // mode the snapshot only grounds coordinates, so we keep it
+                // valid for subsequent clicks in the same iteration — see
+                // the symmetric carve-out in the checkpoint loop below.
+                if click_at_preflight != crate::config::ClickAtPreflightMode::WidgetOnly {
+                    perception_preflight_available = false;
+                }
                 allow_parallel_execution = false;
             }
 
@@ -4438,7 +4446,21 @@ pub(crate) async fn run_tool_call_loop(
                     );
             }
             if is_mac_automation_click_at_call(&item.tool_name, &item.arguments) && item.success {
-                has_recent_perception_capture = false;
+                // In WidgetAndOcr / None modes the snapshot represents a
+                // stricter verification contract, so we force a fresh capture
+                // after every successful click (original behavior).
+                //
+                // In WidgetOnly mode the snapshot only grounds coordinates;
+                // requiring a fresh 2-3s capture between every sequential
+                // click makes multi-click flows (e.g. click-through menus)
+                // linearly slow without adding any real guarantee. The agent
+                // will re-capture explicitly whenever state changes in a way
+                // it cares about. Keeping the snapshot valid across clicks
+                // within the same iteration window restores interactive
+                // pacing for GUI tasks like creating a PowerPoint deck.
+                if click_at_preflight != crate::config::ClickAtPreflightMode::WidgetOnly {
+                    has_recent_perception_capture = false;
+                }
             }
         }
 

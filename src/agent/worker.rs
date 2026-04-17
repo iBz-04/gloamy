@@ -190,7 +190,7 @@ fn augment_instruction_with_contract(
 }
 
 const TERMINAL_POLICY_PROMPT: &str = "Operate as a terminal specialist. Prefer shell and file operations. Avoid GUI and browser tools unless the current step explicitly requires UI interaction.";
-const BROWSER_POLICY_PROMPT: &str = "Operate as a browser specialist. Prefer browser and perception tools for web interactions. Avoid shell-heavy actions unless local validation is required by the step.";
+const BROWSER_POLICY_PROMPT: &str = "Operate as a browser specialist. Prefer the browser tool for web interactions. Use snapshot/refs when possible; when the UI requires visual navigation, use the browser tool's computer-use actions (mouse_move, mouse_click, mouse_drag, key_type, key_press, screen_capture) instead of inventing a separate mouse workflow. Use perception_capture only when you need a fresh screen readback. Avoid shell-heavy actions unless local validation is required by the step.";
 const EDITOR_POLICY_PROMPT: &str = "Operate as an editor specialist. Prefer file_read, file_write, and validation commands in the active workspace. Avoid unrelated browser navigation unless the step explicitly asks for it.";
 const FALLBACK_POLICY_PROMPT: &str = "Operate as a general recovery specialist. Use the safest available tool sequence and escalate when no reliable app-specific route exists.";
 
@@ -207,10 +207,10 @@ fn terminal_contract() -> WorkerCapabilityContract {
 fn browser_contract() -> WorkerCapabilityContract {
     WorkerCapabilityContract {
         app_family: "browser",
-        preferred_tools: &["browser_open", "perception_capture", "mac_automation"],
+        preferred_tools: &["browser", "perception_capture"],
         restricted_tools: &["shell"],
         escalation_policy:
-            "Escalate when browser navigation depends on unavailable credentials, permissions, or blocked domains.",
+            "Escalate when browser navigation depends on unavailable credentials, permissions, blocked domains, or the browser tool cannot access the required UI state.",
     }
 }
 
@@ -1551,6 +1551,33 @@ mod tests {
         let contract = worker.capability_contract();
         assert_eq!(contract.app_family, "terminal");
         assert!(contract.restricted_tools.contains(&"browser_open"));
+    }
+
+    #[test]
+    fn browser_worker_prefers_browser_tool_for_mouse_navigation() {
+        let worker = ToolLoopWorker::for_browser_host(
+            Arc::new(StaticProvider),
+            Arc::new(vec![Box::new(NoopTool)]),
+            Arc::new(NoopObserver),
+            "mock-provider".to_string(),
+            "mock-model".to_string(),
+            0.0,
+            true,
+            "cli".to_string(),
+            crate::config::MultimodalConfig::default(),
+            8,
+            "system".to_string(),
+            None,
+            false,
+            Arc::new(NoneMemory::new()),
+            crate::config::ClickAtPreflightMode::default(),
+        );
+
+        let contract = worker.capability_contract();
+        assert_eq!(contract.app_family, "browser");
+        assert_eq!(contract.preferred_tools.first().copied(), Some("browser"));
+        assert!(contract.preferred_tools.contains(&"perception_capture"));
+        assert!(!contract.preferred_tools.contains(&"mac_automation"));
     }
 
     #[tokio::test]

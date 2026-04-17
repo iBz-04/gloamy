@@ -8,9 +8,9 @@ Handle presentation decks with deliberate layout, reusable structure, and qualit
 
 ## When to Use
 
-- Use this skill when the main input or output is a `.pptx` deck.
-- Use it for new presentations, template-based edits, slide rewrites, speaker note updates, and deck cleanup.
-- Prefer it whenever the user asks for slides, a pitch deck, a presentation, or an exported presentation file.
+- Use this skill when working with an **existing** `.pptx` file (editing, inspecting, or exporting it).
+- **On macOS**: if the user asks to "make a PowerPoint", "create a presentation", "open PowerPoint and make slides", or similar, use the `automating-powerpoint` skill instead — it creates presentations natively via JXA/osascript.
+- Use this skill for template-based edits, slide rewrites, speaker note updates, and deck cleanup on existing files only.
 
 ## Workflow
 
@@ -22,6 +22,7 @@ Handle presentation decks with deliberate layout, reusable structure, and qualit
 
 ## Guardrails
 
+- **On macOS, never use `python-pptx` or `pip install` to create a new PowerPoint from scratch.** Use the `automating-powerpoint` skill for creation tasks.
 - Do not flatten a branded template into generic title-and-bullets slides unless the user asks.
 - Avoid dense paragraphs, tiny labels, weak contrast, and repeated filler layouts.
 - Treat overlap, clipped text, misaligned shapes, and inconsistent margins as bugs, not cosmetic issues.
@@ -30,6 +31,6 @@ Handle presentation decks with deliberate layout, reusable structure, and qualit
 
 ## Common Tooling
 
-- `python-pptx` or similar libraries for deterministic slide editing.
-- `libreoffice` for PDF export and final visual checks.
+- On macOS: JXA via `osascript -l JavaScript` (see `automating-powerpoint` skill) for creating presentations.
+- `libreoffice` for PDF export and final visual checks on existing files.
 - Image or PDF inspection tools to verify each changed slide after rendering.

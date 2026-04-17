@@ -503,6 +503,38 @@ impl MacAutomationTool {
         out
     }
 
+    /// Refuse a mutating GUI action up front when macOS has not granted
+    /// Accessibility trust to this process.
+    ///
+    /// Without Accessibility the CoreGraphics event post (`CGEventPost`) is
+    /// silently dropped by the kernel — `osascript` still exits 0, so the
+    /// tool would otherwise return a fake success and the agent would loop
+    /// retrying a click that can never land. Returning an explicit failure
+    /// with remediation lets the model escalate to a non-GUI path (e.g. a
+    /// scripting-dictionary AppleScript or a file-based generator) or ask
+    /// the user to grant permission.
+    ///
+    /// Returns `None` when trust is granted or when running off macOS.
+    async fn refuse_without_accessibility(action: &str) -> Option<ToolResult> {
+        if !cfg!(target_os = "macos") {
+            return None;
+        }
+        if crate::perception::macos_trust::has_accessibility_trust().await {
+            return None;
+        }
+        let error = format!(
+            "{action} requires macOS Accessibility permission which is not granted \
+             to the process running gloamy. CGEventPost is silently dropped without \
+             it, so the click/move would not actually occur. {}",
+            crate::perception::macos_trust::ACCESSIBILITY_REMEDIATION
+        );
+        Some(ToolResult {
+            success: false,
+            output: String::new(),
+            error: Some(error),
+        })
+    }
+
     async fn run_macos_command(program: &str, args: &[String]) -> anyhow::Result<ToolResult> {
         let result = tokio::time::timeout(
             Duration::from_secs(MAC_AUTOMATION_TIMEOUT_SECS),
@@ -1648,6 +1680,9 @@ impl Tool for MacAutomationTool {
                 Self::add_applescript_failure_hint(result)
             }
             "move_mouse" => {
+                if let Some(refused) = Self::refuse_without_accessibility("move_mouse").await {
+                    return Ok(refused);
+                }
                 let coords = match self.resolve_coordinates(&args, "move_mouse").await {
                     Ok(coords) => coords,
                     Err(error) => {
@@ -1701,6 +1736,9 @@ impl Tool for MacAutomationTool {
                 }
             }
             "click_at" => {
+                if let Some(refused) = Self::refuse_without_accessibility("click_at").await {
+                    return Ok(refused);
+                }
                 let coords = match self.resolve_coordinates(&args, "click_at").await {
                     Ok(coords) => coords,
                     Err(error) => {

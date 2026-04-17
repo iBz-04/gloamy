@@ -1,6 +1,6 @@
 ---
 name: automating-powerpoint
-description: Automates Microsoft PowerPoint via JXA with AppleScript dictionary discovery. Use when asked to "automate PowerPoint presentations", "create slides programmatically", "JXA PowerPoint scripting", or "export PowerPoint to PDF". Covers presentations, slides, shapes, text, tables, export enums, and interop with Excel.
+description: Automates Microsoft PowerPoint via JXA (osascript). Use when asked to "make a PowerPoint", "create a presentation", "open PowerPoint and make slides", "turn this into a deck", "make slides from this text", "create a PowerPoint on this", "automate PowerPoint presentations", "create slides programmatically", "JXA PowerPoint scripting", or "export PowerPoint to PDF". Covers presentations, slides, shapes, text, tables, export enums, and interop with Excel. ALWAYS use JXA via osascript — never use Python pptx or pip to create PowerPoint files.
 allowed-tools:
   - Bash
   - Read
@@ -35,6 +35,11 @@ const slide = doc.slides.add({index: 1, layout: powerpoint.slideLayouts['ppLayou
 slide.shapes[0].textFrame.textRange.content = 'My Presentation';
 doc.save({in: Path('/Users/username/Desktop/presentation.pptx')});
 ```
+
+## Hard Rules
+- **Never use `python-pptx`, `PyXA`, or `pip install` to create PowerPoint files.** Always use JXA via `osascript -l JavaScript`.
+- **Never report a previously created file as the result of the current task.** If PowerPoint creation fails, say so explicitly — do not substitute a PDF or other file from a prior session.
+- **If JXA fails**, report the exact error and ask the user for permission to troubleshoot (check Accessibility permissions, verify PowerPoint is installed), rather than silently switching to Python.
 
 ## Troubleshooting
 - **Application not responding:** Ensure PowerPoint is launched and accessible via Accessibility permissions.

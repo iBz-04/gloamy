@@ -1,7 +1,32 @@
 use crate::perception::traits::{OcrTextItem, ScreenBounds};
 use anyhow::{Context, Result};
 use std::path::Path;
+use std::sync::OnceLock;
 use tokio::process::Command;
+
+/// Probe whether the `tesseract` binary is available on the host.
+///
+/// Cached for the lifetime of the process — installing tesseract requires a
+/// shell and almost always a package manager invocation, so a missing binary
+/// will not materialize mid-session without a restart.
+///
+/// Returns `true` when `tesseract --version` exits successfully, `false`
+/// otherwise. Used by `GuiVerificationConfig::normalize_for_runtime` to
+/// auto-downgrade the `click_at_preflight` gate from `widget_and_ocr` to
+/// `widget_only` on systems that cannot perform OCR.
+pub fn is_tesseract_available() -> bool {
+    static CACHED: OnceLock<bool> = OnceLock::new();
+    *CACHED.get_or_init(|| {
+        std::process::Command::new("tesseract")
+            .arg("--version")
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .status()
+            .map(|status| status.success())
+            .unwrap_or(false)
+    })
+}
 
 /// Deterministic OCR settings applied to each Tesseract invocation.
 #[derive(Debug, Clone, PartialEq, Eq)]
