@@ -29,7 +29,23 @@ struct ScreenStateDiff {
     capture_failed: bool,
 }
 
-impl ScreenStateDiff {}
+impl ScreenStateDiff {
+    /// A "silent no-op" is a transition where no observable signal advanced:
+    /// the active app didn't change, the widget tree looks identical, OCR
+    /// text count is unchanged, and we did successfully capture the after
+    /// state (so the equality is trustworthy, not just missing data).
+    ///
+    /// Paired with an empty tool output, this is a strong indication the
+    /// worker returned a fake success (common with osascript / JXA / PyXA
+    /// which exit 0 even when the underlying AX call did nothing) and the
+    /// host should replan rather than advance.
+    fn is_silent_noop(&self) -> bool {
+        !self.capture_failed
+            && !self.app_changed
+            && !self.widget_tree_changed
+            && !self.ocr_count_changed
+    }
+}
 
 /// The HostAgent is the global planner and router in the AgentOS architecture.
 /// It decomposes tasks and dispatches them to appropriate AppAgents (Workers).
@@ -381,6 +397,20 @@ impl HostAgent {
         if Self::signals_incomplete_progress(&diagnostic_lower) {
             return PostStepDecision::Replan(
                 "worker output indicates incomplete progress requiring a revised next step"
+                    .to_string(),
+            );
+        }
+
+        // Success with no observable progress signal: the worker claimed
+        // success but produced no output AND the screen state is
+        // indistinguishable before/after. That's the classic silent no-op
+        // (e.g. an AppleScript that exited 0 but did nothing). Rather than
+        // accept the fake success and advance, replan with a recovery step
+        // so the next iteration can verify or retry.
+        if state_diff.is_silent_noop() && result.output.trim().is_empty() {
+            return PostStepDecision::Replan(
+                "worker reported success but produced no output and no observable state \
+                 change — treating as silent no-op and replanning"
                     .to_string(),
             );
         }

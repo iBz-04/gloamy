@@ -1547,6 +1547,19 @@ fn extract_tool_context_summary(history: &[ChatMessage], start_index: usize) -> 
     format!("[Used tools: {}]", tool_names.join(", "))
 }
 
+/// Whether a channel should have the `[Used tools: ...]` summary prefix
+/// persisted on top of the delivered assistant response in conversation
+/// history.
+///
+/// The prefix exists to keep stateless providers aware of prior tool use
+/// across turns. For channels that replay persisted assistant turns back to
+/// the user (currently: telegram), the prefix is metadata noise leaking
+/// into user-visible history, so we strip it there. Every other channel
+/// keeps the prefix to preserve the legacy awareness benefit.
+fn channel_persists_tool_summary(channel_name: &str) -> bool {
+    !channel_name.eq_ignore_ascii_case("telegram")
+}
+
 fn sanitize_channel_response(response: &str, tools: &[Box<dyn Tool>]) -> String {
     let known_tool_names: HashSet<String> = tools
         .iter()
@@ -2309,8 +2322,16 @@ async fn process_channel_message(
             // Extract condensed tool-use context from the history messages
             // added during run_tool_call_loop, so the LLM retains awareness
             // of what it did on subsequent turns.
+            //
+            // Some channels (telegram) re-play this persisted assistant turn
+            // verbatim into the user-visible conversation and into the next
+            // prompt. The `[Used tools: ...]` prefix is helpful for
+            // stateless channels but leaks metadata into user-facing history
+            // on telegram, so we strip it there.
             let tool_summary = extract_tool_context_summary(&history, history_len_before_tools);
-            let history_response = if tool_summary.is_empty() {
+            let history_response = if tool_summary.is_empty()
+                || !channel_persists_tool_summary(&msg.channel)
+            {
                 delivered_response.clone()
             } else {
                 format!("{tool_summary}\n{delivered_response}")
