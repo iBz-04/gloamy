@@ -46,6 +46,10 @@ const handleUnauthorized = () => {
     router.push('/authentication')
 }
 
+function reloadWindow() {
+  window.location.reload()
+}
+
 onMounted(() => {
   window.addEventListener('gloamy-unauthorized', handleUnauthorized)
 })
@@ -66,9 +70,21 @@ onBeforeUnmount(() => {
             <AppTopbar />
             <div class="flex-1 overflow-hidden">
               <router-view v-slot="{ Component, route }">
-                <Transition name="page" mode="out-in">
-                  <component :is="Component" :key="route.path" />
-                </Transition>
+                <component :is="Component" v-if="Component" :key="route.fullPath" />
+                <div v-else class="h-full w-full flex items-center justify-center px-6">
+                  <div class="max-w-md w-full p-6 rounded-[4px] border border-border/50 bg-card/20 text-center">
+                    <h3 class="text-lg font-medium text-foreground mb-2">Page failed to mount</h3>
+                    <p class="text-sm text-muted-foreground mb-6">
+                      The route changed, but no page component was available for render. Reload the window to recover the view tree.
+                    </p>
+                    <button
+                      class="px-4 py-2 bg-primary text-primary-foreground rounded-[4px] text-sm font-medium hover:opacity-90 transition-opacity"
+                      @click="reloadWindow"
+                    >
+                      Reload Window
+                    </button>
+                  </div>
+                </div>
               </router-view>
             </div>
           </main>
@@ -77,9 +93,21 @@ onBeforeUnmount(() => {
         <!-- Auth/Lock Layout (Unauthenticated or Auth Page) -->
         <div v-else class="h-full w-full">
           <router-view v-if="$route.path === '/authentication'" v-slot="{ Component }">
-            <Transition name="page" mode="out-in">
-              <component :is="Component" />
-            </Transition>
+            <component :is="Component" v-if="Component" />
+            <div v-else class="h-full w-full flex items-center justify-center px-6">
+              <div class="max-w-md w-full p-6 rounded-[4px] border border-border/50 bg-card/20 text-center">
+                <h3 class="text-lg font-medium text-foreground mb-2">Authentication view unavailable</h3>
+                <p class="text-sm text-muted-foreground mb-6">
+                  The authentication route did not resolve to a page component. Reload the window to retry.
+                </p>
+                <button
+                  class="px-4 py-2 bg-primary text-primary-foreground rounded-[4px] text-sm font-medium hover:opacity-90 transition-opacity"
+                  @click="reloadWindow"
+                >
+                  Reload Window
+                </button>
+              </div>
+            </div>
           </router-view>
           <div v-else class="h-full w-full flex items-center justify-center">
             <Icon icon="hugeicons:loading-03" class="size-6 animate-spin text-muted-foreground/40" />
@@ -94,20 +122,3 @@ onBeforeUnmount(() => {
     </TooltipProvider>
   </ConfigProvider>
 </template>
-
-<style>
-.page-enter-active,
-.page-leave-active {
-  transition: opacity 0.2s ease, transform 0.2s ease;
-}
-
-.page-enter-from {
-  opacity: 0;
-  transform: translateY(8px);
-}
-
-.page-leave-to {
-  opacity: 0;
-  transform: translateY(-8px);
-}
-</style>

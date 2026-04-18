@@ -1,4 +1,4 @@
-import { createMemoryHistory, createRouter } from 'vue-router'
+import { createRouter, createWebHashHistory } from 'vue-router'
 import AuthenticationPage from '@/pages/authentication.vue'
 import ConfigurationPage from '@/pages/configuration.vue'
 import CronJobsPage from '@/pages/cron-jobs.vue'
@@ -115,7 +115,9 @@ const routes = [
 ]
 
 const router = createRouter({
-  history: createMemoryHistory(),
+  // Memory history is intended for SSR/testing and can leave client-side
+  // navigation in a nowhere state. Hash history is the safer fit for Tauri.
+  history: createWebHashHistory(),
   routes,
 })
 
