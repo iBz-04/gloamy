@@ -1,12 +1,22 @@
 import { createMemoryHistory, createRouter } from 'vue-router'
-import { useAuthStore } from '@/stores/auth'
+import AuthenticationPage from '@/pages/authentication.vue'
+import ConfigurationPage from '@/pages/configuration.vue'
+import CronJobsPage from '@/pages/cron-jobs.vue'
+import DashboardPage from '@/pages/dashboard.vue'
+import DoctorPage from '@/pages/doctor.vue'
+import IntegrationsPage from '@/pages/integrations.vue'
+import LogsPage from '@/pages/logs.vue'
+import MemoryPage from '@/pages/memory.vue'
 import PlaceholderPage from '@/pages/placeholder.vue'
+import SettingsPage from '@/pages/settings.vue'
+import ToolsPage from '@/pages/tools.vue'
+import { useAuthStore } from '@/stores/auth'
 
 const routes = [
   {
     path: '/',
     name: 'dashboard',
-    component: () => import('@/pages/dashboard.vue'),
+    component: DashboardPage,
     meta: {
       title: 'Dashboard',
       description: 'Monitor your agent runtime at a glance.',
@@ -15,7 +25,7 @@ const routes = [
   {
     path: '/tools',
     name: 'tools',
-    component: () => import('@/pages/tools.vue'),
+    component: ToolsPage,
     meta: {
       title: 'Tools',
       description: 'Configure and inspect available tools.',
@@ -24,7 +34,7 @@ const routes = [
   {
     path: '/cron-jobs',
     name: 'cron-jobs',
-    component: () => import('@/pages/cron-jobs.vue'),
+    component: CronJobsPage,
     meta: {
       title: 'Cron Jobs',
       description: 'Manage scheduled automations and routines.',
@@ -33,7 +43,7 @@ const routes = [
   {
     path: '/integrations',
     name: 'integrations',
-    component: () => import('@/pages/integrations.vue'),
+    component: IntegrationsPage,
     meta: {
       title: 'Integrations',
       description: 'Connect channels, providers, and peripherals.',
@@ -42,7 +52,7 @@ const routes = [
   {
     path: '/memory',
     name: 'memory',
-    component: () => import('@/pages/memory.vue'),
+    component: MemoryPage,
     meta: {
       title: 'Memory',
       description: 'Inspect or purge conversation memory stores.',
@@ -51,7 +61,7 @@ const routes = [
   {
     path: '/configuration',
     name: 'configuration',
-    component: () => import('@/pages/configuration.vue'),
+    component: ConfigurationPage,
     meta: {
       title: 'Configuration',
       description: 'Review runtime configuration and overrides.',
@@ -69,7 +79,7 @@ const routes = [
   {
     path: '/logs',
     name: 'logs',
-    component: () => import('@/pages/logs.vue'),
+    component: LogsPage,
     meta: {
       title: 'Logs',
       description: 'System logs and debugging.',
@@ -78,7 +88,7 @@ const routes = [
   {
     path: '/doctor',
     name: 'doctor',
-    component: () => import('@/pages/doctor.vue'),
+    component: DoctorPage,
     meta: {
       title: 'Doctor',
       description: 'Run diagnostics to catch misconfiguration.',
@@ -87,7 +97,7 @@ const routes = [
   {
     path: '/authentication',
     name: 'authentication',
-    component: () => import('@/pages/authentication.vue'),
+    component: AuthenticationPage,
     meta: {
       title: 'Authentication & Pairing',
       description: 'Pair new clients and manage credentials.',
@@ -96,7 +106,7 @@ const routes = [
   {
     path: '/settings',
     name: 'settings',
-    component: () => import('@/pages/settings.vue'),
+    component: SettingsPage,
     meta: {
       title: 'Settings & Theme',
       description: 'Adjust appearance and global preferences.',

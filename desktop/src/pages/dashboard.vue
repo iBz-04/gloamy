@@ -28,6 +28,21 @@ const trendRefreshTimer = ref<number | null>(null)
 const loading = ref(true)
 const error = ref<string | null>(null)
 
+function isCostSummary(value: unknown): value is CostSummary {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return false
+  }
+
+  const candidate = value as Partial<CostSummary>
+  return typeof candidate.session_cost_usd === 'number'
+    && typeof candidate.daily_cost_usd === 'number'
+    && typeof candidate.monthly_cost_usd === 'number'
+    && typeof candidate.total_tokens === 'number'
+    && typeof candidate.request_count === 'number'
+    && !!candidate.by_model
+    && typeof candidate.by_model === 'object'
+}
+
 function formatUSD(value: number): string {
   return `$${value.toFixed(4)}`
 }
@@ -168,6 +183,8 @@ async function fetchData(showLoading = false) {
   if (showLoading) {
     loading.value = true
     error.value = null
+    status.value = null
+    cost.value = null
   }
   try {
     const [s, c] = await Promise.all([
@@ -184,13 +201,15 @@ async function fetchData(showLoading = false) {
       ? (c as { cost: CostSummary }).cost
       : (c as CostSummary)
 
+    if (!isCostSummary(latestCost)) {
+      throw new Error('Dashboard received an invalid cost payload.')
+    }
+
     console.log('[dashboard] resolved cost object:', JSON.stringify(latestCost))
     cost.value = latestCost
   } catch (err: any) {
     console.error('[dashboard] fetchData error:', err)
-    if (!status.value || !cost.value) {
-      error.value = err.message || 'Failed to load dashboard'
-    }
+    error.value = err.message || 'Failed to load dashboard'
   } finally {
     if (showLoading) {
       loading.value = false
@@ -431,6 +450,21 @@ onUnmounted(() => {
             </div>
           </div>
         </section>
+      </div>
+    </div>
+
+    <div v-else class="flex-1 flex items-center justify-center px-6">
+      <div class="max-w-md w-full p-6 rounded-[4px] border border-border/50 bg-card/20 text-center">
+        <h3 class="text-lg font-medium text-foreground mb-2">Dashboard data unavailable</h3>
+        <p class="text-sm text-muted-foreground mb-6">
+          The page loaded, but the runtime summary payload was incomplete. Reload the panel to retry.
+        </p>
+        <button
+          @click="fetchData(true)"
+          class="px-4 py-2 bg-primary text-primary-foreground rounded-[4px] text-sm font-medium hover:opacity-90 transition-opacity"
+        >
+          Reload Dashboard
+        </button>
       </div>
     </div>
   </div>
