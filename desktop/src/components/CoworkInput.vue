@@ -54,13 +54,13 @@ function submit() {
             </button>
           </div>
           
-          <div class="flex items-center gap-4 text-[13px] text-muted-foreground font-medium">
+          <div class="flex items-center gap-2 text-[13px] text-muted-foreground font-medium">
             <button class="hover:text-foreground transition-colors">
               <Icon icon="hugeicons:mic-01" class="size-4" />
             </button>
             <button
-              class="size-8 rounded-full flex items-center justify-center transition-all duration-300 ml-1"
-              :class="message.trim() ? 'bg-foreground text-background shadow-md dark:shadow-none scale-100 hover:opacity-80' : 'bg-muted/50 text-muted-foreground/40 scale-95 cursor-not-allowed'"
+              class="flex items-center justify-center transition-all duration-300 ml-1"
+              :class="message.trim() ? 'text-foreground scale-100 hover:opacity-80' : 'text-muted-foreground/40 scale-95 cursor-not-allowed'"
               :disabled="!message.trim()"
               @click="submit"
             >

@@ -33,14 +33,14 @@ const savedPrompts = [
 <template>
   <div class="h-full w-full flex flex-col items-center justify-center px-6 pb-32 bg-background select-none font-sans">
     <div class="w-full max-w-[720px] flex flex-col items-center">
-      <!-- Title -->
-      <h1 class="text-[32px] font-medium tracking-tight text-foreground mb-8">
-        Lets get to work!
-      </h1>
-
-      <!-- Integrated Input Card -->
-      <div class="w-full flex flex-col items-center">
-        <CoworkInput />
+      <!-- Integrated Input Card with Mascot peeking from behind -->
+      <div class="w-full relative mt-12 z-0">
+        <!-- Mascot -->
+        <div class="absolute bottom-full left-1/2 -translate-x-1/2 w-16 translate-y-3 -z-10">
+          <img src="/gloamyowl.png" alt="Gloamy Mascot" class="w-full h-auto block" />
+        </div>
+        
+        <CoworkInput class="w-full relative z-10" />
       </div>
 
       <!-- Saved Prompts Section -->
