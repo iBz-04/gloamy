@@ -2,6 +2,10 @@
    <h1>Gloamy</h1>
 </div>
 
+> [!WARNING]
+> **Gloamy is currently in active development.**
+> This is an early preview. Expect breaking changes, frequent updates, and evolving core subsystem contracts as we move toward a stable 1.0 release.
+
 <p align="center">
   <img src="https://res.cloudinary.com/diekemzs9/image/upload/v1774631483/hairy_gloam-3_den5zj.png" alt="Gloamy Mascot" width="250"/>
 </p>

@@ -1,6 +1,7 @@
 import { createRouter, createWebHashHistory } from 'vue-router'
 import AuthenticationPage from '@/pages/authentication.vue'
 import ConfigurationPage from '@/pages/configuration.vue'
+import CoworkPage from '@/pages/cowork.vue'
 import CronJobsPage from '@/pages/cron-jobs.vue'
 import DashboardPage from '@/pages/dashboard.vue'
 import DoctorPage from '@/pages/doctor.vue'
@@ -20,6 +21,15 @@ const routes = [
     meta: {
       title: 'Dashboard',
       description: 'Monitor your agent runtime at a glance.',
+    },
+  },
+  {
+    path: '/cowork',
+    name: 'cowork',
+    component: CoworkPage,
+    meta: {
+      title: 'Cowork',
+      description: 'Chat with the desktop agent from a dedicated workspace.',
     },
   },
   {

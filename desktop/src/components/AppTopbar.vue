@@ -6,6 +6,7 @@ const route = useRoute()
 
 const pageLabelMap: Record<string, string> = {
   dashboard: 'Runtime Overview',
+  cowork: 'Cowork Session',
   tools: 'Tool Controls',
   'cron-jobs': 'Cron Schedules',
   integrations: 'Integration Catalog',

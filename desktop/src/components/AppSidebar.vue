@@ -17,6 +17,7 @@ const isCollapsed = computed(() => state.value.leftSidebarCollapsed)
 
 const navItems: Array<LeafNavItem | GroupNavItem> = [
   { icon: 'hugeicons:dashboard-square-01', label: 'Dashboard', to: '/' },
+  { icon: 'hugeicons:chat-01', label: 'Cowork', to: '/cowork' },
   { hugeIcon: ToolCaseIcon, label: 'Tools', to: '/tools' },
   { icon: 'hugeicons:calendar-03', label: 'Cron Jobs', to: '/cron-jobs' },
   { icon: 'hugeicons:puzzle', label: 'Integrations', to: '/integrations' },
