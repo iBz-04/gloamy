@@ -87,7 +87,7 @@ const intervalOptions = [
   { value: '60', label: '1 hour' },
   { value: '120', label: '2 hours' },
 ] as const
-const timezoneSuggestionId = 'cron-timezone-suggestions'
+
 const availableTimeZones = computed(() => {
   const common = [
     localTimeZone,
@@ -183,14 +183,6 @@ function cronForInterval(totalMinutes: number): string {
   return ''
 }
 
-function scheduleModeButtonClass(mode: ScheduleMode): string {
-  if (formScheduleMode.value === mode) {
-    return 'border-primary/30 bg-primary/6 text-foreground shadow-[inset_0_1px_0_rgba(255,255,255,0.06)]'
-  }
-
-  return 'border-border/45 bg-background/75 text-muted-foreground hover:border-border/70 hover:bg-card/35 hover:text-foreground'
-}
-
 function chipButtonClass(active: boolean): string {
   if (active) {
     return 'border-primary/30 bg-primary/6 text-foreground shadow-[inset_0_1px_0_rgba(255,255,255,0.06)]'
@@ -200,9 +192,7 @@ function chipButtonClass(active: boolean): string {
 }
 
 const normalizedTimezone = computed(() => formTimezone.value.trim())
-const selectedWeekday = computed(() => {
-  return weekdayOptions.find(option => option.value === formWeekday.value) ?? weekdayOptions[1]
-})
+
 const scheduleExpression = computed(() => {
   if (formScheduleMode.value === 'custom')
     return formCustomCron.value.trim()
@@ -236,33 +226,6 @@ const scheduleExpression = computed(() => {
   }
 
   return ''
-})
-const scheduleDescription = computed(() => {
-  const timezone = normalizedTimezone.value || localTimeZone
-
-  if (formScheduleMode.value === 'custom') {
-    return scheduleExpression.value
-      ? `Custom cron expression in ${timezone}`
-      : 'Enter a custom cron expression'
-  }
-
-  if (formScheduleMode.value === 'interval') {
-    const match = intervalOptions.find(option => option.value === formIntervalMinutes.value)
-    return match
-      ? `Runs every ${match.label.toLowerCase()} in ${timezone}`
-      : `Runs on an interval in ${timezone}`
-  }
-
-  if (formScheduleMode.value === 'monthly')
-    return `Runs monthly on day ${formMonthDay.value || '—'} at ${formTime.value || '—'} in ${timezone}`
-
-  if (formScheduleMode.value === 'weekly')
-    return `Runs every ${selectedWeekday.value.summary} at ${formTime.value || '—'} in ${timezone}`
-
-  if (formScheduleMode.value === 'weekdays')
-    return `Runs Monday through Friday at ${formTime.value || '—'} in ${timezone}`
-
-  return `Runs every day at ${formTime.value || '—'} in ${timezone}`
 })
 
 function formatSchedule(job: CronJob): string {
@@ -530,94 +493,73 @@ onMounted(() => {
     </div>
 
     <div v-if="showAddModal" class="fixed inset-0 z-40 bg-black/30 backdrop-blur-[1.5px] flex items-center justify-center p-4">
-      <div class="w-full max-w-[580px] max-h-[82vh] overflow-y-auto rounded-[20px] border border-border/35 bg-card/92 p-3.5 shadow-[0_20px_55px_-28px_rgba(0,0,0,0.72)] motion-safe:animate-in motion-safe:fade-in-0 motion-safe:zoom-in-95 motion-safe:duration-200 motion-safe:ease-out">
-        <div class="flex items-center justify-between mb-2.5">
-          <h2 class="font-sans text-[15px] font-medium text-foreground">
-            Add Cron Job
+      <div class="w-full max-w-[580px] max-h-[82vh] overflow-y-auto rounded-[20px] border border-border/35 bg-card/92 p-6 shadow-[0_20px_55px_-28px_rgba(0,0,0,0.72)] motion-safe:animate-in motion-safe:fade-in-0 motion-safe:zoom-in-95 motion-safe:duration-200 motion-safe:ease-out">
+        <div class="flex items-center justify-between mb-6">
+          <h2 class="font-sans text-[16px] font-medium text-foreground">
+            Add Scheduled Job
           </h2>
           <button
-            class="p-1 rounded-xl text-muted-foreground transition-colors duration-150 hover:text-foreground hover:bg-muted/45"
+            class="p-1.5 rounded-xl text-muted-foreground transition-colors duration-150 hover:text-foreground hover:bg-muted/45"
             @click="showAddModal = false; resetAddForm()"
           >
             <Icon icon="hugeicons:cancel-01" class="size-4" />
           </button>
         </div>
 
-        <div class="space-y-3.5">
+        <div class="space-y-5">
           <label class="block">
-            <span class="mb-0.5 block text-[12px] text-muted-foreground">Name (optional)</span>
+            <span class="mb-1.5 block text-[13px] text-muted-foreground">Name (optional)</span>
             <input
               v-model="formName"
               type="text"
-              class="w-full rounded-xl border border-border/45 bg-background/90 px-3 py-1.5 text-[13px] transition-all duration-150 focus:border-primary/35 focus:outline-none focus:ring-2 focus:ring-primary/10"
+              class="w-full rounded-xl border border-border/45 bg-background/90 px-3.5 py-2.5 text-[13px] transition-all duration-150 focus:border-primary/35 focus:outline-none focus:ring-2 focus:ring-primary/10"
               placeholder="Nightly Backup"
             >
           </label>
 
-          <div class="space-y-2">
-            <div>
-              <p class="text-[13px] font-medium text-foreground">
-                Schedule
-              </p>
-              <p class="text-[11px] text-muted-foreground">
-                Pick a pattern and we generate the cron string.
-              </p>
-            </div>
-
-            <div class="grid grid-cols-2 gap-2 md:grid-cols-3">
-              <button
-                v-for="option in scheduleModeOptions"
-                :key="option.value"
-                type="button"
-                class="rounded-xl border px-2 py-1.5 text-left transition-all duration-150"
-                :class="scheduleModeButtonClass(option.value)"
-                @click="formScheduleMode = option.value; formError = null"
+          <div class="space-y-1.5">
+            <span class="block text-[13px] text-muted-foreground mb-1.5">Schedule pattern</span>
+            <div class="relative">
+              <select
+                v-model="formScheduleMode"
+                class="w-full appearance-none rounded-xl border border-border/45 bg-background/90 pl-3.5 pr-8 py-2.5 text-[13px] font-medium transition-all duration-150 focus:border-primary/35 focus:outline-none focus:ring-2 focus:ring-primary/10 cursor-pointer text-foreground"
+                @change="formError = null"
               >
-                <div class="text-[12px] font-medium">
-                  {{ option.label }}
-                </div>
-                <div class="mt-0.5 text-[9.5px] text-muted-foreground">
-                  {{ option.description }}
-                </div>
-              </button>
+                <option v-for="option in scheduleModeOptions" :key="option.value" :value="option.value">
+                  {{ option.label }} - {{ option.description }}
+                </option>
+              </select>
+              <Icon icon="hugeicons:arrow-down-01-sharp" class="absolute right-3.5 top-1/2 -translate-y-1/2 size-4 text-muted-foreground pointer-events-none" />
             </div>
           </div>
 
-          <div class="space-y-3 rounded-xl border border-border/35 bg-background/70 p-2.5">
-            <div v-if="formScheduleMode !== 'interval' && formScheduleMode !== 'custom'" class="grid gap-2.5 sm:grid-cols-2">
+          <div class="space-y-5">
+            <div v-if="formScheduleMode !== 'interval' && formScheduleMode !== 'custom'" class="grid gap-4 sm:grid-cols-2">
               <label class="block">
-                <span class="mb-0.5 block text-[12px] text-muted-foreground">Time</span>
+                <span class="mb-1.5 block text-[13px] text-muted-foreground">Time</span>
                 <input
                   v-model="formTime"
                   type="time"
-                  class="w-full rounded-xl border border-border/45 bg-background/90 px-3 py-1.5 text-[13px] transition-all duration-150 focus:border-primary/35 focus:outline-none focus:ring-2 focus:ring-primary/10"
+                  class="w-full rounded-xl border border-border/45 bg-background/90 px-3.5 py-2.5 text-[13px] transition-all duration-150 focus:border-primary/35 focus:outline-none focus:ring-2 focus:ring-primary/10"
                 >
               </label>
 
               <label class="block">
-                <span class="mb-0.5 block text-[12px] text-muted-foreground">Timezone</span>
-                <div class="flex items-center gap-2">
-                  <input
+                <span class="mb-1.5 block text-[13px] text-muted-foreground">Timezone</span>
+                <div class="relative">
+                  <select
                     v-model="formTimezone"
-                    :list="timezoneSuggestionId"
-                    type="text"
-                    class="w-full rounded-xl border border-border/45 bg-background/90 px-3 py-1.5 text-[13px] transition-all duration-150 focus:border-primary/35 focus:outline-none focus:ring-2 focus:ring-primary/10"
-                    placeholder="Europe/Istanbul"
+                    class="w-full appearance-none rounded-xl border border-border/45 bg-background/90 pl-3.5 pr-8 py-2.5 text-[13px] transition-all duration-150 focus:border-primary/35 focus:outline-none focus:ring-2 focus:ring-primary/10 cursor-pointer text-foreground"
                   >
-                  <button
-                    type="button"
-                    class="shrink-0 rounded-xl border border-border/45 bg-muted/35 px-2.5 py-1.5 text-[11px] font-medium text-muted-foreground transition-all duration-150 hover:border-border/70 hover:bg-card/45 hover:text-foreground"
-                    @click="formTimezone = localTimeZone"
-                  >
-                    Local
-                  </button>
+                    <option v-for="tz in availableTimeZones" :key="tz" :value="tz">{{ tz }}</option>
+                  </select>
+                  <Icon icon="hugeicons:arrow-down-01-sharp" class="absolute right-3.5 top-1/2 -translate-y-1/2 size-4 text-muted-foreground pointer-events-none" />
                 </div>
-                <p class="mt-1 text-[11px] text-muted-foreground">Use an IANA timezone like <code>Europe/Istanbul</code> or <code>America/New_York</code>.</p>
               </label>
             </div>
 
-            <div v-if="formScheduleMode === 'weekly'" class="space-y-1.5">
-              <p class="text-[12px] text-muted-foreground">
+            <div v-if="formScheduleMode === 'weekly'" class="space-y-2">
+              <p class="text-[13px] text-muted-foreground">
                 Day of week
               </p>
               <div class="grid grid-cols-4 gap-2 sm:grid-cols-7">
@@ -625,7 +567,7 @@ onMounted(() => {
                   v-for="option in weekdayOptions"
                   :key="option.value"
                   type="button"
-                  class="rounded-xl border px-2 py-1.5 text-[12px] font-medium transition-all duration-150"
+                  class="rounded-xl border px-2 py-2 text-[12px] font-medium transition-all duration-150"
                   :class="chipButtonClass(formWeekday === option.value)"
                   @click="formWeekday = option.value"
                 >
@@ -634,27 +576,27 @@ onMounted(() => {
               </div>
             </div>
 
-            <div v-if="formScheduleMode === 'monthly'" class="grid gap-2.5 sm:grid-cols-[minmax(0,160px)_1fr]">
+            <div v-if="formScheduleMode === 'monthly'" class="grid gap-4 sm:grid-cols-[minmax(0,160px)_1fr]">
               <label class="block">
-                <span class="mb-0.5 block text-[12px] text-muted-foreground">Day of month</span>
+                <span class="mb-1.5 block text-[13px] text-muted-foreground">Day of month</span>
                 <input
                   v-model="formMonthDay"
                   type="number"
                   min="1"
                   max="28"
-                  class="w-full rounded-xl border border-border/45 bg-background/90 px-3 py-1.5 text-[13px] transition-all duration-150 focus:border-primary/35 focus:outline-none focus:ring-2 focus:ring-primary/10"
+                  class="w-full rounded-xl border border-border/45 bg-background/90 px-3.5 py-2.5 text-[13px] transition-all duration-150 focus:border-primary/35 focus:outline-none focus:ring-2 focus:ring-primary/10"
                 >
               </label>
-              <div class="flex items-end">
+              <div class="flex items-end pb-2.5">
                 <p class="text-[12px] text-muted-foreground">
                   Limited to 1-28 so it always exists in every month.
                 </p>
               </div>
             </div>
 
-            <div v-if="formScheduleMode === 'interval'" class="space-y-3">
-              <div class="space-y-1.5">
-                <p class="text-[12px] text-muted-foreground">
+            <div v-if="formScheduleMode === 'interval'" class="space-y-4">
+              <div class="space-y-2">
+                <p class="text-[13px] text-muted-foreground">
                   Repeat every
                 </p>
                 <div class="grid grid-cols-3 gap-2 sm:grid-cols-5">
@@ -662,7 +604,7 @@ onMounted(() => {
                     v-for="option in intervalOptions"
                     :key="option.value"
                     type="button"
-                    class="rounded-xl border px-2.5 py-1.5 text-[12px] font-medium transition-all duration-150"
+                    class="rounded-xl border px-2.5 py-2 text-[12px] font-medium transition-all duration-150"
                     :class="chipButtonClass(formIntervalMinutes === option.value)"
                     @click="formIntervalMinutes = option.value"
                   >
@@ -672,110 +614,80 @@ onMounted(() => {
               </div>
 
               <label class="block">
-                <span class="mb-0.5 block text-[12px] text-muted-foreground">Timezone</span>
-                <div class="flex items-center gap-2">
-                  <input
+                <span class="mb-1.5 block text-[13px] text-muted-foreground">Timezone</span>
+                <div class="relative">
+                  <select
                     v-model="formTimezone"
-                    :list="timezoneSuggestionId"
-                    type="text"
-                    class="w-full rounded-xl border border-border/45 bg-background/90 px-3 py-1.5 text-[13px] transition-all duration-150 focus:border-primary/35 focus:outline-none focus:ring-2 focus:ring-primary/10"
-                    placeholder="Europe/Istanbul"
+                    class="w-full appearance-none rounded-xl border border-border/45 bg-background/90 pl-3.5 pr-8 py-2.5 text-[13px] transition-all duration-150 focus:border-primary/35 focus:outline-none focus:ring-2 focus:ring-primary/10 cursor-pointer text-foreground"
                   >
-                  <button
-                    type="button"
-                    class="shrink-0 rounded-xl border border-border/45 bg-muted/35 px-2.5 py-1.5 text-[11px] font-medium text-muted-foreground transition-all duration-150 hover:border-border/70 hover:bg-card/45 hover:text-foreground"
-                    @click="formTimezone = localTimeZone"
-                  >
-                    Local
-                  </button>
+                    <option v-for="tz in availableTimeZones" :key="tz" :value="tz">{{ tz }}</option>
+                  </select>
+                  <Icon icon="hugeicons:arrow-down-01-sharp" class="absolute right-3.5 top-1/2 -translate-y-1/2 size-4 text-muted-foreground pointer-events-none" />
                 </div>
-                <p class="mt-1 text-[11px] text-muted-foreground">Intervals still use a timezone for consistent next-run display.</p>
               </label>
             </div>
 
-            <div v-if="formScheduleMode === 'custom'" class="space-y-2">
+            <div v-if="formScheduleMode === 'custom'" class="space-y-4">
               <label class="block">
-                <span class="mb-0.5 block text-[12px] text-muted-foreground">Custom cron expression</span>
+                <span class="mb-1.5 block text-[13px] text-muted-foreground">Custom cron expression</span>
                 <input
                   v-model="formCustomCron"
                   type="text"
-                  class="w-full rounded-xl border border-border/45 bg-background/90 px-3 py-1.5 font-mono text-[13px] transition-all duration-150 focus:border-primary/35 focus:outline-none focus:ring-2 focus:ring-primary/10"
+                  class="w-full rounded-xl border border-border/45 bg-background/90 px-3.5 py-2.5 font-mono text-[13px] transition-all duration-150 focus:border-primary/35 focus:outline-none focus:ring-2 focus:ring-primary/10"
                   placeholder="0 9 * * *"
                 >
-                <p class="mt-1 text-[11px] text-muted-foreground">Format: <code>minute hour day month weekday</code>.</p>
+                <p class="mt-1.5 text-[11px] text-muted-foreground">Format: <code>minute hour day month weekday</code>.</p>
               </label>
 
               <label class="block">
-                <span class="mb-0.5 block text-[12px] text-muted-foreground">Timezone</span>
-                <div class="flex items-center gap-2">
-                  <input
+                <span class="mb-1.5 block text-[13px] text-muted-foreground">Timezone</span>
+                <div class="relative">
+                  <select
                     v-model="formTimezone"
-                    :list="timezoneSuggestionId"
-                    type="text"
-                    class="w-full rounded-xl border border-border/45 bg-background/90 px-3 py-1.5 text-[13px] transition-all duration-150 focus:border-primary/35 focus:outline-none focus:ring-2 focus:ring-primary/10"
-                    placeholder="Europe/Istanbul"
+                    class="w-full appearance-none rounded-xl border border-border/45 bg-background/90 pl-3.5 pr-8 py-2.5 text-[13px] transition-all duration-150 focus:border-primary/35 focus:outline-none focus:ring-2 focus:ring-primary/10 cursor-pointer text-foreground"
                   >
-                  <button
-                    type="button"
-                    class="shrink-0 rounded-xl border border-border/45 bg-muted/35 px-2.5 py-1.5 text-[11px] font-medium text-muted-foreground transition-all duration-150 hover:border-border/70 hover:bg-card/45 hover:text-foreground"
-                    @click="formTimezone = localTimeZone"
-                  >
-                    Local
-                  </button>
+                    <option v-for="tz in availableTimeZones" :key="tz" :value="tz">{{ tz }}</option>
+                  </select>
+                  <Icon icon="hugeicons:arrow-down-01-sharp" class="absolute right-3.5 top-1/2 -translate-y-1/2 size-4 text-muted-foreground pointer-events-none" />
                 </div>
               </label>
             </div>
 
-            <datalist :id="timezoneSuggestionId">
-              <option
-                v-for="timezone in availableTimeZones"
-                :key="timezone"
-                :value="timezone"
-              />
-            </datalist>
-
-            <div class="rounded-xl border border-primary/15 bg-primary/5 px-2.5 py-2">
-              <p class="text-[11px] font-medium text-muted-foreground">
-                Schedule preview
-              </p>
-              <p class="mt-0.5 text-[12.5px] text-foreground">
-                {{ scheduleDescription }}
-              </p>
-              <div class="mt-1.5 rounded-xl border border-border/35 bg-background/80 px-2.5 py-1.5">
-                <div class="mb-0.5 text-[10px] text-muted-foreground">
-                  Cron expression
-                </div>
-                <code class="font-mono text-[12px] text-foreground">{{ scheduleExpression || 'Complete the fields to generate a cron expression.' }}</code>
-              </div>
-            </div>
           </div>
 
-          <label class="block">
-            <span class="mb-0.5 block text-[12px] text-muted-foreground">Command</span>
-            <input
-              v-model="formCommand"
-              type="text"
-              class="w-full rounded-xl border border-border/45 bg-background/90 px-3 py-1.5 text-[13px] transition-all duration-150 focus:border-primary/35 focus:outline-none focus:ring-2 focus:ring-primary/10"
-              placeholder="echo hello"
-            >
-            <p class="mt-1 text-[11px] text-muted-foreground">This is the shell command the daemon will run on that schedule.</p>
-          </label>
+          <div class="space-y-1.5">
+            <span class="block text-[13px] text-muted-foreground mb-1.5">Task Action</span>
+            <div class="relative">
+              <select
+                v-model="formCommand"
+                class="w-full appearance-none rounded-xl border border-border/45 bg-background/90 pl-3.5 pr-8 py-2.5 text-[13px] font-medium transition-all duration-150 focus:border-primary/35 focus:outline-none focus:ring-2 focus:ring-primary/10 cursor-pointer text-foreground"
+              >
+                <option value="" disabled>Select an action...</option>
+                <option value="python3 scripts/slide_builder.py">Generate Slide Deck</option>
+                <option value="python3 scripts/backup.py">System Backup</option>
+                <option value="git fetch --all">Data Sync</option>
+                <option value="node scripts/cleanup.js">System Cleanup</option>
+              </select>
+              <Icon icon="hugeicons:arrow-down-01-sharp" class="absolute right-3.5 top-1/2 -translate-y-1/2 size-4 text-muted-foreground pointer-events-none" />
+            </div>
+            <p class="mt-1.5 text-[11px] text-muted-foreground">Select the predefined system action to run on this schedule.</p>
+          </div>
 
-          <p v-if="formError" class="text-[12px] text-destructive">
+          <p v-if="formError" class="text-[13px] text-destructive">
             {{ formError }}
           </p>
         </div>
 
-        <div class="mt-3.5 flex items-center justify-end gap-2">
+        <div class="mt-8 flex items-center justify-end gap-3 border-t border-border/20 pt-5">
           <button
-            class="rounded-xl border border-border/45 px-3 py-1.5 text-[12px] font-medium text-muted-foreground transition-all duration-150 hover:text-foreground hover:bg-muted/45"
+            class="rounded-xl border border-border/45 px-4 py-2 text-[13px] font-medium text-muted-foreground transition-all duration-150 hover:text-foreground hover:bg-muted/45"
             @click="showAddModal = false; resetAddForm()"
           >
             Cancel
           </button>
           <button
             :disabled="submitting"
-            class="rounded-xl bg-primary px-3 py-1.5 text-[12px] font-medium text-primary-foreground transition-all duration-150 hover:brightness-105 disabled:opacity-60"
+            class="rounded-xl bg-primary px-4 py-2 text-[13px] font-medium text-primary-foreground transition-all duration-150 hover:brightness-105 disabled:opacity-60"
             @click="addJob"
           >
             {{ submitting ? 'Adding...' : 'Add Job' }}

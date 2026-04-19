@@ -19,7 +19,7 @@ const navItems: Array<LeafNavItem | GroupNavItem> = [
   { icon: 'hugeicons:dashboard-square-01', label: 'Dashboard', to: '/' },
   { icon: 'hugeicons:chat-01', label: 'Cowork', to: '/cowork' },
   { hugeIcon: ToolCaseIcon, label: 'Tools', to: '/tools' },
-  { icon: 'hugeicons:calendar-03', label: 'Cron Jobs', to: '/cron-jobs' },
+  { icon: 'hugeicons:task-01', label: 'Scheduled', to: '/scheduled' },
   { icon: 'hugeicons:puzzle', label: 'Integrations', to: '/integrations' },
   { icon: 'hugeicons:archive', label: 'Memory', to: '/memory' },
   { icon: 'hugeicons:sliders-horizontal', label: 'Configuration', to: '/configuration' },

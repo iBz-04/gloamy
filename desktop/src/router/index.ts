@@ -2,7 +2,7 @@ import { createRouter, createWebHashHistory } from 'vue-router'
 import AuthenticationPage from '@/pages/authentication.vue'
 import ConfigurationPage from '@/pages/configuration.vue'
 import CoworkPage from '@/pages/cowork.vue'
-import CronJobsPage from '@/pages/cron-jobs.vue'
+import ScheduledPage from '../pages/scheduled.vue'
 import DashboardPage from '@/pages/dashboard.vue'
 import DoctorPage from '@/pages/doctor.vue'
 import IntegrationsPage from '@/pages/integrations.vue'
@@ -42,11 +42,11 @@ const routes = [
     },
   },
   {
-    path: '/cron-jobs',
-    name: 'cron-jobs',
-    component: CronJobsPage,
+    path: '/scheduled',
+    name: 'scheduled',
+    component: ScheduledPage,
     meta: {
-      title: 'Cron Jobs',
+      title: 'Scheduled',
       description: 'Manage scheduled automations and routines.',
     },
   },
