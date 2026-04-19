@@ -36,7 +36,6 @@ const auth = useAuthStore()
 const jobs = ref<CronJob[]>([])
 const loading = ref(true)
 const error = ref<string | null>(null)
-const currentDate = ref(new Date())
 const showAddModal = ref(false)
 const submitting = ref(false)
 const formName = ref('')
@@ -53,7 +52,17 @@ const formCustomCron = ref('')
 const localTimeZone = detectLocalTimeZone()
 const formTimezone = ref(localTimeZone)
 
-const weekDays = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday']
+const searchQuery = ref('')
+const filteredJobs = computed(() => {
+  if (!searchQuery.value) return jobs.value
+  const query = searchQuery.value.toLowerCase()
+  return jobs.value.filter(j => 
+    (j.name?.toLowerCase().includes(query)) ||
+    (j.command.toLowerCase().includes(query)) ||
+    (j.job_type?.toLowerCase().includes(query))
+  )
+})
+
 const weekdayOptions = [
   { value: '0', label: 'Sun', summary: 'Sunday' },
   { value: '1', label: 'Mon', summary: 'Monday' },
@@ -99,96 +108,6 @@ const availableTimeZones = computed(() => {
   return Array.from(new Set([...common.filter(Boolean), ...supported]))
 })
 
-const currentMonth = computed(() => {
-  return currentDate.value.toLocaleDateString('en-US', { month: 'long', year: 'numeric' })
-})
-
-const calendarDays = computed(() => {
-  const year = currentDate.value.getFullYear()
-  const month = currentDate.value.getMonth()
-
-  const firstDay = new Date(year, month, 1)
-  const lastDay = new Date(year, month + 1, 0)
-
-  const days: { date: Date, isCurrentMonth: boolean, jobs: CronJob[] }[] = []
-
-  // Add days from previous month to fill the first week
-  const startPadding = firstDay.getDay()
-  for (let i = startPadding - 1; i >= 0; i--) {
-    const date = new Date(year, month, -i)
-    days.push({ date, isCurrentMonth: false, jobs: [] })
-  }
-
-  // Add days of current month
-  for (let d = 1; d <= lastDay.getDate(); d++) {
-    const date = new Date(year, month, d)
-    days.push({ date, isCurrentMonth: true, jobs: [] })
-  }
-
-  // Add days from next month to complete the grid (6 rows)
-  const endPadding = 42 - days.length
-  for (let i = 1; i <= endPadding; i++) {
-    const date = new Date(year, month + 1, i)
-    days.push({ date, isCurrentMonth: false, jobs: [] })
-  }
-
-  // Assign jobs to their scheduled days
-  for (const job of jobs.value) {
-    if (job.next_run) {
-      const nextRunDate = new Date(job.next_run)
-      if (Number.isNaN(nextRunDate.getTime())) {
-        continue
-      }
-      const dayIndex = days.findIndex(d =>
-        d.date.getFullYear() === nextRunDate.getFullYear()
-        && d.date.getMonth() === nextRunDate.getMonth()
-        && d.date.getDate() === nextRunDate.getDate(),
-      )
-      if (dayIndex !== -1 && days[dayIndex]) {
-        days[dayIndex].jobs.push(job)
-      }
-    }
-  }
-
-  return days
-})
-
-function isToday(date: Date) {
-  const today = new Date()
-  return date.getDate() === today.getDate()
-    && date.getMonth() === today.getMonth()
-    && date.getFullYear() === today.getFullYear()
-}
-
-function prevMonth() {
-  const d = new Date(currentDate.value)
-  d.setMonth(d.getMonth() - 1)
-  currentDate.value = d
-}
-
-function nextMonth() {
-  const d = new Date(currentDate.value)
-  d.setMonth(d.getMonth() + 1)
-  currentDate.value = d
-}
-
-function goToToday() {
-  currentDate.value = new Date()
-}
-
-function jobPillClass(job: CronJob): string {
-  if (!job.enabled)
-    return 'bg-muted text-muted-foreground border-border'
-
-  const status = (job.last_status ?? '').toLowerCase()
-  if (status === 'ok' || status === 'success')
-    return 'bg-emerald-500/10 text-emerald-600 border-emerald-500/20'
-  if (status === 'error' || status === 'failed')
-    return 'bg-destructive/10 text-destructive border-destructive/20'
-
-  return 'bg-primary/10 text-primary border-primary/20'
-}
-
 function jobLabel(job: CronJob): string {
   const name = (job.name ?? '').trim()
   if (name.length > 0)
@@ -202,7 +121,28 @@ function formatDateTime(value: string | null): string {
   const date = new Date(value)
   if (Number.isNaN(date.getTime()))
     return '—'
-  return date.toLocaleString()
+  const formatted = date.toLocaleString('en-US', {
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+    hour12: true
+  })
+  return formatted.replace(', ', ' at ')
+}
+
+function jobPillClass(job: CronJob): string {
+  if (!job.enabled)
+    return 'bg-muted/50 text-muted-foreground border-border/50'
+
+  const status = (job.last_status ?? '').toLowerCase()
+  if (status === 'ok' || status === 'success')
+    return 'bg-emerald-500/10 text-emerald-600 border-emerald-500/20'
+  if (status === 'error' || status === 'failed')
+    return 'bg-destructive/10 text-destructive border-destructive/20'
+
+  return 'bg-primary/10 text-primary border-primary/20'
 }
 
 function detectLocalTimeZone(): string {
@@ -463,43 +403,36 @@ onMounted(() => {
 </script>
 
 <template>
-  <div class="h-full flex flex-col overflow-hidden bg-background text-[15px]">
+  <div class="h-full flex flex-col overflow-hidden bg-background text-[13px]">
     <!-- Header -->
-    <div class="flex-shrink-0 px-6 pt-6 pb-4 border-b border-border/30">
+    <div class="flex-shrink-0 px-6 pt-6 pb-2 border-b border-border/20">
       <div class="flex items-center justify-between mb-4">
-        <div class="flex items-center gap-3">
-          <button
-            class="p-1.5 rounded-xl hover:bg-card/50 text-muted-foreground hover:text-foreground transition-colors"
-            @click="prevMonth"
-          >
-            <Icon icon="hugeicons:arrow-left-01" class="size-4" />
-          </button>
-          <h1 class="font-sans text-[18px] font-medium text-foreground min-w-[180px] text-center">
-            {{ currentMonth }}
-          </h1>
-          <button
-            class="p-1.5 rounded-xl hover:bg-card/50 text-muted-foreground hover:text-foreground transition-colors"
-            @click="nextMonth"
-          >
-            <Icon icon="hugeicons:arrow-right-01" class="size-4" />
-          </button>
-          <button
-            class="ml-2 px-3 py-1.5 text-[12px] font-medium rounded-xl border border-border/50 hover:bg-card/50 text-muted-foreground hover:text-foreground transition-colors"
-            @click="goToToday"
-          >
-            Today
-          </button>
-        </div>
+        <h1 class="font-sans text-[20px] font-semibold text-foreground">
+          Tasks
+        </h1>
+        <button
+          class="flex items-center gap-1.5 px-3 py-1.5 bg-primary text-primary-foreground rounded-xl text-[12px] font-medium hover:opacity-90 transition-opacity"
+          @click="showAddModal = true"
+        >
+          <Icon icon="hugeicons:add-01" class="size-3.5" />
+          Add Job
+        </button>
+      </div>
 
-        <div class="flex items-center gap-2">
-          <!-- Add button -->
-          <button
-            class="flex items-center gap-1.5 px-3 py-1.5 bg-primary text-primary-foreground rounded-xl text-[12px] font-medium hover:opacity-90 transition-opacity"
-            @click="showAddModal = true"
+      <!-- Action Bar -->
+      <div class="flex items-center justify-between mt-1">
+        <div class="relative w-full max-w-[320px]">
+          <Icon icon="hugeicons:search-02" class="absolute left-2.5 top-1/2 -translate-y-1/2 size-4 text-muted-foreground" />
+          <input 
+            v-model="searchQuery" 
+            type="text" 
+            placeholder="Search tasks..." 
+            class="w-full pl-8 pr-3 py-1.5 text-[13px] bg-background border border-border/50 rounded-xl placeholder:text-muted-foreground/60 focus:outline-none focus:border-primary/40 focus:ring-1 focus:ring-primary/20 transition-all"
           >
-            <Icon icon="hugeicons:add-01" class="size-3.5" />
-            Add Job
-          </button>
+        </div>
+        <div class="flex items-center gap-1.5 text-[12px] font-medium text-muted-foreground">
+          <Icon icon="hugeicons:task-01" class="size-4" />
+          Total tasks: <span class="text-foreground ml-0.5">{{ jobs.length }}</span>
         </div>
       </div>
     </div>
@@ -509,72 +442,90 @@ onMounted(() => {
       <Icon icon="hugeicons:loading-03" class="size-6 animate-spin text-muted-foreground" />
     </div>
 
-    <!-- Calendar view -->
-    <div v-else class="flex-1 overflow-hidden flex flex-col px-6 pb-4">
-      <div v-if="error" class="mb-3 rounded-xl border border-destructive/20 bg-destructive/5 px-3 py-2 text-[12px] text-destructive flex items-center justify-between">
+    <!-- Table View -->
+    <div v-else class="flex-1 overflow-hidden flex flex-col px-6 pb-6 pt-4">
+      <div v-if="error" class="mb-3 rounded-xl border border-destructive/20 bg-destructive/5 px-3 py-2 text-[12px] text-destructive flex items-center justify-between shrink-0">
         <span>{{ error }}</span>
         <button class="text-[12px] font-medium hover:underline" @click="fetchJobs">
           Retry
         </button>
       </div>
-      <div class="flex-1 rounded-2xl border border-border/30 overflow-hidden bg-card/10">
-        <!-- Week day headers -->
-        <div class="grid grid-cols-7 border-b border-border/30">
-          <div
-            v-for="day in weekDays"
-            :key="day"
-            class="px-3 py-2 text-[11px] font-medium text-muted-foreground text-center"
-          >
-            {{ day.slice(0, 3) }}
-          </div>
-        </div>
 
-        <!-- Calendar grid -->
-        <div class="h-full grid grid-cols-7 grid-rows-6 overflow-hidden">
-          <div
-            v-for="(day, index) in calendarDays"
-            :key="index"
-            class="border-b border-r border-border/20 p-1.5 overflow-hidden flex flex-col"
-            :class="{
-              'bg-card/30': !day.isCurrentMonth,
-              'bg-background': day.isCurrentMonth,
-            }"
-          >
-            <!-- Date number -->
-            <div class="flex items-center justify-between mb-1">
-              <span
-                class="text-[11px] font-medium w-6 h-6 flex items-center justify-center rounded-full"
-                :class="{
-                  'text-muted-foreground/50': !day.isCurrentMonth,
-                  'text-foreground': day.isCurrentMonth && !isToday(day.date),
-                  'bg-primary text-primary-foreground': isToday(day.date),
-                }"
-              >
-                {{ day.date.getDate() }}
-              </span>
-            </div>
-
-            <!-- Jobs for this day -->
-            <div class="flex-1 space-y-0.5 overflow-y-auto">
-              <div
-                v-for="job in day.jobs.slice(0, 3)"
-                :key="job.id"
-                class="px-1.5 py-0.5 text-[10px] font-medium rounded-lg border truncate cursor-pointer hover:opacity-80 transition-opacity"
-                :class="jobPillClass(job)"
-                :title="jobLabel(job)"
-                @click="selectedJob = job"
-              >
+      <div class="flex-1 rounded-2xl border border-border/30 overflow-auto bg-card/10">
+        <table class="w-full text-left border-collapse">
+          <thead class="sticky top-0 bg-card/95 backdrop-blur-sm z-10 border-b border-border/30">
+            <tr>
+              <th class="py-3 px-4 font-medium text-muted-foreground text-[12px] w-[35%]">
+                <div class="flex items-center gap-1.5">
+                  <Icon icon="hugeicons:number-symbol-square" class="size-3.5" />
+                  Task name
+                </div>
+              </th>
+              <th class="py-3 px-4 font-medium text-muted-foreground text-[12px] w-[20%]">
+                <div class="flex items-center gap-1.5">
+                  <Icon icon="hugeicons:user-circle" class="size-3.5" />
+                  Run by
+                </div>
+              </th>
+              <th class="py-3 px-4 font-medium text-muted-foreground text-[12px] w-[15%]">
+                <div class="flex items-center gap-1.5">
+                  <Icon icon="hugeicons:loading-01" class="size-3.5" />
+                  Status
+                </div>
+              </th>
+              <th class="py-3 px-4 font-medium text-muted-foreground text-[12px] w-[15%]">
+                <div class="flex items-center gap-1.5">
+                  <Icon icon="hugeicons:clock-01" class="size-3.5" />
+                  Date created
+                </div>
+              </th>
+              <th class="py-3 px-4 font-medium text-muted-foreground text-[12px] w-[15%]">
+                <div class="flex items-center gap-1.5">
+                  <Icon icon="hugeicons:time-update" class="size-3.5" />
+                  Last updated
+                </div>
+              </th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr 
+              v-for="job in filteredJobs" 
+              :key="job.id"
+              class="border-b border-border/20 hover:bg-card/40 transition-colors cursor-pointer group last:border-0"
+              @click="selectedJob = job"
+            >
+              <td class="py-3 px-4 text-[13px] text-foreground font-medium truncate max-w-0">
                 {{ jobLabel(job) }}
-              </div>
-              <div
-                v-if="day.jobs.length > 3"
-                class="text-[10px] text-muted-foreground px-1.5 cursor-pointer hover:text-foreground"
-              >
-                +{{ day.jobs.length - 3 }} more
-              </div>
-            </div>
-          </div>
-        </div>
+              </td>
+              <td class="py-3 px-4 text-[13px] text-muted-foreground">
+                <div class="flex items-center gap-1.5">
+                  <Icon :icon="job.job_type === 'slide_builder' ? 'hugeicons:presentation-02' : 'hugeicons:bot'" class="size-4" />
+                  <span class="truncate">{{ job.job_type ?? 'System Daemon' }}</span>
+                </div>
+              </td>
+              <td class="py-3 px-4">
+                <div class="inline-flex items-center gap-1.5 px-2 py-1 rounded-[10px] border text-[11px] font-medium" :class="jobPillClass(job)">
+                  <Icon :icon="job.enabled ? 'hugeicons:play-circle' : 'hugeicons:moon-02'" class="size-3" />
+                  {{ job.enabled ? (job.last_status ?? 'Active') : 'Inactive' }}
+                </div>
+              </td>
+              <td class="py-3 px-4 text-[12px] text-muted-foreground whitespace-nowrap">
+                {{ formatDateTime(job.next_run) }}
+              </td>
+              <td class="py-3 px-4 text-[12px] text-muted-foreground whitespace-nowrap">
+                {{ formatDateTime(job.last_run) }}
+              </td>
+            </tr>
+            <tr v-if="jobs.length === 0 && !loading">
+              <td colspan="5" class="py-12 text-center">
+                <div class="flex flex-col items-center justify-center gap-2 text-muted-foreground">
+                  <Icon icon="hugeicons:task-01" class="size-8 opacity-20" />
+                  <span class="text-[13px]">No tasks found.</span>
+                </div>
+              </td>
+            </tr>
+          </tbody>
+        </table>
       </div>
     </div>
 
@@ -585,7 +536,7 @@ onMounted(() => {
             Add Cron Job
           </h2>
           <button
-            class="p-1 rounded-lg text-muted-foreground transition-colors duration-150 hover:text-foreground hover:bg-muted/45"
+            class="p-1 rounded-xl text-muted-foreground transition-colors duration-150 hover:text-foreground hover:bg-muted/45"
             @click="showAddModal = false; resetAddForm()"
           >
             <Icon icon="hugeicons:cancel-01" class="size-4" />
@@ -598,7 +549,7 @@ onMounted(() => {
             <input
               v-model="formName"
               type="text"
-              class="w-full rounded-lg border border-border/45 bg-background/90 px-3 py-1.5 text-[13px] transition-all duration-150 focus:border-primary/35 focus:outline-none focus:ring-2 focus:ring-primary/10"
+              class="w-full rounded-xl border border-border/45 bg-background/90 px-3 py-1.5 text-[13px] transition-all duration-150 focus:border-primary/35 focus:outline-none focus:ring-2 focus:ring-primary/10"
               placeholder="Nightly Backup"
             >
           </label>
@@ -618,7 +569,7 @@ onMounted(() => {
                 v-for="option in scheduleModeOptions"
                 :key="option.value"
                 type="button"
-                class="rounded-lg border px-2 py-1.5 text-left transition-all duration-150"
+                class="rounded-xl border px-2 py-1.5 text-left transition-all duration-150"
                 :class="scheduleModeButtonClass(option.value)"
                 @click="formScheduleMode = option.value; formError = null"
               >
@@ -632,14 +583,14 @@ onMounted(() => {
             </div>
           </div>
 
-          <div class="space-y-3 rounded-lg border border-border/35 bg-background/70 p-2.5">
+          <div class="space-y-3 rounded-xl border border-border/35 bg-background/70 p-2.5">
             <div v-if="formScheduleMode !== 'interval' && formScheduleMode !== 'custom'" class="grid gap-2.5 sm:grid-cols-2">
               <label class="block">
                 <span class="mb-0.5 block text-[12px] text-muted-foreground">Time</span>
                 <input
                   v-model="formTime"
                   type="time"
-                  class="w-full rounded-lg border border-border/45 bg-background/90 px-3 py-1.5 text-[13px] transition-all duration-150 focus:border-primary/35 focus:outline-none focus:ring-2 focus:ring-primary/10"
+                  class="w-full rounded-xl border border-border/45 bg-background/90 px-3 py-1.5 text-[13px] transition-all duration-150 focus:border-primary/35 focus:outline-none focus:ring-2 focus:ring-primary/10"
                 >
               </label>
 
@@ -650,12 +601,12 @@ onMounted(() => {
                     v-model="formTimezone"
                     :list="timezoneSuggestionId"
                     type="text"
-                    class="w-full rounded-lg border border-border/45 bg-background/90 px-3 py-1.5 text-[13px] transition-all duration-150 focus:border-primary/35 focus:outline-none focus:ring-2 focus:ring-primary/10"
+                    class="w-full rounded-xl border border-border/45 bg-background/90 px-3 py-1.5 text-[13px] transition-all duration-150 focus:border-primary/35 focus:outline-none focus:ring-2 focus:ring-primary/10"
                     placeholder="Europe/Istanbul"
                   >
                   <button
                     type="button"
-                    class="shrink-0 rounded-lg border border-border/45 bg-muted/35 px-2.5 py-1.5 text-[11px] font-medium text-muted-foreground transition-all duration-150 hover:border-border/70 hover:bg-card/45 hover:text-foreground"
+                    class="shrink-0 rounded-xl border border-border/45 bg-muted/35 px-2.5 py-1.5 text-[11px] font-medium text-muted-foreground transition-all duration-150 hover:border-border/70 hover:bg-card/45 hover:text-foreground"
                     @click="formTimezone = localTimeZone"
                   >
                     Local
@@ -674,7 +625,7 @@ onMounted(() => {
                   v-for="option in weekdayOptions"
                   :key="option.value"
                   type="button"
-                  class="rounded-lg border px-2 py-1.5 text-[12px] font-medium transition-all duration-150"
+                  class="rounded-xl border px-2 py-1.5 text-[12px] font-medium transition-all duration-150"
                   :class="chipButtonClass(formWeekday === option.value)"
                   @click="formWeekday = option.value"
                 >
@@ -691,7 +642,7 @@ onMounted(() => {
                   type="number"
                   min="1"
                   max="28"
-                  class="w-full rounded-lg border border-border/45 bg-background/90 px-3 py-1.5 text-[13px] transition-all duration-150 focus:border-primary/35 focus:outline-none focus:ring-2 focus:ring-primary/10"
+                  class="w-full rounded-xl border border-border/45 bg-background/90 px-3 py-1.5 text-[13px] transition-all duration-150 focus:border-primary/35 focus:outline-none focus:ring-2 focus:ring-primary/10"
                 >
               </label>
               <div class="flex items-end">
@@ -711,7 +662,7 @@ onMounted(() => {
                     v-for="option in intervalOptions"
                     :key="option.value"
                     type="button"
-                    class="rounded-lg border px-2.5 py-1.5 text-[12px] font-medium transition-all duration-150"
+                    class="rounded-xl border px-2.5 py-1.5 text-[12px] font-medium transition-all duration-150"
                     :class="chipButtonClass(formIntervalMinutes === option.value)"
                     @click="formIntervalMinutes = option.value"
                   >
@@ -727,12 +678,12 @@ onMounted(() => {
                     v-model="formTimezone"
                     :list="timezoneSuggestionId"
                     type="text"
-                    class="w-full rounded-lg border border-border/45 bg-background/90 px-3 py-1.5 text-[13px] transition-all duration-150 focus:border-primary/35 focus:outline-none focus:ring-2 focus:ring-primary/10"
+                    class="w-full rounded-xl border border-border/45 bg-background/90 px-3 py-1.5 text-[13px] transition-all duration-150 focus:border-primary/35 focus:outline-none focus:ring-2 focus:ring-primary/10"
                     placeholder="Europe/Istanbul"
                   >
                   <button
                     type="button"
-                    class="shrink-0 rounded-lg border border-border/45 bg-muted/35 px-2.5 py-1.5 text-[11px] font-medium text-muted-foreground transition-all duration-150 hover:border-border/70 hover:bg-card/45 hover:text-foreground"
+                    class="shrink-0 rounded-xl border border-border/45 bg-muted/35 px-2.5 py-1.5 text-[11px] font-medium text-muted-foreground transition-all duration-150 hover:border-border/70 hover:bg-card/45 hover:text-foreground"
                     @click="formTimezone = localTimeZone"
                   >
                     Local
@@ -748,7 +699,7 @@ onMounted(() => {
                 <input
                   v-model="formCustomCron"
                   type="text"
-                  class="w-full rounded-lg border border-border/45 bg-background/90 px-3 py-1.5 font-mono text-[13px] transition-all duration-150 focus:border-primary/35 focus:outline-none focus:ring-2 focus:ring-primary/10"
+                  class="w-full rounded-xl border border-border/45 bg-background/90 px-3 py-1.5 font-mono text-[13px] transition-all duration-150 focus:border-primary/35 focus:outline-none focus:ring-2 focus:ring-primary/10"
                   placeholder="0 9 * * *"
                 >
                 <p class="mt-1 text-[11px] text-muted-foreground">Format: <code>minute hour day month weekday</code>.</p>
@@ -761,12 +712,12 @@ onMounted(() => {
                     v-model="formTimezone"
                     :list="timezoneSuggestionId"
                     type="text"
-                    class="w-full rounded-lg border border-border/45 bg-background/90 px-3 py-1.5 text-[13px] transition-all duration-150 focus:border-primary/35 focus:outline-none focus:ring-2 focus:ring-primary/10"
+                    class="w-full rounded-xl border border-border/45 bg-background/90 px-3 py-1.5 text-[13px] transition-all duration-150 focus:border-primary/35 focus:outline-none focus:ring-2 focus:ring-primary/10"
                     placeholder="Europe/Istanbul"
                   >
                   <button
                     type="button"
-                    class="shrink-0 rounded-lg border border-border/45 bg-muted/35 px-2.5 py-1.5 text-[11px] font-medium text-muted-foreground transition-all duration-150 hover:border-border/70 hover:bg-card/45 hover:text-foreground"
+                    class="shrink-0 rounded-xl border border-border/45 bg-muted/35 px-2.5 py-1.5 text-[11px] font-medium text-muted-foreground transition-all duration-150 hover:border-border/70 hover:bg-card/45 hover:text-foreground"
                     @click="formTimezone = localTimeZone"
                   >
                     Local
@@ -783,14 +734,14 @@ onMounted(() => {
               />
             </datalist>
 
-            <div class="rounded-lg border border-primary/15 bg-primary/5 px-2.5 py-2">
+            <div class="rounded-xl border border-primary/15 bg-primary/5 px-2.5 py-2">
               <p class="text-[11px] font-medium text-muted-foreground">
                 Schedule preview
               </p>
               <p class="mt-0.5 text-[12.5px] text-foreground">
                 {{ scheduleDescription }}
               </p>
-              <div class="mt-1.5 rounded-lg border border-border/35 bg-background/80 px-2.5 py-1.5">
+              <div class="mt-1.5 rounded-xl border border-border/35 bg-background/80 px-2.5 py-1.5">
                 <div class="mb-0.5 text-[10px] text-muted-foreground">
                   Cron expression
                 </div>
@@ -804,7 +755,7 @@ onMounted(() => {
             <input
               v-model="formCommand"
               type="text"
-              class="w-full rounded-lg border border-border/45 bg-background/90 px-3 py-1.5 text-[13px] transition-all duration-150 focus:border-primary/35 focus:outline-none focus:ring-2 focus:ring-primary/10"
+              class="w-full rounded-xl border border-border/45 bg-background/90 px-3 py-1.5 text-[13px] transition-all duration-150 focus:border-primary/35 focus:outline-none focus:ring-2 focus:ring-primary/10"
               placeholder="echo hello"
             >
             <p class="mt-1 text-[11px] text-muted-foreground">This is the shell command the daemon will run on that schedule.</p>
@@ -817,14 +768,14 @@ onMounted(() => {
 
         <div class="mt-3.5 flex items-center justify-end gap-2">
           <button
-            class="rounded-lg border border-border/45 px-3 py-1.5 text-[12px] font-medium text-muted-foreground transition-all duration-150 hover:text-foreground hover:bg-muted/45"
+            class="rounded-xl border border-border/45 px-3 py-1.5 text-[12px] font-medium text-muted-foreground transition-all duration-150 hover:text-foreground hover:bg-muted/45"
             @click="showAddModal = false; resetAddForm()"
           >
             Cancel
           </button>
           <button
             :disabled="submitting"
-            class="rounded-lg bg-primary px-3 py-1.5 text-[12px] font-medium text-primary-foreground transition-all duration-150 hover:brightness-105 disabled:opacity-60"
+            class="rounded-xl bg-primary px-3 py-1.5 text-[12px] font-medium text-primary-foreground transition-all duration-150 hover:brightness-105 disabled:opacity-60"
             @click="addJob"
           >
             {{ submitting ? 'Adding...' : 'Add Job' }}
@@ -840,7 +791,7 @@ onMounted(() => {
             Cron Job
           </h2>
           <button
-            class="p-1 rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted/50"
+            class="p-1 rounded-xl text-muted-foreground hover:text-foreground hover:bg-muted/50"
             @click="selectedJob = null"
           >
             <Icon icon="hugeicons:cancel-01" class="size-4" />
