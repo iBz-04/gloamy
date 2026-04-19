@@ -50,6 +50,12 @@ const isGroupActive = (children: LeafNavItem[]) => children.some((child) => isRo
 const isGroupNavItem = (item: LeafNavItem | GroupNavItem): item is GroupNavItem => 'children' in item
 
 const getNavItemKey = (item: LeafNavItem | GroupNavItem) => (isGroupNavItem(item) ? `group-${item.label}` : item.to)
+
+const historyItems = [
+  { label: 'Agent loop refactor', icon: 'hugeicons:message-01' },
+  { label: 'UI polishing', icon: 'hugeicons:message-01' },
+  { label: 'New API routes', icon: 'hugeicons:message-01' },
+]
 </script>
 
 <template>
@@ -148,6 +154,45 @@ const getNavItemKey = (item: LeafNavItem | GroupNavItem) => (isGroupNavItem(item
         </RouterLink>
       </template>
     </nav>
+
+    <div class="mt-8 flex flex-col px-2">
+      <div
+        v-if="!isCollapsed"
+        v-motion
+        :initial="{ opacity: 0 }"
+        :enter="{ opacity: 1, transition: { delay: 300 } }"
+        class="flex items-center justify-between px-3 mb-2"
+      >
+        <span class="text-[14px] font-medium text-muted-foreground/80">History</span>
+        <div class="flex items-center gap-3 text-muted-foreground/70">
+          <button class="hover:text-foreground transition-colors" title="Filter">
+            <Icon icon="hugeicons:filter-horizontal" class="size-[15px]" />
+          </button>
+          <button class="hover:text-foreground transition-colors" title="New folder">
+            <Icon icon="hugeicons:folder-add" class="size-[15px]" />
+          </button>
+        </div>
+      </div>
+
+      <div class="flex flex-col gap-0.5">
+        <button
+          v-for="(item, i) in historyItems"
+          :key="i"
+          v-motion
+          :initial="{ opacity: 0, x: -10 }"
+          :enter="{ opacity: 1, x: 0, transition: { delay: 350 + i * 30 } }"
+          class="flex items-center gap-3 px-3 py-2 text-[13px] font-medium rounded-md transition-colors duration-150 w-full"
+          :class="[
+            isCollapsed ? 'justify-center !px-2' : '',
+            'text-muted-foreground hover:text-foreground hover:bg-muted/25'
+          ]"
+          :title="isCollapsed ? item.label : undefined"
+        >
+          <Icon :icon="item.icon" class="size-4 shrink-0" />
+          <span v-if="!isCollapsed" class="truncate">{{ item.label }}</span>
+        </button>
+      </div>
+    </div>
 
     <div class="mt-auto px-2 pb-4 pt-2">
       <RouterLink
