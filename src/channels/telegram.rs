@@ -2263,11 +2263,7 @@ impl Channel for TelegramChannel {
     ) -> anyhow::Result<()> {
         let (chat_id, _) = Self::parse_reply_target(recipient);
 
-        let safe_text = if text.trim().is_empty() {
-            "..."
-        } else {
-            text
-        };
+        let safe_text = if text.trim().is_empty() { "..." } else { text };
 
         // Rate-limit edits per chat
         {
@@ -2344,7 +2340,9 @@ impl Channel for TelegramChannel {
         // If we have attachments, delete the draft and send fresh messages
         // (Telegram editMessageText can't add attachments)
         // Also delete the draft if the resulting message and attachments are empty.
-        if !attachments.is_empty() || (text_without_markers.trim().is_empty() && attachments.is_empty()) {
+        if !attachments.is_empty()
+            || (text_without_markers.trim().is_empty() && attachments.is_empty())
+        {
             // Delete the draft message
             if let Some(id) = msg_id {
                 let _ = self

@@ -45,8 +45,12 @@ use uuid::Uuid;
 
 /// Maximum request body size (64KB) — prevents memory exhaustion
 pub const MAX_BODY_SIZE: usize = 65_536;
-/// Request timeout (30s) — prevents slow-loris attacks
+/// Request timeout (30s), prevents slow-loris attacks.
 pub const REQUEST_TIMEOUT_SECS: u64 = 30;
+/// Timeout for `POST /api/chat` (5 minutes). The full agent loop with tools can
+/// take significantly longer than the global 30s timeout, so this endpoint is
+/// isolated on a dedicated sub-router with its own TimeoutLayer.
+pub const AGENT_CHAT_TIMEOUT_SECS: u64 = 300;
 /// Sliding window used by gateway rate limiting.
 pub const RATE_LIMIT_WINDOW_SECS: u64 = 60;
 /// Fallback max distinct client keys tracked in gateway rate limiter.
@@ -651,6 +655,22 @@ pub async fn run_gateway(host: &str, port: u16, config: Config) -> Result<()> {
         .route("/api/config", put(api::handle_api_config_put))
         .layer(RequestBodyLimitLayer::new(1_048_576));
 
+    let cors_layer = tower_http::cors::CorsLayer::new()
+        .allow_origin(tower_http::cors::Any)
+        .allow_methods(tower_http::cors::Any)
+        .allow_headers(tower_http::cors::Any);
+
+    // Agent chat endpoint: full agent loop with tools can take minutes, so keep
+    // it on its own sub-router with an extended timeout.
+    let chat_router = Router::new()
+        .route("/api/chat", post(handle_api_chat))
+        .layer(RequestBodyLimitLayer::new(MAX_BODY_SIZE))
+        .layer(TimeoutLayer::with_status_code(
+            StatusCode::REQUEST_TIMEOUT,
+            Duration::from_secs(AGENT_CHAT_TIMEOUT_SECS),
+        ))
+        .with_state(state.clone());
+
     // Build router with middleware
     let app = Router::new()
         // ── Existing routes ──
@@ -693,18 +713,14 @@ pub async fn run_gateway(host: &str, port: u16, config: Config) -> Result<()> {
         .route("/_app/{*path}", get(static_files::handle_static))
         // ── Config PUT with larger body limit ──
         .merge(config_put_router)
-        .with_state(state)
-        .layer(
-            tower_http::cors::CorsLayer::new()
-                .allow_origin(tower_http::cors::Any)
-                .allow_methods(tower_http::cors::Any)
-                .allow_headers(tower_http::cors::Any),
-        )
-        .layer(RequestBodyLimitLayer::new(MAX_BODY_SIZE))
+        .with_state(state.clone())
         .layer(TimeoutLayer::with_status_code(
             StatusCode::REQUEST_TIMEOUT,
             Duration::from_secs(REQUEST_TIMEOUT_SECS),
         ))
+        .merge(chat_router)
+        .layer(cors_layer)
+        .layer(RequestBodyLimitLayer::new(MAX_BODY_SIZE))
         // ── Desktop-only fallback for removed browser dashboard ──
         .fallback(get(static_files::handle_spa_fallback));
 
@@ -887,6 +903,134 @@ async fn run_gateway_chat_with_tools(state: &AppState, message: &str) -> anyhow:
 #[derive(serde::Deserialize)]
 pub struct WebhookBody {
     pub message: String,
+}
+
+/// Desktop agent chat request body (`POST /api/chat`).
+#[derive(serde::Deserialize)]
+pub struct ApiChatBody {
+    pub message: String,
+}
+
+/// POST /api/chat, desktop-facing agent chat endpoint.
+///
+/// Unlike `/webhook` (simple chat, no tools), this runs the full agent loop with
+/// tools, peripherals, and memory. Stateless: each request is an independent
+/// invocation with no conversation history carried across calls.
+///
+/// Auth: bearer token (pairing). Rate-limited via the webhook limiter since a
+/// chat request is similarly expensive.
+async fn handle_api_chat(
+    State(state): State<AppState>,
+    ConnectInfo(peer_addr): ConnectInfo<SocketAddr>,
+    headers: HeaderMap,
+    body: Result<Json<ApiChatBody>, axum::extract::rejection::JsonRejection>,
+) -> impl IntoResponse {
+    // ── Bearer token auth (pairing) ──
+    if state.pairing.require_pairing() {
+        let auth = headers
+            .get(header::AUTHORIZATION)
+            .and_then(|v| v.to_str().ok())
+            .unwrap_or("");
+        let token = auth.strip_prefix("Bearer ").unwrap_or("");
+        if !state.pairing.is_authenticated(token) {
+            let err = serde_json::json!({
+                "error": "Unauthorized. Pair first via POST /pair, then send Authorization: Bearer <token>"
+            });
+            return (StatusCode::UNAUTHORIZED, Json(err));
+        }
+    }
+
+    // ── Rate limit (shared with /webhook budget) ──
+    let rate_key =
+        client_key_from_request(Some(peer_addr), &headers, state.trust_forwarded_headers);
+    if !state.rate_limiter.allow_webhook(&rate_key) {
+        tracing::warn!("/api/chat rate limit exceeded");
+        let err = serde_json::json!({
+            "error": "Too many chat requests. Please retry later.",
+            "retry_after": RATE_LIMIT_WINDOW_SECS,
+        });
+        return (StatusCode::TOO_MANY_REQUESTS, Json(err));
+    }
+
+    // ── Parse body ──
+    let Json(chat_body) = match body {
+        Ok(b) => b,
+        Err(e) => {
+            tracing::warn!("/api/chat JSON parse error: {e}");
+            let err = serde_json::json!({
+                "error": "Invalid JSON body. Expected: {\"message\": \"...\"}"
+            });
+            return (StatusCode::BAD_REQUEST, Json(err));
+        }
+    };
+
+    let message = chat_body.message.trim();
+    if message.is_empty() {
+        let err = serde_json::json!({"error": "message must be a non-empty string"});
+        return (StatusCode::BAD_REQUEST, Json(err));
+    }
+
+    let provider_label = state
+        .config
+        .lock()
+        .default_provider
+        .clone()
+        .unwrap_or_else(|| "unknown".to_string());
+    let model_label = state.model.clone();
+    let started_at = Instant::now();
+
+    state
+        .observer
+        .record_event(&crate::observability::ObserverEvent::AgentStart {
+            provider: provider_label.clone(),
+            model: model_label.clone(),
+        });
+
+    match run_gateway_chat_with_tools(&state, message).await {
+        Ok(response) => {
+            let duration = started_at.elapsed();
+            state.observer.record_metric(
+                &crate::observability::traits::ObserverMetric::RequestLatency(duration),
+            );
+            state
+                .observer
+                .record_event(&crate::observability::ObserverEvent::AgentEnd {
+                    provider: provider_label,
+                    model: model_label,
+                    duration,
+                    tokens_used: None,
+                    cost_usd: None,
+                });
+
+            let body = serde_json::json!({
+                "response": response,
+                "model": state.model,
+            });
+            (StatusCode::OK, Json(body))
+        }
+        Err(e) => {
+            let duration = started_at.elapsed();
+            let sanitized = providers::sanitize_api_error(&e.to_string());
+            state
+                .observer
+                .record_event(&crate::observability::ObserverEvent::Error {
+                    component: "api_chat".to_string(),
+                    message: sanitized.clone(),
+                });
+            state
+                .observer
+                .record_event(&crate::observability::ObserverEvent::AgentEnd {
+                    provider: provider_label,
+                    model: model_label,
+                    duration,
+                    tokens_used: None,
+                    cost_usd: None,
+                });
+            tracing::error!("/api/chat agent error: {}", sanitized);
+            let err = serde_json::json!({"error": sanitized});
+            (StatusCode::INTERNAL_SERVER_ERROR, Json(err))
+        }
+    }
 }
 
 /// POST /webhook — main webhook endpoint
@@ -1575,6 +1719,11 @@ mod tests {
     }
 
     #[test]
+    fn security_agent_chat_timeout_is_5_minutes() {
+        assert_eq!(AGENT_CHAT_TIMEOUT_SECS, 300);
+    }
+
+    #[test]
     fn webhook_body_requires_message_field() {
         let valid = r#"{"message": "hello"}"#;
         let parsed: Result<WebhookBody, _> = serde_json::from_str(valid);
@@ -1583,6 +1732,18 @@ mod tests {
 
         let missing = r#"{"other": "field"}"#;
         let parsed: Result<WebhookBody, _> = serde_json::from_str(missing);
+        assert!(parsed.is_err());
+    }
+
+    #[test]
+    fn api_chat_body_requires_message_field() {
+        let valid = r#"{"message": "hello"}"#;
+        let parsed: Result<ApiChatBody, _> = serde_json::from_str(valid);
+        assert!(parsed.is_ok());
+        assert_eq!(parsed.unwrap().message, "hello");
+
+        let missing = r#"{"other": "field"}"#;
+        let parsed: Result<ApiChatBody, _> = serde_json::from_str(missing);
         assert!(parsed.is_err());
     }
 
@@ -2116,6 +2277,146 @@ mod tests {
         assert_eq!(parsed["status"], "duplicate");
         assert_eq!(parsed["idempotent"], true);
         assert_eq!(provider_impl.calls.load(Ordering::SeqCst), 1);
+    }
+
+    #[tokio::test]
+    async fn api_chat_rejects_unpaired_bearer_token() {
+        let state = AppState {
+            config: Arc::new(Mutex::new(Config::default())),
+            provider: Arc::new(MockProvider::default()),
+            model: "test-model".into(),
+            temperature: 0.0,
+            mem: Arc::new(MockMemory),
+            auto_save: false,
+            webhook_secret_hash: None,
+            pairing: Arc::new(PairingGuard::new(true, &[])),
+            trust_forwarded_headers: false,
+            rate_limiter: Arc::new(GatewayRateLimiter::new(100, 100, 100)),
+            idempotency_store: Arc::new(IdempotencyStore::new(Duration::from_secs(300), 1000)),
+            whatsapp: None,
+            whatsapp_app_secret: None,
+            linq: None,
+            linq_signing_secret: None,
+            nextcloud_talk: None,
+            nextcloud_talk_webhook_secret: None,
+            wati: None,
+            observer: Arc::new(crate::observability::NoopObserver),
+            tools_registry: Arc::new(Vec::new()),
+            cost_tracker: None,
+            event_tx: tokio::sync::broadcast::channel(16).0,
+        };
+
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            header::AUTHORIZATION,
+            HeaderValue::from_static("Bearer invalid-token"),
+        );
+
+        let response = handle_api_chat(
+            State(state),
+            test_connect_info(),
+            headers,
+            Ok(Json(ApiChatBody {
+                message: "hello".into(),
+            })),
+        )
+        .await
+        .into_response();
+
+        assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+    }
+
+    #[tokio::test]
+    async fn api_chat_rejects_empty_message() {
+        let state = AppState {
+            config: Arc::new(Mutex::new(Config::default())),
+            provider: Arc::new(MockProvider::default()),
+            model: "test-model".into(),
+            temperature: 0.0,
+            mem: Arc::new(MockMemory),
+            auto_save: false,
+            webhook_secret_hash: None,
+            pairing: Arc::new(PairingGuard::new(false, &[])),
+            trust_forwarded_headers: false,
+            rate_limiter: Arc::new(GatewayRateLimiter::new(100, 100, 100)),
+            idempotency_store: Arc::new(IdempotencyStore::new(Duration::from_secs(300), 1000)),
+            whatsapp: None,
+            whatsapp_app_secret: None,
+            linq: None,
+            linq_signing_secret: None,
+            nextcloud_talk: None,
+            nextcloud_talk_webhook_secret: None,
+            wati: None,
+            observer: Arc::new(crate::observability::NoopObserver),
+            tools_registry: Arc::new(Vec::new()),
+            cost_tracker: None,
+            event_tx: tokio::sync::broadcast::channel(16).0,
+        };
+
+        let response = handle_api_chat(
+            State(state),
+            test_connect_info(),
+            HeaderMap::new(),
+            Ok(Json(ApiChatBody {
+                message: "   ".into(),
+            })),
+        )
+        .await
+        .into_response();
+
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    }
+
+    #[tokio::test]
+    async fn api_chat_rate_limit_triggers_before_body_parse() {
+        let state = AppState {
+            config: Arc::new(Mutex::new(Config::default())),
+            provider: Arc::new(MockProvider::default()),
+            model: "test-model".into(),
+            temperature: 0.0,
+            mem: Arc::new(MockMemory),
+            auto_save: false,
+            webhook_secret_hash: None,
+            pairing: Arc::new(PairingGuard::new(false, &[])),
+            trust_forwarded_headers: false,
+            rate_limiter: Arc::new(GatewayRateLimiter::new(100, 1, 100)),
+            idempotency_store: Arc::new(IdempotencyStore::new(Duration::from_secs(300), 1000)),
+            whatsapp: None,
+            whatsapp_app_secret: None,
+            linq: None,
+            linq_signing_secret: None,
+            nextcloud_talk: None,
+            nextcloud_talk_webhook_secret: None,
+            wati: None,
+            observer: Arc::new(crate::observability::NoopObserver),
+            tools_registry: Arc::new(Vec::new()),
+            cost_tracker: None,
+            event_tx: tokio::sync::broadcast::channel(16).0,
+        };
+
+        let first = handle_api_chat(
+            State(state.clone()),
+            test_connect_info(),
+            HeaderMap::new(),
+            Ok(Json(ApiChatBody {
+                message: "   ".into(),
+            })),
+        )
+        .await
+        .into_response();
+        assert_eq!(first.status(), StatusCode::BAD_REQUEST);
+
+        let second = handle_api_chat(
+            State(state),
+            test_connect_info(),
+            HeaderMap::new(),
+            Ok(Json(ApiChatBody {
+                message: "   ".into(),
+            })),
+        )
+        .await
+        .into_response();
+        assert_eq!(second.status(), StatusCode::TOO_MANY_REQUESTS);
     }
 
     #[tokio::test]

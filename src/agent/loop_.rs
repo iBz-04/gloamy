@@ -439,19 +439,8 @@ fn response_claims_task_completion(response: &str) -> bool {
 fn parse_requested_output_extension(content: &str) -> Option<&'static str> {
     let lower = content.to_ascii_lowercase();
     let action_markers = [
-        "make",
-        "convert",
-        "generate",
-        "export",
-        "create",
-        "save",
-        "turn",
-        "send",
-        "deliver",
-        "need",
-        "want",
-        "into",
-        "as ",
+        "make", "convert", "generate", "export", "create", "save", "turn", "send", "deliver",
+        "need", "want", "into", "as ",
     ];
 
     let has_action_marker = action_markers.iter().any(|marker| lower.contains(marker));
@@ -512,11 +501,9 @@ fn contains_artifact_reference_for_extension(text: &str, extension: &str) -> boo
 fn json_value_contains_artifact_extension(value: &serde_json::Value, extension: &str) -> bool {
     match value {
         serde_json::Value::String(s) => contains_artifact_reference_for_extension(s, extension),
-        serde_json::Value::Array(items) => {
-            items
-                .iter()
-                .any(|item| json_value_contains_artifact_extension(item, extension))
-        }
+        serde_json::Value::Array(items) => items
+            .iter()
+            .any(|item| json_value_contains_artifact_extension(item, extension)),
         serde_json::Value::Object(map) => map
             .values()
             .any(|value| json_value_contains_artifact_extension(value, extension)),
@@ -525,12 +512,20 @@ fn json_value_contains_artifact_extension(value: &serde_json::Value, extension: 
 }
 
 fn history_contains_artifact_extension(history: &[ChatMessage], extension: &str) -> bool {
-    history.iter().rev().take(24).any(|msg| match msg.role.as_str() {
-        "assistant" | "tool" => contains_artifact_reference_for_extension(&msg.content, extension),
-        "user" => msg.content.starts_with("[Tool results]")
-            && contains_artifact_reference_for_extension(&msg.content, extension),
-        _ => false,
-    })
+    history
+        .iter()
+        .rev()
+        .take(24)
+        .any(|msg| match msg.role.as_str() {
+            "assistant" | "tool" => {
+                contains_artifact_reference_for_extension(&msg.content, extension)
+            }
+            "user" => {
+                msg.content.starts_with("[Tool results]")
+                    && contains_artifact_reference_for_extension(&msg.content, extension)
+            }
+            _ => false,
+        })
 }
 
 fn unresolved_steps_completion_guard_message(unresolved_failed_steps: &[String]) -> String {
@@ -679,7 +674,11 @@ fn read_markdown_guidelines(path: &Path) -> Vec<String> {
         .collect()
 }
 
-fn write_markdown_guidelines(path: &Path, title: &str, guidelines: &[String]) -> std::io::Result<()> {
+fn write_markdown_guidelines(
+    path: &Path,
+    title: &str,
+    guidelines: &[String],
+) -> std::io::Result<()> {
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent)?;
     }
@@ -807,7 +806,8 @@ fn sync_prompt_evolution_markdown(workspace_root: &Path, state: &PromptEvolution
         .map(|rule| vec![rule.guideline.clone()])
         .unwrap_or_default();
 
-    if let Err(err) = write_markdown_guidelines(&tactical_path, "Tactical Prompt Evolution", &tactical)
+    if let Err(err) =
+        write_markdown_guidelines(&tactical_path, "Tactical Prompt Evolution", &tactical)
     {
         tracing::warn!(
             path = %tactical_path.display(),
@@ -1047,16 +1047,12 @@ fn load_prompt_evolution_note() -> Option<String> {
         let _ = writeln!(
             note,
             "- Tactical candidate (unverified): {} [reason: {}]",
-            tactical_rule.guideline,
-            tactical_rule.reason_key
+            tactical_rule.guideline, tactical_rule.reason_key
         );
     }
 
-    let strategic_preview: Vec<&PromptEvolutionRule> = strategic_rules
-        .iter()
-        .take(5)
-        .copied()
-        .collect();
+    let strategic_preview: Vec<&PromptEvolutionRule> =
+        strategic_rules.iter().take(5).copied().collect();
     if !strategic_preview.is_empty() {
         note.push_str("- Strategic reminders:\n");
         for rule in strategic_preview {
@@ -5662,11 +5658,17 @@ mod tests {
     #[test]
     fn artifact_reference_detection_requires_extension_token() {
         assert!(contains_artifact_reference_for_extension(
-            "/Users/ibz/.gloamy/workspace/gloamy_vc_report.pdf"
-            ,"pdf"
+            "/Users/ibz/.gloamy/workspace/gloamy_vc_report.pdf",
+            "pdf"
         ));
-        assert!(contains_artifact_reference_for_extension("gloamy_vc_report.PDF", "pdf"));
-        assert!(!contains_artifact_reference_for_extension("please convert this to pdf", "pdf"));
+        assert!(contains_artifact_reference_for_extension(
+            "gloamy_vc_report.PDF",
+            "pdf"
+        ));
+        assert!(!contains_artifact_reference_for_extension(
+            "please convert this to pdf",
+            "pdf"
+        ));
     }
 
     #[test]
@@ -5687,7 +5689,10 @@ mod tests {
             ChatMessage::user("save it as txt instead"),
             ChatMessage::assistant("ok"),
         ];
-        assert_eq!(latest_requested_output_extension(&history_override), Some("txt"));
+        assert_eq!(
+            latest_requested_output_extension(&history_override),
+            Some("txt")
+        );
 
         let history_no_pdf = vec![
             ChatMessage::system("system"),
@@ -5775,8 +5780,7 @@ mod tests {
         assert_eq!(rule.successes, 0);
         assert_eq!(rule.failures, 1);
 
-        let promoted =
-            apply_prompt_evolution_recovery_to_state(&mut state, &rule_id, true, 101);
+        let promoted = apply_prompt_evolution_recovery_to_state(&mut state, &rule_id, true, 101);
         assert!(promoted, "verified recovery should promote tactical rule");
 
         let rule = state
@@ -5802,7 +5806,10 @@ mod tests {
             );
         }
 
-        assert!(last.is_none(), "rule should be dropped after repeated failures");
+        assert!(
+            last.is_none(),
+            "rule should be dropped after repeated failures"
+        );
         assert!(state.rules.is_empty());
         assert!(state.active_tactical_rule_id.is_none());
     }

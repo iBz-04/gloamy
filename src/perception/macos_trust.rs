@@ -132,7 +132,10 @@ pub async fn has_screen_recording_trust() -> bool {
     }
 
     let value = probe_screen_recording().await;
-    cache().lock().await.write(CacheSlot::ScreenRecording, value);
+    cache()
+        .lock()
+        .await
+        .write(CacheSlot::ScreenRecording, value);
     value
 }
 

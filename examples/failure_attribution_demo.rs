@@ -2,7 +2,6 @@
 ///
 /// This example demonstrates how the failure attribution system distinguishes
 /// between agent errors and environment blocks, providing better recovery hints.
-
 use gloamy::tools::gui_verify::build_report;
 use gloamy::tools::{FailureCause, GuiExpectation, GuiExpectationKind};
 use serde_json::json;
@@ -23,13 +22,16 @@ fn main() {
     }];
     let evidence = json!({"url": "https://example.com/login?redirect=/dashboard"});
     let report = build_report(true, None, None, &expectations, &evidence);
-    
+
     println!("Expected: https://example.com/dashboard");
     println!("Actual:   https://example.com/login?redirect=/dashboard");
     println!();
     println!("✅ Verification Status: {:?}", report.verification_status);
     println!("🎯 Failure Cause: {:?}", report.failure_cause);
-    println!("📊 Process Score: {:.2} (agent did the right thing!)", report.process_score.unwrap());
+    println!(
+        "📊 Process Score: {:.2} (agent did the right thing!)",
+        report.process_score.unwrap()
+    );
     println!("🎬 Outcome Success: {}", report.outcome_success.unwrap());
     println!();
     println!("💡 Recovery Hint: Do NOT retry - environment blocked by login wall.");
@@ -49,13 +51,16 @@ fn main() {
     }];
     let evidence = json!({"field_values": {"#username": "test@example.com"}});
     let report = build_report(true, None, None, &expectations, &evidence);
-    
+
     println!("Expected: #email = 'test@example.com'");
     println!("Actual:   #email not found (only #username exists)");
     println!();
     println!("✅ Verification Status: {:?}", report.verification_status);
     println!("🎯 Failure Cause: {:?}", report.failure_cause);
-    println!("📊 Process Score: {:.2} (evidence missing)", report.process_score.unwrap());
+    println!(
+        "📊 Process Score: {:.2} (evidence missing)",
+        report.process_score.unwrap()
+    );
     println!("🎬 Outcome Success: {}", report.outcome_success.unwrap());
     println!();
     println!("💡 Recovery Hint: Evidence absent - use pre_observe:auto or check selector.");
@@ -74,13 +79,16 @@ fn main() {
     }];
     let evidence = json!({"field_values": {"#name": "Bob"}});
     let report = build_report(true, None, None, &expectations, &evidence);
-    
+
     println!("Expected: #name = 'Alice'");
     println!("Actual:   #name = 'Bob'");
     println!();
     println!("✅ Verification Status: {:?}", report.verification_status);
     println!("🎯 Failure Cause: {:?}", report.failure_cause);
-    println!("📊 Process Score: {:.2} (agent made a mistake!)", report.process_score.unwrap());
+    println!(
+        "📊 Process Score: {:.2} (agent made a mistake!)",
+        report.process_score.unwrap()
+    );
     println!("🎬 Outcome Success: {}", report.outcome_success.unwrap());
     println!();
     println!("💡 Recovery Hint: Agent error - inspect expectation_results and retry with");
@@ -99,13 +107,16 @@ fn main() {
     }];
     let evidence = json!({"title": "Please verify you're human - reCAPTCHA"});
     let report = build_report(true, None, None, &expectations, &evidence);
-    
+
     println!("Expected: Window title contains 'Checkout'");
     println!("Actual:   'Please verify you're human - reCAPTCHA'");
     println!();
     println!("✅ Verification Status: {:?}", report.verification_status);
     println!("🎯 Failure Cause: {:?}", report.failure_cause);
-    println!("📊 Process Score: {:.2} (not your fault!)", report.process_score.unwrap());
+    println!(
+        "📊 Process Score: {:.2} (not your fault!)",
+        report.process_score.unwrap()
+    );
     println!("🎬 Outcome Success: {}", report.outcome_success.unwrap());
     println!();
     println!("💡 Recovery Hint: Environment blocked by CAPTCHA - cannot proceed.");
@@ -124,13 +135,16 @@ fn main() {
     }];
     let evidence = json!({"title": "Product Currently Unavailable - Out of Stock"});
     let report = build_report(true, None, None, &expectations, &evidence);
-    
+
     println!("Expected: Window title contains 'Add to Cart'");
     println!("Actual:   'Product Currently Unavailable - Out of Stock'");
     println!();
     println!("✅ Verification Status: {:?}", report.verification_status);
     println!("🎯 Failure Cause: {:?}", report.failure_cause);
-    println!("📊 Process Score: {:.2} (product unavailable)", report.process_score.unwrap());
+    println!(
+        "📊 Process Score: {:.2} (product unavailable)",
+        report.process_score.unwrap()
+    );
     println!("🎬 Outcome Success: {}", report.outcome_success.unwrap());
     println!();
     println!("💡 Recovery Hint: Resource unavailable - skip this item or notify user.");
@@ -148,13 +162,16 @@ fn main() {
     }];
     let evidence = json!({"url": "https://example.com/success"});
     let report = build_report(true, None, None, &expectations, &evidence);
-    
+
     println!("Expected: https://example.com/success");
     println!("Actual:   https://example.com/success");
     println!();
     println!("✅ Verification Status: {:?}", report.verification_status);
     println!("🎯 Failure Cause: {:?}", report.failure_cause);
-    println!("📊 Process Score: {:.2} (perfect execution!)", report.process_score.unwrap());
+    println!(
+        "📊 Process Score: {:.2} (perfect execution!)",
+        report.process_score.unwrap()
+    );
     println!("🎬 Outcome Success: {}", report.outcome_success.unwrap());
     println!();
     println!("💡 Recovery Hint: None needed - task completed successfully!");

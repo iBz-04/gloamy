@@ -163,7 +163,7 @@ fn canonical_aliases(suffix: &str) -> &'static [&'static str] {
         "calendar" => &["ical"],
         "contacts" => &["address book"],
         "voice-memos" => &["voice memo"], // occasional singular slip
-        "mac-apps" => &[], // aggregator skill — no single app
+        "mac-apps" => &[],                // aggregator skill — no single app
         _ => &[],
     }
 }
@@ -183,10 +183,7 @@ impl HookHandler for SkillFirstHook {
             return HookResult::Continue((name, args));
         }
 
-        let action = args
-            .get("action")
-            .and_then(Value::as_str)
-            .unwrap_or("");
+        let action = args.get("action").and_then(Value::as_str).unwrap_or("");
 
         // 1) Direct app_name argument (launch_app, activate_app, click_at
         // when supplied with an explicit target).
@@ -251,9 +248,7 @@ mod tests {
         ]);
 
         let args = serde_json::json!({"action": "launch_app", "app_name": "Notes"});
-        let result = hook
-            .before_tool_call("mac_automation".into(), args)
-            .await;
+        let result = hook.before_tool_call("mac_automation".into(), args).await;
 
         assert!(result.is_cancel());
     }
@@ -263,9 +258,7 @@ mod tests {
         let hook = SkillFirstHook::from_skill_names(&["automating-notes".into()]);
 
         let args = serde_json::json!({"action": "launch_app", "app_name": "Preview"});
-        let result = hook
-            .before_tool_call("mac_automation".into(), args)
-            .await;
+        let result = hook.before_tool_call("mac_automation".into(), args).await;
 
         assert!(!result.is_cancel());
     }
@@ -285,9 +278,7 @@ mod tests {
         let hook = SkillFirstHook::from_skill_names(&["automating-voice-memos".into()]);
 
         let args = serde_json::json!({"action": "activate_app", "app_name": "Voice Memos"});
-        let result = hook
-            .before_tool_call("mac_automation".into(), args)
-            .await;
+        let result = hook.before_tool_call("mac_automation".into(), args).await;
 
         assert!(result.is_cancel());
     }
@@ -302,9 +293,7 @@ mod tests {
             "action": "activate_app",
             "app_name": "Microsoft PowerPoint"
         });
-        let result = hook
-            .before_tool_call("mac_automation".into(), args)
-            .await;
+        let result = hook.before_tool_call("mac_automation".into(), args).await;
         assert!(
             result.is_cancel(),
             "Microsoft PowerPoint should route to automating-powerpoint"
@@ -318,9 +307,7 @@ mod tests {
             "action": "activate_app",
             "app_name": "Google Chrome"
         });
-        let result = hook
-            .before_tool_call("mac_automation".into(), args)
-            .await;
+        let result = hook.before_tool_call("mac_automation".into(), args).await;
         assert!(result.is_cancel());
     }
 
@@ -332,9 +319,7 @@ mod tests {
             "action": "launch_app",
             "app_name": "Microsoft Word.app"
         });
-        let result = hook
-            .before_tool_call("mac_automation".into(), args)
-            .await;
+        let result = hook.before_tool_call("mac_automation".into(), args).await;
         assert!(result.is_cancel());
     }
 
@@ -348,9 +333,7 @@ mod tests {
             "action": "run_applescript",
             "script": "tell application \"Notes\"\n  make new note\nend tell"
         });
-        let result = hook
-            .before_tool_call("mac_automation".into(), args)
-            .await;
+        let result = hook.before_tool_call("mac_automation".into(), args).await;
         assert!(
             result.is_cancel(),
             "run_applescript targeting Notes should route to automating-notes"
@@ -368,9 +351,7 @@ mod tests {
                 "end tell"
             ]
         });
-        let result = hook
-            .before_tool_call("mac_automation".into(), args)
-            .await;
+        let result = hook.before_tool_call("mac_automation".into(), args).await;
         assert!(result.is_cancel());
     }
 
@@ -382,9 +363,7 @@ mod tests {
             "action": "run_applescript",
             "script": "tell application \"Preview\" to activate"
         });
-        let result = hook
-            .before_tool_call("mac_automation".into(), args)
-            .await;
+        let result = hook.before_tool_call("mac_automation".into(), args).await;
         assert!(!result.is_cancel());
     }
 
@@ -392,15 +371,16 @@ mod tests {
     async fn empty_script_passes_through() {
         let hook = SkillFirstHook::from_skill_names(&["automating-notes".into()]);
         let args = serde_json::json!({"action": "run_applescript"});
-        let result = hook
-            .before_tool_call("mac_automation".into(), args)
-            .await;
+        let result = hook.before_tool_call("mac_automation".into(), args).await;
         assert!(!result.is_cancel());
     }
 
     #[test]
     fn normalize_app_token_trims_and_lowercases() {
-        assert_eq!(normalize_app_token("  Microsoft PowerPoint  "), "microsoft powerpoint");
+        assert_eq!(
+            normalize_app_token("  Microsoft PowerPoint  "),
+            "microsoft powerpoint"
+        );
         assert_eq!(normalize_app_token("Google Chrome.app"), "google chrome");
         assert_eq!(normalize_app_token("iMessage"), "imessage");
         assert_eq!(normalize_app_token(""), "");

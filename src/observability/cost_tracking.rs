@@ -14,7 +14,8 @@ fn matches_model_key(configured_key: &str, provider: &str, model: &str) -> bool 
         return false;
     }
 
-    if configured_lower == model_lower || model_lower.starts_with(&(configured_lower.clone() + "-")) {
+    if configured_lower == model_lower || model_lower.starts_with(&(configured_lower.clone() + "-"))
+    {
         return true;
     }
 
@@ -23,7 +24,9 @@ fn matches_model_key(configured_key: &str, provider: &str, model: &str) -> bool 
         .next_back()
         .unwrap_or(configured_lower.as_str());
 
-    if configured_tail == model_lower || model_lower.starts_with(&(configured_tail.to_string() + "-")) {
+    if configured_tail == model_lower
+        || model_lower.starts_with(&(configured_tail.to_string() + "-"))
+    {
         return true;
     }
 

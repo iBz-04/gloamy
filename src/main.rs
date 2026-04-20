@@ -694,10 +694,7 @@ enum MemoryCommands {
 /// the same adjusted config and the same startup diagnostics.
 async fn normalize_runtime_capabilities(config: &mut crate::config::Config) {
     let ocr_available = perception::ocr::is_tesseract_available();
-    if let Some(notice) = config
-        .gui_verification
-        .normalize_for_runtime(ocr_available)
-    {
+    if let Some(notice) = config.gui_verification.normalize_for_runtime(ocr_available) {
         warn!("{}", notice);
     }
 

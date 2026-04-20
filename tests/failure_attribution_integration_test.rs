@@ -6,8 +6,7 @@
 /// 3. Failure cause is inferred (AgentError vs EnvironmentBlocked)
 /// 4. Process score and outcome success are computed
 /// 5. Agent loop uses structured data for better recovery hints
-
-use gloamy::tools::gui_verify::{build_report, verify_expectations};
+use gloamy::tools::gui_verify::build_report;
 use gloamy::tools::{FailureCause, GuiExpectation, GuiExpectationKind, VerificationStatus};
 use serde_json::json;
 

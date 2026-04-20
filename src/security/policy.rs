@@ -2,8 +2,8 @@ use parking_lot::Mutex;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
+use std::sync::Arc;
 use std::time::Instant;
 
 /// How much autonomy the agent has
@@ -284,10 +284,7 @@ struct QuotedHeredocState {
 /// - `<<"DELIM"`
 /// - `<<-'DELIM'`
 /// - `<<-"DELIM"`
-fn parse_quoted_heredoc_opener(
-    chars: &[char],
-    start: usize,
-) -> Option<(usize, String, bool)> {
+fn parse_quoted_heredoc_opener(chars: &[char], start: usize) -> Option<(usize, String, bool)> {
     let mut i = start;
     let mut allow_tab_indentation = false;
 
@@ -1011,196 +1008,425 @@ impl SecurityPolicy {
     pub fn default_allowed_commands() -> Vec<String> {
         let cmds: &[&str] = &[
             // ── Version control ──
-            "git", "gh", "hub", "glab",
+            "git",
+            "gh",
+            "hub",
+            "glab",
             // Windows: git ships the same binary name on all platforms
             "git.exe",
-
             // ── JavaScript / Node ──
-            "node", "npm", "npx", "yarn", "pnpm", "bun", "deno", "volta",
-            "node.exe", "npm.cmd", "npx.cmd", "yarn.cmd", "pnpm.cmd",
-            "bun.exe", "deno.exe",
-
+            "node",
+            "npm",
+            "npx",
+            "yarn",
+            "pnpm",
+            "bun",
+            "deno",
+            "volta",
+            "node.exe",
+            "npm.cmd",
+            "npx.cmd",
+            "yarn.cmd",
+            "pnpm.cmd",
+            "bun.exe",
+            "deno.exe",
             // ── Rust ──
-            "cargo", "rustc", "rustup",
-            "cargo.exe", "rustc.exe", "rustup.exe",
-
+            "cargo",
+            "rustc",
+            "rustup",
+            "cargo.exe",
+            "rustc.exe",
+            "rustup.exe",
             // ── Python ──
-            "python3", "python", "pip3", "pip",
-            "python3.exe", "python.exe", "pip3.exe", "pip.exe",
-            "uv", "rye", "pipx", "poetry", "conda", "mamba",
-            "uv.exe", "pipx.exe", "poetry.exe",
+            "python3",
+            "python",
+            "pip3",
+            "pip",
+            "python3.exe",
+            "python.exe",
+            "pip3.exe",
+            "pip.exe",
+            "uv",
+            "rye",
+            "pipx",
+            "poetry",
+            "conda",
+            "mamba",
+            "uv.exe",
+            "pipx.exe",
+            "poetry.exe",
             "pyenv",
-
             // ── Ruby ──
-            "ruby", "gem", "bundle", "rake", "irb",
-            "ruby.exe", "gem.cmd",
+            "ruby",
+            "gem",
+            "bundle",
+            "rake",
+            "irb",
+            "ruby.exe",
+            "gem.cmd",
             "rbenv",
-
             // ── Go ──
-            "go", "gofmt",
+            "go",
+            "gofmt",
             "go.exe",
-
             // ── Java / JVM ──
-            "java", "javac", "mvn", "gradle", "kotlin", "kotlinc",
-            "java.exe", "javac.exe", "mvn.cmd", "gradle.bat",
-
+            "java",
+            "javac",
+            "mvn",
+            "gradle",
+            "kotlin",
+            "kotlinc",
+            "java.exe",
+            "javac.exe",
+            "mvn.cmd",
+            "gradle.bat",
             // ── .NET / C# ──
-            "dotnet", "dotnet.exe",
-            "nuget", "nuget.exe",
-
+            "dotnet",
+            "dotnet.exe",
+            "nuget",
+            "nuget.exe",
             // ── Swift ──
-            "swift", "swiftc",
-
+            "swift",
+            "swiftc",
             // ── PHP ──
-            "php", "composer",
-            "php.exe", "composer.bat",
-
+            "php",
+            "composer",
+            "php.exe",
+            "composer.bat",
             // ── Lua ──
-            "lua", "luajit",
-
+            "lua",
+            "luajit",
             // ── R ──
-            "Rscript", "R",
-
+            "Rscript",
+            "R",
             // ── Julia ──
-            "julia", "julia.exe",
-
+            "julia",
+            "julia.exe",
             // ── Zig ──
-            "zig", "zig.exe",
-
+            "zig",
+            "zig.exe",
             // ── macOS package manager ──
             "brew",
-
             // ── Windows package managers & shells ──
-            "winget", "choco", "scoop",
-            "cmd", "cmd.exe",
-            "powershell", "powershell.exe", "pwsh", "pwsh.exe",
-            "wsl", "wsl.exe",
-            "py", "py.exe",            // Python launcher for Windows
-
+            "winget",
+            "choco",
+            "scoop",
+            "cmd",
+            "cmd.exe",
+            "powershell",
+            "powershell.exe",
+            "pwsh",
+            "pwsh.exe",
+            "wsl",
+            "wsl.exe",
+            "py",
+            "py.exe", // Python launcher for Windows
             // ── File system (Unix) ──
-            "ls", "cat", "find", "grep", "echo", "pwd",
-            "wc", "head", "tail", "touch", "mkdir", "cp", "mv", "rm",
-            "chmod", "unzip", "tar", "ln", "stat", "realpath", "basename",
-            "dirname", "readlink", "du", "df", "lsof",
-
+            "ls",
+            "cat",
+            "find",
+            "grep",
+            "echo",
+            "pwd",
+            "wc",
+            "head",
+            "tail",
+            "touch",
+            "mkdir",
+            "cp",
+            "mv",
+            "rm",
+            "chmod",
+            "unzip",
+            "tar",
+            "ln",
+            "stat",
+            "realpath",
+            "basename",
+            "dirname",
+            "readlink",
+            "du",
+            "df",
+            "lsof",
             // ── File system (Windows) ──
-            "dir", "type", "copy", "xcopy", "robocopy", "move", "del",
-            "ren", "rename", "rd", "rmdir", "mklink",
-            "attrib", "icacls",
-
+            "dir",
+            "type",
+            "copy",
+            "xcopy",
+            "robocopy",
+            "move",
+            "del",
+            "ren",
+            "rename",
+            "rd",
+            "rmdir",
+            "mklink",
+            "attrib",
+            "icacls",
             // ── Modern CLI replacements ──
-            "rg", "fd", "bat", "eza", "exa", "delta", "hyperfine",
-            "sd", "choose", "procs", "bottom", "btm", "dust", "duf",
-            "tokei", "loc", "cloc",
-            "rg.exe", "fd.exe", "bat.exe", "eza.exe",
-
+            "rg",
+            "fd",
+            "bat",
+            "eza",
+            "exa",
+            "delta",
+            "hyperfine",
+            "sd",
+            "choose",
+            "procs",
+            "bottom",
+            "btm",
+            "dust",
+            "duf",
+            "tokei",
+            "loc",
+            "cloc",
+            "rg.exe",
+            "fd.exe",
+            "bat.exe",
+            "eza.exe",
             // ── Text processing (Unix) ──
-            "sed", "awk", "sort", "cut", "tr", "tee", "xargs",
-            "jq", "yq", "gron", "htmlq", "pup",
-            "diff", "patch", "column", "fmt", "fold", "pr",
-            "strings", "hexdump", "xxd", "od",
-
+            "sed",
+            "awk",
+            "sort",
+            "cut",
+            "tr",
+            "tee",
+            "xargs",
+            "jq",
+            "yq",
+            "gron",
+            "htmlq",
+            "pup",
+            "diff",
+            "patch",
+            "column",
+            "fmt",
+            "fold",
+            "pr",
+            "strings",
+            "hexdump",
+            "xxd",
+            "od",
             // ── Text processing (Windows) ──
-            "find.exe", "findstr", "sort.exe", "fc",
-
+            "find.exe",
+            "findstr",
+            "sort.exe",
+            "fc",
             // ── Network (Unix/cross-platform) ──
-            "curl", "wget", "http", "httpie", "xh",
-            "ping", "nslookup", "dig", "host", "whois",
-            "traceroute", "tracert",
-            "netstat", "ss", "ifconfig", "ipconfig",
-            "ip", "route",
-            "nc", "ncat",
-            "ssh", "scp", "sftp", "rsync",
-
+            "curl",
+            "wget",
+            "http",
+            "httpie",
+            "xh",
+            "ping",
+            "nslookup",
+            "dig",
+            "host",
+            "whois",
+            "traceroute",
+            "tracert",
+            "netstat",
+            "ss",
+            "ifconfig",
+            "ipconfig",
+            "ip",
+            "route",
+            "nc",
+            "ncat",
+            "ssh",
+            "scp",
+            "sftp",
+            "rsync",
             // ── Network (Windows) ──
-            "curl.exe", "wget.exe",
-            "ping.exe", "tracert.exe", "netstat.exe",
-            "ipconfig.exe", "nslookup.exe",
-
+            "curl.exe",
+            "wget.exe",
+            "ping.exe",
+            "tracert.exe",
+            "netstat.exe",
+            "ipconfig.exe",
+            "nslookup.exe",
             // ── Encoding / hashing ──
-            "base64", "md5", "md5sum", "sha1sum", "sha256sum", "shasum",
+            "base64",
+            "md5",
+            "md5sum",
+            "sha1sum",
+            "sha256sum",
+            "shasum",
             "openssl",
             "base64.exe",
-
             // ── Compression ──
-            "gzip", "gunzip", "bzip2", "bunzip2", "xz", "lzma",
-            "zip", "7z", "7za",
-            "7z.exe", "7za.exe",
-
+            "gzip",
+            "gunzip",
+            "bzip2",
+            "bunzip2",
+            "xz",
+            "lzma",
+            "zip",
+            "7z",
+            "7za",
+            "7z.exe",
+            "7za.exe",
             // ── System / utility (Unix) ──
-            "date", "which", "whereis", "type", "command",
-            "open", "xdg-open", "xclip", "xsel",
-            "osascript", "sleep", "watch", "timeout",
-            "ps", "top", "htop", "kill", "killall", "pkill", "pgrep",
-            "uname", "hostname", "id", "whoami", "groups",
-            "env", "printenv", "set",
-            "file", "xattr",
-
+            "date",
+            "which",
+            "whereis",
+            "type",
+            "command",
+            "open",
+            "xdg-open",
+            "xclip",
+            "xsel",
+            "osascript",
+            "sleep",
+            "watch",
+            "timeout",
+            "ps",
+            "top",
+            "htop",
+            "kill",
+            "killall",
+            "pkill",
+            "pgrep",
+            "uname",
+            "hostname",
+            "id",
+            "whoami",
+            "groups",
+            "env",
+            "printenv",
+            "set",
+            "file",
+            "xattr",
             // ── System / utility (macOS-specific) ──
-            "pbcopy", "pbpaste", "say", "afplay", "caffeinate",
-            "launchctl", "plutil", "defaults", "scutil", "dscl",
-            "networksetup", "system_profiler",
-            "sips", "mdls", "mdfind", "spotlight",
-            "ditto", "hdiutil",
-
+            "pbcopy",
+            "pbpaste",
+            "say",
+            "afplay",
+            "caffeinate",
+            "launchctl",
+            "plutil",
+            "defaults",
+            "scutil",
+            "dscl",
+            "networksetup",
+            "system_profiler",
+            "sips",
+            "mdls",
+            "mdfind",
+            "spotlight",
+            "ditto",
+            "hdiutil",
             // ── System / utility (Windows-specific) ──
-            "where", "where.exe",
-            "tasklist", "taskkill", "taskkill.exe",
-            "sc", "sc.exe",
-            "reg", "reg.exe",
-            "sfc", "sfc.exe",
-            "cls", "ver",
-            "systeminfo", "hostname.exe",
-            "wmic", "wmic.exe",
-            "msiexec", "msiexec.exe",
-            "setx", "setx.exe",
-            "net", "net.exe",
+            "where",
+            "where.exe",
+            "tasklist",
+            "taskkill",
+            "taskkill.exe",
+            "sc",
+            "sc.exe",
+            "reg",
+            "reg.exe",
+            "sfc",
+            "sfc.exe",
+            "cls",
+            "ver",
+            "systeminfo",
+            "hostname.exe",
+            "wmic",
+            "wmic.exe",
+            "msiexec",
+            "msiexec.exe",
+            "setx",
+            "setx.exe",
+            "net",
+            "net.exe",
             "bcdedit",
-            "shutdown.exe",   // Windows shutdown (different risk from Unix shutdown)
-
+            "shutdown.exe", // Windows shutdown (different risk from Unix shutdown)
             // ── Build tools ──
-            "make", "cmake", "ninja", "meson",
-            "bazel", "buck", "ant",
-            "make.exe", "cmake.exe", "ninja.exe",
-
+            "make",
+            "cmake",
+            "ninja",
+            "meson",
+            "bazel",
+            "buck",
+            "ant",
+            "make.exe",
+            "cmake.exe",
+            "ninja.exe",
             // ── Cloud & infra CLIs ──
-            "docker", "docker-compose",
-            "kubectl", "helm", "k9s", "skaffold",
-            "terraform", "tofu",
-            "ansible", "ansible-playbook",
+            "docker",
+            "docker-compose",
+            "kubectl",
+            "helm",
+            "k9s",
+            "skaffold",
+            "terraform",
+            "tofu",
+            "ansible",
+            "ansible-playbook",
             "vault",
-            "aws", "az", "gcloud", "gsutil",
-            "heroku", "railway", "fly",
-            "vercel", "netlify", "wrangler",
+            "aws",
+            "az",
+            "gcloud",
+            "gsutil",
+            "heroku",
+            "railway",
+            "fly",
+            "vercel",
+            "netlify",
+            "wrangler",
             "docker.exe",
-
             // ── Databases ──
-            "sqlite3", "psql", "mysql", "mysqldump",
-            "redis-cli", "mongosh", "mongo",
+            "sqlite3",
+            "psql",
+            "mysql",
+            "mysqldump",
+            "redis-cli",
+            "mongosh",
+            "mongo",
             "sqlite3.exe",
-
             // ── Media / documents ──
-            "ffmpeg", "ffprobe", "ffplay",
-            "pandoc", "pdflatex", "xelatex", "lualatex",
-            "convert",      // ImageMagick
-            "magick",       // ImageMagick v7
+            "ffmpeg",
+            "ffprobe",
+            "ffplay",
+            "pandoc",
+            "pdflatex",
+            "xelatex",
+            "lualatex",
+            "convert", // ImageMagick
+            "magick",  // ImageMagick v7
             "tesseract",
             "exiftool",
-            "yt-dlp", "youtube-dl",
+            "yt-dlp",
+            "youtube-dl",
             "libreoffice",
             "ffmpeg.exe",
-
             // ── Load / perf testing ──
-            "ab", "wrk", "siege", "hey", "vegeta", "k6",
-
+            "ab",
+            "wrk",
+            "siege",
+            "hey",
+            "vegeta",
+            "k6",
             // ── Linters / formatters ──
-            "prettier", "eslint", "tsc",
-            "black", "ruff", "flake8", "mypy", "pylint", "isort",
+            "prettier",
+            "eslint",
+            "tsc",
+            "black",
+            "ruff",
+            "flake8",
+            "mypy",
+            "pylint",
+            "isort",
             "rubocop",
-            "rustfmt", "clippy-driver",
-            "shellcheck", "shfmt",
+            "rustfmt",
+            "clippy-driver",
+            "shellcheck",
+            "shfmt",
             "hadolint",
-            "prettier.cmd", "eslint.cmd",
+            "prettier.cmd",
+            "eslint.cmd",
         ];
 
         cmds.iter().map(|s| s.to_string()).collect()
@@ -1257,11 +1483,18 @@ impl SecurityPolicy {
                     | "firewall-cmd"
                     | "rm"
                     | "chmod"
-                    | "curl" | "curl.exe"
-                    | "wget" | "wget.exe"
-                    | "ssh" | "scp" | "sftp"
-                    | "nc" | "ncat" | "netcat"
-                    | "ftp" | "telnet"
+                    | "curl"
+                    | "curl.exe"
+                    | "wget"
+                    | "wget.exe"
+                    | "ssh"
+                    | "scp"
+                    | "sftp"
+                    | "nc"
+                    | "ncat"
+                    | "netcat"
+                    | "ftp"
+                    | "telnet"
             ) {
                 return CommandRiskLevel::High;
             }
@@ -1315,23 +1548,16 @@ impl SecurityPolicy {
                 // Permission changes (icacls/attrib kept Medium; chmod is High)
                 "icacls" | "attrib" => true,
                 // Package managers that install system-wide software
-                "pip" | "pip.exe" | "pip3" | "pip3.exe"
-                | "brew"
-                | "gem" | "gem.cmd"
-                | "composer" | "composer.bat"
-                | "conda" | "mamba"
-                | "poetry" | "poetry.exe"
-                | "uv" | "uv.exe"
-                | "rye" | "pipx" | "pipx.exe"
-                | "winget" | "choco" | "scoop"
-                | "apt" | "apt-get" | "yum" | "dnf" | "pacman" | "zypper"
-                | "nuget" | "nuget.exe" => true,
+                "pip" | "pip.exe" | "pip3" | "pip3.exe" | "brew" | "gem" | "gem.cmd"
+                | "composer" | "composer.bat" | "conda" | "mamba" | "poetry" | "poetry.exe"
+                | "uv" | "uv.exe" | "rye" | "pipx" | "pipx.exe" | "winget" | "choco" | "scoop"
+                | "apt" | "apt-get" | "yum" | "dnf" | "pacman" | "zypper" | "nuget"
+                | "nuget.exe" => true,
                 // Cloud / infra CLIs that mutate remote state
-                "docker" | "docker.exe" | "docker-compose"
-                | "kubectl" | "helm"
-                | "terraform" | "tofu"
-                | "ansible" | "ansible-playbook"
-                | "aws" | "az" | "gcloud" | "gsutil" => true,
+                "docker" | "docker.exe" | "docker-compose" | "kubectl" | "helm" | "terraform"
+                | "tofu" | "ansible" | "ansible-playbook" | "aws" | "az" | "gcloud" | "gsutil" => {
+                    true
+                }
                 _ => false,
             };
 
@@ -1436,7 +1662,6 @@ impl SecurityPolicy {
         if contains_unquoted_char(command, '>') || contains_unquoted_dangerous_lt(command) {
             return false;
         }
-
 
         // Block background command chaining (`&`), which can hide extra
         // sub-commands and outlive timeout expectations. Keep `&&` allowed.
@@ -1724,7 +1949,11 @@ impl SecurityPolicy {
     /// Returns `true` if the action is allowed, `false` if rate-limited.
     pub fn record_action(&self) -> bool {
         let live = self.live_limit.load(Ordering::Relaxed);
-        let limit = if live == u32::MAX { self.max_actions_per_hour } else { live } as usize;
+        let limit = if live == u32::MAX {
+            self.max_actions_per_hour
+        } else {
+            live
+        } as usize;
         let count = self.tracker.record();
         count <= limit
     }
@@ -1732,7 +1961,11 @@ impl SecurityPolicy {
     /// Check if the rate limit would be exceeded without recording.
     pub fn is_rate_limited(&self) -> bool {
         let live = self.live_limit.load(Ordering::Relaxed);
-        let limit = if live == u32::MAX { self.max_actions_per_hour } else { live } as usize;
+        let limit = if live == u32::MAX {
+            self.max_actions_per_hour
+        } else {
+            live
+        } as usize;
         self.tracker.count() >= limit
     }
 
@@ -1941,7 +2174,9 @@ mod tests {
         };
 
         assert!(p.requires_medium_risk_approval());
-        assert!(p.validate_command_execution("touch test.txt", false).is_err());
+        assert!(p
+            .validate_command_execution("touch test.txt", false)
+            .is_err());
 
         p.set_command_risk_policy(false, p.blocks_high_risk_commands());
 

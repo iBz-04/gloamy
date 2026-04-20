@@ -119,7 +119,6 @@ async fn warmup_agent_browser() {
             return;
         }
     }
-
 }
 
 #[derive(Debug, Deserialize)]

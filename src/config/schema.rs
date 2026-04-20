@@ -772,7 +772,10 @@ pub struct CostConfig {
     pub allow_override: bool,
 
     /// Per-model pricing (USD per 1M tokens)
-    #[serde(default = "get_default_pricing", deserialize_with = "deserialize_model_pricing_map")]
+    #[serde(
+        default = "get_default_pricing",
+        deserialize_with = "deserialize_model_pricing_map"
+    )]
     pub prices: std::collections::HashMap<String, ModelPricing>,
 }
 
@@ -813,7 +816,9 @@ impl Default for CostConfig {
     }
 }
 
-fn deserialize_model_pricing_map<'de, D>(deserializer: D) -> std::result::Result<HashMap<String, ModelPricing>, D::Error>
+fn deserialize_model_pricing_map<'de, D>(
+    deserializer: D,
+) -> std::result::Result<HashMap<String, ModelPricing>, D::Error>
 where
     D: Deserializer<'de>,
 {
@@ -5742,11 +5747,19 @@ enabled = true
 
         assert!(parsed.cost.enabled);
         assert_eq!(
-            parsed.cost.prices.get("openai/gpt-5.4-mini").map(|p| (p.input, p.output)),
+            parsed
+                .cost
+                .prices
+                .get("openai/gpt-5.4-mini")
+                .map(|p| (p.input, p.output)),
             Some((0.75, 4.5))
         );
         assert_eq!(
-            parsed.cost.prices.get("anthropic/claude-sonnet-4.6").map(|p| (p.input, p.output)),
+            parsed
+                .cost
+                .prices
+                .get("anthropic/claude-sonnet-4.6")
+                .map(|p| (p.input, p.output)),
             Some((3.0, 15.0))
         );
     }
@@ -5770,11 +5783,19 @@ output = 0.8
 
         assert!(parsed.cost.enabled);
         assert_eq!(
-            parsed.cost.prices.get("openai/gpt-4o-mini").map(|p| (p.input, p.output)),
+            parsed
+                .cost
+                .prices
+                .get("openai/gpt-4o-mini")
+                .map(|p| (p.input, p.output)),
             Some((0.2, 0.8))
         );
         assert_eq!(
-            parsed.cost.prices.get("openai/gpt-5-mini").map(|p| (p.input, p.output)),
+            parsed
+                .cost
+                .prices
+                .get("openai/gpt-5-mini")
+                .map(|p| (p.input, p.output)),
             Some((0.25, 2.0))
         );
     }

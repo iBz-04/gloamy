@@ -2329,13 +2329,12 @@ async fn process_channel_message(
             // stateless channels but leaks metadata into user-facing history
             // on telegram, so we strip it there.
             let tool_summary = extract_tool_context_summary(&history, history_len_before_tools);
-            let history_response = if tool_summary.is_empty()
-                || !channel_persists_tool_summary(&msg.channel)
-            {
-                delivered_response.clone()
-            } else {
-                format!("{tool_summary}\n{delivered_response}")
-            };
+            let history_response =
+                if tool_summary.is_empty() || !channel_persists_tool_summary(&msg.channel) {
+                    delivered_response.clone()
+                } else {
+                    format!("{tool_summary}\n{delivered_response}")
+                };
 
             append_sender_turn(
                 ctx.as_ref(),

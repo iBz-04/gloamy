@@ -2,6 +2,16 @@
 import { ref, watch, onMounted } from 'vue'
 import { Icon } from '@iconify/vue'
 
+const props = withDefaults(defineProps<{
+  disabled?: boolean
+}>(), {
+  disabled: false,
+})
+
+const emit = defineEmits<{
+  submit: [text: string]
+}>()
+
 const message = ref('')
 const textarea = ref<HTMLTextAreaElement | null>(null)
 
@@ -20,8 +30,8 @@ onMounted(() => {
 })
 
 function submit() {
-  if (!message.value.trim()) return
-  console.log('Submitting:', message.value)
+  if (props.disabled || !message.value.trim()) return
+  emit('submit', message.value.trim())
   message.value = ''
   if (textarea.value) textarea.value.style.height = 'auto'
 }
@@ -39,6 +49,7 @@ function submit() {
           rows="1"
           placeholder="Ask gloamy to complete a task for you"
           class="w-full bg-transparent text-[15px] text-foreground placeholder:text-muted-foreground/60 outline-none resize-none min-h-[44px] max-h-[300px] leading-relaxed transition-[height] duration-200"
+          :disabled="props.disabled"
           @keydown.enter.prevent="submit"
         />
         
@@ -60,8 +71,8 @@ function submit() {
             </button>
             <button
               class="flex items-center justify-center transition-all duration-300 ml-1"
-              :class="message.trim() ? 'text-foreground scale-100 hover:opacity-80' : 'text-muted-foreground/40 scale-95 cursor-not-allowed'"
-              :disabled="!message.trim()"
+              :class="!props.disabled && message.trim() ? 'text-foreground scale-100 hover:opacity-80' : 'text-muted-foreground/40 scale-95 cursor-not-allowed'"
+              :disabled="props.disabled || !message.trim()"
               @click="submit"
             >
               <Icon icon="hugeicons:sent" class="size-4" />

@@ -4240,9 +4240,7 @@ fn setup_channels() -> Result<ChannelsConfig> {
                     "WhatsApp Business Cloud API (webhook)",
                 ];
                 #[cfg(not(feature = "whatsapp-web"))]
-                let mode_options = vec![
-                    "WhatsApp Business Cloud API (webhook)",
-                ];
+                let mode_options = vec!["WhatsApp Business Cloud API (webhook)"];
 
                 let mode_idx = Select::new()
                     .with_prompt("  Choose WhatsApp mode")
