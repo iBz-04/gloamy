@@ -1,14 +1,23 @@
 <script setup lang="ts">
 import { Icon } from '@iconify/vue'
-import { ref, nextTick } from 'vue'
+import { ref, nextTick, unref } from 'vue'
 import CoworkInput from '@/components/CoworkInput.vue'
 import { useAuthStore } from '@/stores/auth'
+import { SSEClient, type SSEEvent } from '@/lib/sse'
+
+interface StreamStep {
+  id: string
+  text: string
+}
 
 interface Message {
   id: string
   role: 'user' | 'assistant'
   content: string
   status?: 'pending' | 'ready' | 'error'
+  steps?: StreamStep[]
+  elapsedMs?: number
+  collapsed?: boolean
 }
 
 interface ApiChatResponse {
@@ -21,6 +30,20 @@ const messages = ref<Message[]>([])
 const chatContainer = ref<HTMLElement | null>(null)
 const isSubmitting = ref(false)
 let messageCounter = 0
+let stepCounter = 0
+
+function humanizeTool(tool: string): string {
+  const map: Record<string, string> = {
+    shell: 'Running shell command',
+    file: 'Reading workspace files',
+    browser: 'Browsing the web',
+    memory: 'Consulting memory',
+    mac_automation: 'Automating macOS',
+    search: 'Searching',
+  }
+  if (map[tool]) return map[tool]
+  return `Using ${tool.replace(/[_-]/g, ' ')}`
+}
 
 const savedPrompts = [
   {
@@ -81,12 +104,51 @@ async function handleUserSubmit(text: string) {
   })
 
   const placeholderId = nextMessageId()
-  messages.value.push({
+  const startedAt = performance.now()
+  const placeholder: Message = {
     id: placeholderId,
     role: 'assistant',
-    content: 'Working on it...',
+    content: '',
     status: 'pending',
+    steps: [],
+    collapsed: false,
+  }
+  messages.value.push(placeholder)
+
+  const appendStep = (textLine: string) => {
+    const msg = messages.value.find(m => m.id === placeholderId)
+    if (!msg || msg.status !== 'pending') return
+    stepCounter += 1
+    msg.steps = msg.steps ?? []
+    const last = msg.steps[msg.steps.length - 1]
+    if (last && last.text === textLine) return
+    msg.steps.push({ id: `step-${stepCounter}`, text: textLine })
+    scrollToBottom()
+  }
+
+  const sse = new SSEClient({
+    path: '/api/events',
+    getBaseUrl: () => String(unref(auth.baseUrl) ?? '').trim(),
+    getToken: () => {
+      const t = unref(auth.token)
+      return typeof t === 'string' ? t : null
+    },
+    autoReconnect: false,
   })
+  sse.onEvent = (evt: SSEEvent) => {
+    switch (evt.type) {
+      case 'agent_start':
+        appendStep('Thinking through the request')
+        break
+      case 'tool_call_start':
+        if (typeof evt.tool === 'string') appendStep(humanizeTool(evt.tool))
+        break
+      case 'error':
+        if (typeof evt.message === 'string') appendStep(`Error: ${evt.message}`)
+        break
+    }
+  }
+  sse.connect()
 
   isSubmitting.value = true
   await scrollToBottom()
@@ -101,6 +163,8 @@ async function handleUserSubmit(text: string) {
     if (assistantMessage) {
       assistantMessage.content = normalizeAssistantResponse(response)
       assistantMessage.status = 'ready'
+      assistantMessage.elapsedMs = performance.now() - startedAt
+      assistantMessage.collapsed = true
     }
   }
   catch (error: unknown) {
@@ -108,12 +172,28 @@ async function handleUserSubmit(text: string) {
     if (assistantMessage) {
       assistantMessage.content = error instanceof Error ? error.message : 'Failed to reach the desktop agent.'
       assistantMessage.status = 'error'
+      assistantMessage.elapsedMs = performance.now() - startedAt
+      assistantMessage.collapsed = true
     }
   }
   finally {
+    sse.disconnect()
     isSubmitting.value = false
     await scrollToBottom()
   }
+}
+
+function toggleSteps(msg: Message) {
+  msg.collapsed = !msg.collapsed
+}
+
+function formatElapsed(ms?: number): string {
+  if (!ms || ms < 0) return ''
+  const s = Math.max(1, Math.round(ms / 1000))
+  if (s < 60) return `${s}s`
+  const m = Math.floor(s / 60)
+  const rem = s % 60
+  return rem ? `${m}m ${rem}s` : `${m}m`
 }
 </script>
 
@@ -183,14 +263,74 @@ async function handleUserSubmit(text: string) {
 
             <!-- Assistant Message -->
             <div v-else class="max-w-[100%] w-full flex flex-col gap-2">
-              <div
-                v-if="msg.status === 'pending'"
-                class="text-[13.5px] text-muted-foreground font-medium"
-              >
-                Thinking...
+              <!-- Streaming steps card (live or collapsed summary) -->
+              <div v-if="(msg.steps?.length ?? 0) > 0 || msg.status === 'pending'" class="w-full">
+                <!-- Collapsed summary header (after completion) -->
+                <button
+                  v-if="msg.status !== 'pending' && msg.collapsed"
+                  class="flex items-center gap-1 text-[13.5px] text-muted-foreground hover:text-foreground/80 transition-colors mb-1"
+                  @click="toggleSteps(msg)"
+                >
+                  <span>Thought{{ msg.elapsedMs ? ` for ${formatElapsed(msg.elapsedMs)}` : '' }}</span>
+                  <Icon icon="hugeicons:arrow-right-01-sharp" class="size-3" />
+                </button>
+
+                <!-- Expanded card with steps -->
+                <div
+                  v-else
+                  class="border border-border/60 rounded-[14px] overflow-hidden"
+                >
+                  <div class="flex items-center justify-between px-4 py-2.5 border-b border-border/50">
+                    <div class="flex items-center gap-2">
+                      <Icon
+                        v-if="msg.status === 'pending'"
+                        icon="svg-spinners:3-dots-fade"
+                        class="size-4 text-muted-foreground"
+                      />
+                      <Icon
+                        v-else
+                        icon="hugeicons:checkmark-circle-02"
+                        class="size-4 text-muted-foreground"
+                      />
+                      <span class="text-[13.5px] font-semibold text-foreground">
+                        {{ msg.status === 'pending' ? 'Working' : `Thought${msg.elapsedMs ? ` for ${formatElapsed(msg.elapsedMs)}` : ''}` }}
+                      </span>
+                    </div>
+                    <button
+                      v-if="msg.status !== 'pending'"
+                      class="text-muted-foreground hover:text-foreground/80 transition-colors"
+                      @click="toggleSteps(msg)"
+                    >
+                      <Icon icon="hugeicons:arrow-up-01-sharp" class="size-4" />
+                    </button>
+                  </div>
+                  <div class="relative px-4 py-3">
+                    <div class="absolute left-[22px] top-3 bottom-3 w-px bg-border/60"></div>
+                    <div class="flex flex-col gap-2.5">
+                      <div
+                        v-for="step in msg.steps"
+                        :key="step.id"
+                        class="flex items-start gap-3 relative"
+                      >
+                        <Icon icon="hugeicons:cursor-02" class="size-4 mt-0.5 text-muted-foreground shrink-0 relative z-10 bg-background" />
+                        <div class="text-[13.5px] leading-[1.5] text-foreground/85">
+                          {{ step.text }}
+                        </div>
+                      </div>
+                      <div
+                        v-if="msg.status === 'pending' && (msg.steps?.length ?? 0) === 0"
+                        class="flex items-center gap-3"
+                      >
+                        <Icon icon="svg-spinners:3-dots-fade" class="size-4 text-muted-foreground" />
+                        <span class="text-[13.5px] text-muted-foreground">Getting started…</span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
               </div>
 
               <div
+                v-if="msg.content"
                 class="text-[15px] leading-[1.6] whitespace-pre-wrap"
                 :class="msg.status === 'error' ? 'text-destructive' : 'text-foreground'"
               >
