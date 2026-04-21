@@ -2167,7 +2167,7 @@ async fn process_channel_message(
         () = cancellation_token.cancelled() => LlmExecutionResult::Cancelled,
         result = tokio::time::timeout(
             Duration::from_secs(timeout_budget_secs),
-            host_agent.run_task_with_result(&msg.content),
+            host_agent.run_task_with_result(&msg.content, &msg.content),
         ) => LlmExecutionResult::Completed(result.map(|inner| inner.map(|tool_result| tool_result.output))),
     };
     let history = shared_history.lock().await.clone();

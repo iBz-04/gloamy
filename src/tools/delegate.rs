@@ -669,7 +669,7 @@ impl DelegateTool {
 
         let result = tokio::time::timeout(
             Duration::from_secs(DELEGATE_AGENTIC_TIMEOUT_SECS),
-            host.run_task_with_result(full_prompt),
+            host.run_task_with_result(full_prompt, full_prompt),
         )
         .await;
 

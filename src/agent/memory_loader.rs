@@ -2,6 +2,14 @@ use crate::memory::{self, Memory};
 use async_trait::async_trait;
 use std::fmt::Write;
 
+/// Hard cap on per-entry content length when building the memory context
+/// block. Prevents a single bloated memory (e.g. an entire persisted tool
+/// output or assistant transcript) from dominating the prompt and pushing
+/// the payload over the model's context window. Entries longer than this
+/// are tail-truncated with a visible marker.
+const MAX_CONTEXT_ENTRY_CHARS: usize = 2000;
+const ENTRY_TRUNC_MARK: &str = " […truncated…]";
+
 #[async_trait]
 pub trait MemoryLoader: Send + Sync {
     async fn load_context(&self, memory: &dyn Memory, user_message: &str)
@@ -53,7 +61,21 @@ impl MemoryLoader for DefaultMemoryLoader {
                     continue;
                 }
             }
-            let _ = writeln!(context, "- {}: {}", entry.key, entry.content);
+            // Tail-truncate any single memory whose content is larger than
+            // the per-entry cap. Without this, a huge recalled entry (e.g.
+            // a past tool result stored verbatim) silently bloats every
+            // subsequent prompt until it alone overflows the context.
+            let trimmed = if entry.content.chars().count() > MAX_CONTEXT_ENTRY_CHARS {
+                let head: String = entry
+                    .content
+                    .chars()
+                    .take(MAX_CONTEXT_ENTRY_CHARS)
+                    .collect();
+                format!("{head}{ENTRY_TRUNC_MARK}")
+            } else {
+                entry.content
+            };
+            let _ = writeln!(context, "- {}: {}", entry.key, trimmed);
         }
 
         // If all entries were below threshold, return empty
@@ -186,6 +208,34 @@ mod tests {
         fn name(&self) -> &str {
             "mock-with-entries"
         }
+    }
+
+    #[tokio::test]
+    async fn default_loader_truncates_huge_entry_content() {
+        let loader = DefaultMemoryLoader::new(5, 0.0);
+        let huge = "x".repeat(MAX_CONTEXT_ENTRY_CHARS * 3);
+        let memory = MockMemoryWithEntries {
+            entries: Arc::new(vec![MemoryEntry {
+                id: "1".into(),
+                key: "bloated".into(),
+                content: huge,
+                category: MemoryCategory::Conversation,
+                timestamp: "now".into(),
+                session_id: None,
+                score: Some(0.9),
+            }]),
+        };
+
+        let context = loader.load_context(&memory, "q").await.unwrap();
+        // Context must be bounded — header(~20) + key prefix(~12) + capped
+        // body + marker — well under 1.5× the per-entry cap.
+        assert!(
+            context.len() < MAX_CONTEXT_ENTRY_CHARS + 200,
+            "expected bounded context, got {} chars",
+            context.len()
+        );
+        assert!(context.contains(ENTRY_TRUNC_MARK));
+        assert!(context.contains("bloated"));
     }
 
     #[tokio::test]

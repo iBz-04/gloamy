@@ -45,6 +45,7 @@ pub struct Agent {
     resume_persisted_session: bool,
     persisted_state_hydrated: bool,
     latest_checkpoint_note: Option<String>,
+    multimodal_config: crate::config::MultimodalConfig,
 }
 
 pub struct AgentBuilder {
@@ -71,6 +72,7 @@ pub struct AgentBuilder {
     task_store: Option<Box<dyn TaskStore>>,
     task_session_id: Option<String>,
     resume_persisted_session: Option<bool>,
+    multimodal_config: Option<crate::config::MultimodalConfig>,
 }
 
 impl AgentBuilder {
@@ -99,6 +101,7 @@ impl AgentBuilder {
             task_store: None,
             task_session_id: None,
             resume_persisted_session: None,
+            multimodal_config: None,
         }
     }
 
@@ -223,6 +226,14 @@ impl AgentBuilder {
         self
     }
 
+    pub fn multimodal_config(
+        mut self,
+        multimodal_config: crate::config::MultimodalConfig,
+    ) -> Self {
+        self.multimodal_config = Some(multimodal_config);
+        self
+    }
+
     pub fn build(self) -> Result<Agent> {
         let tools = self
             .tools
@@ -273,6 +284,7 @@ impl AgentBuilder {
             resume_persisted_session: self.resume_persisted_session.unwrap_or(false),
             persisted_state_hydrated: false,
             latest_checkpoint_note: None,
+            multimodal_config: self.multimodal_config.unwrap_or_default(),
         })
     }
 }
@@ -543,7 +555,8 @@ impl Agent {
             .skills_prompt_mode(config.skills.prompt_injection_mode)
             .auto_save(config.memory.auto_save)
             .autonomy_level(config.autonomy.level)
-            .provider_name(provider_name.to_string());
+            .provider_name(provider_name.to_string())
+            .multimodal_config(config.multimodal.clone());
 
         let builder = if let Some(store) = task_store {
             builder.task_store(store)
@@ -552,6 +565,123 @@ impl Agent {
         };
 
         builder.build()
+    }
+
+    /// Enforce a hard character-budget ceiling on a provider payload so we
+    /// never overflow the model's context window.
+    ///
+    /// Strategy (in order, each pass only runs if still over budget):
+    ///   1. Drop oldest non-system messages (keep at least one non-system so
+    ///      the model still has something to act on).
+    ///   2. Tail-truncate the largest non-system message(s) with a visible
+    ///      marker.
+    ///   3. Last resort: tail-truncate oversized system messages too. This
+    ///      protects us when the system prompt alone exceeds the budget
+    ///      (e.g. when many skills inline full instructions).
+    ///
+    /// `max_chars == 0` disables enforcement.
+    fn enforce_context_budget(messages: &mut Vec<ChatMessage>, max_chars: usize) {
+        if max_chars == 0 {
+            return;
+        }
+
+        let total: usize = messages.iter().map(|m| m.content.len()).sum();
+        if total <= max_chars {
+            return;
+        }
+
+        let dropped_before = messages.len();
+        const TRUNC_MARK: &str = "\n\n[…content truncated to fit context budget…]";
+
+        // Pass 1: drop oldest non-system messages.
+        loop {
+            let current: usize = messages.iter().map(|m| m.content.len()).sum();
+            if current <= max_chars {
+                break;
+            }
+            let Some(oldest_non_system_idx) =
+                messages.iter().position(|m| m.role != "system")
+            else {
+                break;
+            };
+            let non_system_count = messages.iter().filter(|m| m.role != "system").count();
+            if non_system_count <= 1 {
+                break;
+            }
+            messages.remove(oldest_non_system_idx);
+        }
+
+        // Pass 2: tail-truncate largest non-system message until we fit.
+        loop {
+            let current: usize = messages.iter().map(|m| m.content.len()).sum();
+            if current <= max_chars {
+                break;
+            }
+
+            let Some((idx, _)) = messages
+                .iter()
+                .enumerate()
+                .filter(|(_, m)| m.role != "system")
+                .max_by_key(|(_, m)| m.content.len())
+            else {
+                break;
+            };
+
+            let overshoot = current - max_chars;
+            let target = messages[idx]
+                .content
+                .len()
+                .saturating_sub(overshoot + TRUNC_MARK.len());
+            if target == 0 {
+                break;
+            }
+            let truncated: String = messages[idx].content.chars().take(target).collect();
+            messages[idx].content = format!("{truncated}{TRUNC_MARK}");
+        }
+
+        // Pass 3: last resort — tail-truncate system messages too. Needed when
+        // the system prompt alone blows the budget (lots of skills inlined,
+        // huge bootstrap files, etc.). Without this, a bloated system prompt
+        // silently overflows and every turn returns non-retryable 400.
+        loop {
+            let current: usize = messages.iter().map(|m| m.content.len()).sum();
+            if current <= max_chars {
+                break;
+            }
+
+            let Some((idx, _)) = messages
+                .iter()
+                .enumerate()
+                .max_by_key(|(_, m)| m.content.len())
+            else {
+                break;
+            };
+
+            let overshoot = current - max_chars;
+            let target = messages[idx]
+                .content
+                .len()
+                .saturating_sub(overshoot + TRUNC_MARK.len());
+            if target == 0 {
+                break;
+            }
+            let truncated: String = messages[idx].content.chars().take(target).collect();
+            messages[idx].content = format!("{truncated}{TRUNC_MARK}");
+        }
+
+        let dropped_after = messages.len();
+        let final_total: usize = messages.iter().map(|m| m.content.len()).sum();
+        if dropped_before != dropped_after || final_total < total {
+            tracing::warn!(
+                before_messages = dropped_before,
+                after_messages = dropped_after,
+                before_chars = total,
+                after_chars = final_total,
+                budget = max_chars,
+                "Context budget exceeded; trimmed/truncated messages before sending to provider. \
+                 Consider setting [skills] prompt_injection_mode = \"compact\" to shrink the system prompt."
+            );
+        }
     }
 
     fn trim_history(&mut self) {
@@ -676,6 +806,12 @@ impl Agent {
     }
 
     pub async fn turn(&mut self, user_message: &str) -> Result<String> {
+        let t_turn_start = std::time::Instant::now();
+        tracing::info!(
+            msg_len = user_message.len(),
+            "Agent::turn start"
+        );
+
         self.hydrate_persisted_history_if_needed().await;
 
         let has_system_prompt = self.history.iter().any(|msg| {
@@ -685,7 +821,13 @@ impl Agent {
             )
         });
         if !has_system_prompt {
+            let t_prompt = std::time::Instant::now();
             let system_prompt = self.build_system_prompt()?;
+            tracing::info!(
+                build_ms = t_prompt.elapsed().as_millis() as u64,
+                prompt_chars = system_prompt.len(),
+                "Agent::turn system prompt built"
+            );
             self.history.insert(
                 0,
                 ConversationMessage::Chat(ChatMessage::system(system_prompt)),
@@ -693,25 +835,47 @@ impl Agent {
         }
 
         if self.auto_save {
+            let t_store = std::time::Instant::now();
             let _ = self
                 .memory
                 .store("user_msg", user_message, MemoryCategory::Conversation, None)
                 .await;
+            tracing::debug!(
+                ms = t_store.elapsed().as_millis() as u64,
+                "Agent::turn memory.store done"
+            );
         }
 
+        // memory.recall can stall indefinitely on a slow embedding API, so
+        // we log before and after so a hang is observable in the daemon log.
+        let t_recall = std::time::Instant::now();
+        tracing::info!("Agent::turn memory_loader.load_context begin");
         let context = self
             .memory_loader
             .load_context(self.memory.as_ref(), user_message)
             .await
             .unwrap_or_default();
+        tracing::info!(
+            ms = t_recall.elapsed().as_millis() as u64,
+            ctx_chars = context.len(),
+            "Agent::turn memory_loader.load_context done"
+        );
 
         let lesson_context = if self.config.self_learning {
-            crate::agent::lesson::build_lesson_context(
+            let t_lesson = std::time::Instant::now();
+            tracing::info!("Agent::turn build_lesson_context begin");
+            let lessons = crate::agent::lesson::build_lesson_context(
                 self.memory.as_ref(),
                 user_message,
                 self.config.max_lessons_per_query,
             )
-            .await
+            .await;
+            tracing::info!(
+                ms = t_lesson.elapsed().as_millis() as u64,
+                lesson_chars = lessons.len(),
+                "Agent::turn build_lesson_context done"
+            );
+            lessons
         } else {
             String::new()
         };
@@ -728,10 +892,15 @@ impl Agent {
             }
         }
 
+        tracing::info!(
+            enriched_chars = enriched.len(),
+            "Agent::turn enriched user message built"
+        );
         self.history
             .push(ConversationMessage::Chat(ChatMessage::user(enriched)));
 
         let effective_model = self.classify_model(user_message);
+        let t_persist = std::time::Instant::now();
         self.persist_task_snapshot(
             &effective_model,
             TaskStatus::Running,
@@ -740,19 +909,86 @@ impl Agent {
             None,
         )
         .await;
+        tracing::info!(
+            ms = t_persist.elapsed().as_millis() as u64,
+            model = %effective_model,
+            "Agent::turn persist_task_snapshot (Running) done"
+        );
 
         let mut tool_outcomes: Vec<crate::agent::lesson::ToolOutcome> = Vec::new();
         let mut execution_checkpoint_note = self.latest_checkpoint_note.clone();
         let mut task_plan_note: Option<String> = None;
 
         for iteration in 0..self.config.max_tool_iterations {
+            tracing::info!(iteration, "Agent::turn loop iter begin");
+            let t_convert = std::time::Instant::now();
             let mut messages = self.tool_dispatcher.to_provider_messages(&self.history);
+            tracing::debug!(
+                iteration,
+                ms = t_convert.elapsed().as_millis() as u64,
+                messages = messages.len(),
+                "Agent::turn to_provider_messages done"
+            );
             if let Some(note) = execution_checkpoint_note.as_deref() {
                 crate::agent::loop_::inject_ephemeral_system_note(&mut messages, note);
             }
             if let Some(note) = task_plan_note.as_deref() {
                 crate::agent::loop_::inject_ephemeral_system_note(&mut messages, note);
             }
+
+            // Normalize `[IMAGE:...]` markers in user messages to base64 data URIs.
+            // Without this, providers (e.g. OpenAI) receive raw file paths as
+            // `image_url.url`, which they cannot fetch, and return 400 errors.
+            // Mirrors the normalization done in `src/agent/loop_.rs`.
+            let mut messages = match crate::multimodal::prepare_messages_for_provider(
+                &messages,
+                &self.multimodal_config,
+            )
+            .await
+            {
+                Ok(prepared) => prepared.messages,
+                Err(err) => {
+                    tracing::warn!(
+                        "multimodal normalization failed; dropping image markers and continuing: {err}"
+                    );
+                    messages
+                        .into_iter()
+                        .map(|m| {
+                            if m.role == "user" {
+                                let (cleaned, _) = crate::multimodal::parse_image_markers(&m.content);
+                                ChatMessage {
+                                    role: m.role,
+                                    content: if cleaned.is_empty() {
+                                        "[image attachment omitted due to normalization error]"
+                                            .to_string()
+                                    } else {
+                                        cleaned
+                                    },
+                                }
+                            } else {
+                                m
+                            }
+                        })
+                        .collect()
+                }
+            };
+
+            // Enforce context budget so we never blow past the model's context
+            // window (e.g. OpenAI 272k input-token cap → 322k token overflow
+            // returns non-retryable 400). This is the last guard before the
+            // provider call.
+            Self::enforce_context_budget(&mut messages, self.config.max_context_chars);
+
+            let payload_chars: usize = messages.iter().map(|m| m.content.len()).sum();
+            let t_chat = std::time::Instant::now();
+            tracing::info!(
+                iteration,
+                messages = messages.len(),
+                payload_chars,
+                model = %effective_model,
+                "Agent::turn provider.chat begin"
+            );
+
             let response = match self
                 .provider
                 .chat(
@@ -769,9 +1005,24 @@ impl Agent {
                 )
                 .await
             {
-                Ok(resp) => resp,
+                Ok(resp) => {
+                    tracing::info!(
+                        iteration,
+                        ms = t_chat.elapsed().as_millis() as u64,
+                        tool_calls = resp.tool_calls.len(),
+                        text_len = resp.text.as_deref().map(str::len).unwrap_or(0),
+                        "Agent::turn provider.chat ok"
+                    );
+                    resp
+                }
                 Err(err) => {
                     let error_text = err.to_string();
+                    tracing::warn!(
+                        iteration,
+                        ms = t_chat.elapsed().as_millis() as u64,
+                        err = %error_text,
+                        "Agent::turn provider.chat failed"
+                    );
                     self.latest_checkpoint_note = execution_checkpoint_note.clone();
                     self.persist_task_snapshot(
                         &effective_model,
@@ -781,6 +1032,10 @@ impl Agent {
                         Some(error_text),
                     )
                     .await;
+                    tracing::info!(
+                        total_ms = t_turn_start.elapsed().as_millis() as u64,
+                        "Agent::turn exit (provider error)"
+                    );
                     return Err(err);
                 }
             };
@@ -812,6 +1067,11 @@ impl Agent {
                 )
                 .await;
 
+                tracing::info!(
+                    total_ms = t_turn_start.elapsed().as_millis() as u64,
+                    response_chars = final_text.len(),
+                    "Agent::turn complete"
+                );
                 return Ok(final_text);
             }
 
@@ -1349,5 +1609,180 @@ mod tests {
         assert_eq!(response, "classified");
         let seen = seen_models.lock();
         assert_eq!(seen.as_slice(), &["hint:fast".to_string()]);
+    }
+
+    /// Regression: `/api/chat` desktop path must normalize `[IMAGE:/local/path]`
+    /// markers to base64 data URIs before invoking the provider. Without this,
+    /// OpenAI receives raw file paths as `image_url.url` and fails with
+    /// `400 Failed to download image from /local/path`.
+    struct CaptureMessagesProvider {
+        captured: Arc<Mutex<Vec<ChatMessage>>>,
+    }
+
+    #[async_trait]
+    impl Provider for CaptureMessagesProvider {
+        async fn chat_with_system(
+            &self,
+            _system_prompt: Option<&str>,
+            _message: &str,
+            _model: &str,
+            _temperature: f64,
+        ) -> Result<String> {
+            Ok("ok".into())
+        }
+
+        async fn chat(
+            &self,
+            request: ChatRequest<'_>,
+            _model: &str,
+            _temperature: f64,
+        ) -> Result<crate::providers::ChatResponse> {
+            *self.captured.lock() = request.messages.to_vec();
+            Ok(crate::providers::ChatResponse {
+                text: Some("ok".into()),
+                tool_calls: vec![],
+                usage: None,
+                reasoning_content: None,
+            })
+        }
+    }
+
+    #[test]
+    fn enforce_context_budget_is_noop_when_under_budget() {
+        let mut msgs = vec![
+            ChatMessage::system("sys"),
+            ChatMessage::user("hello"),
+            ChatMessage::assistant("hi"),
+        ];
+        let before_roles: Vec<_> = msgs.iter().map(|m| m.role.clone()).collect();
+        let before_content: Vec<_> = msgs.iter().map(|m| m.content.clone()).collect();
+        Agent::enforce_context_budget(&mut msgs, 10_000);
+        let after_roles: Vec<_> = msgs.iter().map(|m| m.role.clone()).collect();
+        let after_content: Vec<_> = msgs.iter().map(|m| m.content.clone()).collect();
+        assert_eq!(before_roles, after_roles);
+        assert_eq!(before_content, after_content);
+    }
+
+    #[test]
+    fn enforce_context_budget_drops_oldest_non_system_first() {
+        let big = "x".repeat(500);
+        let mut msgs = vec![
+            ChatMessage::system("sys"),
+            ChatMessage::user(big.clone()),
+            ChatMessage::assistant(big.clone()),
+            ChatMessage::user(big.clone()),
+        ];
+        // Budget fits only ~1 big message + system.
+        Agent::enforce_context_budget(&mut msgs, 600);
+        assert_eq!(msgs[0].role, "system");
+        // Oldest user dropped; at least one non-system remains.
+        assert!(msgs.iter().any(|m| m.role != "system"));
+        let total: usize = msgs.iter().map(|m| m.content.len()).sum();
+        assert!(total <= 600 + 100, "expected total under ~budget, got {total}");
+    }
+
+    #[test]
+    fn enforce_context_budget_truncates_oversized_single_message() {
+        let huge = "y".repeat(2000);
+        let mut msgs = vec![
+            ChatMessage::system("sys"),
+            ChatMessage::user(huge),
+        ];
+        Agent::enforce_context_budget(&mut msgs, 500);
+        let user = msgs.iter().find(|m| m.role == "user").unwrap();
+        assert!(user.content.contains("[…content truncated to fit context budget…]"));
+        let total: usize = msgs.iter().map(|m| m.content.len()).sum();
+        assert!(total <= 500 + 100);
+    }
+
+    #[test]
+    fn enforce_context_budget_truncates_oversized_system_prompt_as_last_resort() {
+        // Simulates the real-world bug: system prompt alone (bloated skills)
+        // exceeds the context window, so non-system trimming/truncation can't
+        // bring us under budget — must truncate system as last resort.
+        let huge_system = "s".repeat(5000);
+        let mut msgs = vec![
+            ChatMessage::system(huge_system),
+            ChatMessage::user("hi"),
+        ];
+        Agent::enforce_context_budget(&mut msgs, 1000);
+        let total: usize = msgs.iter().map(|m| m.content.len()).sum();
+        assert!(
+            total <= 1000 + 100,
+            "expected total under ~budget after last-resort system truncation; got {total}"
+        );
+        let system_msg = msgs.iter().find(|m| m.role == "system").unwrap();
+        assert!(
+            system_msg.content.contains("[…content truncated to fit context budget…]"),
+            "oversized system prompt must be tail-truncated with marker"
+        );
+        // User message must survive.
+        assert!(msgs.iter().any(|m| m.role == "user" && m.content == "hi"));
+    }
+
+    #[test]
+    fn enforce_context_budget_max_chars_zero_is_disabled() {
+        let huge = "z".repeat(10_000);
+        let mut msgs = vec![ChatMessage::user(huge)];
+        Agent::enforce_context_budget(&mut msgs, 0);
+        assert_eq!(msgs[0].content.len(), 10_000);
+    }
+
+    #[tokio::test]
+    async fn turn_normalizes_local_image_marker_to_data_uri_before_provider_chat() {
+        let temp = tempfile::tempdir().unwrap();
+        let image_path = temp.path().join("sample.png");
+        // Minimal PNG magic bytes are sufficient for MIME detection.
+        std::fs::write(
+            &image_path,
+            [0x89, b'P', b'N', b'G', b'\r', b'\n', 0x1a, b'\n'],
+        )
+        .unwrap();
+
+        let captured: Arc<Mutex<Vec<ChatMessage>>> = Arc::new(Mutex::new(Vec::new()));
+        let provider = Box::new(CaptureMessagesProvider {
+            captured: captured.clone(),
+        });
+
+        let memory_cfg = crate::config::MemoryConfig {
+            backend: "none".into(),
+            ..crate::config::MemoryConfig::default()
+        };
+        let mem: Arc<dyn Memory> = Arc::from(
+            crate::memory::create_memory(&memory_cfg, std::path::Path::new("/tmp"), None)
+                .expect("memory creation should succeed with valid config"),
+        );
+
+        let observer: Arc<dyn Observer> = Arc::from(crate::observability::NoopObserver {});
+        let mut agent = Agent::builder()
+            .provider(provider)
+            .tools(vec![Box::new(MockTool)])
+            .memory(mem)
+            .observer(observer)
+            .tool_dispatcher(Box::new(XmlToolDispatcher))
+            .workspace_dir(std::path::PathBuf::from("/tmp"))
+            .build()
+            .expect("agent builder should succeed with valid config");
+
+        let user_message = format!("Describe this [IMAGE:{}]", image_path.display());
+        let _ = agent.turn(&user_message).await.unwrap();
+
+        let captured_messages = captured.lock().clone();
+        let user_chat = captured_messages
+            .iter()
+            .find(|m| m.role == "user")
+            .expect("user message must be forwarded to provider");
+
+        let (_, refs) = crate::multimodal::parse_image_markers(&user_chat.content);
+        assert_eq!(refs.len(), 1, "expected exactly one image ref");
+        assert!(
+            refs[0].starts_with("data:image/png;base64,"),
+            "local image path must be normalized to a data URI before reaching the provider; got: {}",
+            refs[0]
+        );
+        assert!(
+            !user_chat.content.contains(image_path.to_str().unwrap()),
+            "raw local path must not leak to provider payload"
+        );
     }
 }
