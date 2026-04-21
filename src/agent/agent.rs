@@ -1045,11 +1045,19 @@ impl Agent {
                 task_plan_note = Some(format!("## Task Plan\n\n{plan}"));
             }
             if calls.is_empty() {
-                let final_text = if text.is_empty() {
+                let raw_text = if text.is_empty() {
                     response.text.unwrap_or_default()
                 } else {
                     text
                 };
+
+                // Sanitize the user-facing reply: strip internal `<plan>` blocks
+                // (the system prompt asks the model to emit these for multi-step
+                // work, but they must not leak to the user in a zero-tool-call
+                // turn) and collapse back-to-back duplicate lines that the model
+                // sometimes emits. The internal plan is preserved separately via
+                // `task_plan_note` for the loop's re-injection mechanism.
+                let final_text = sanitize_final_reply(&raw_text);
 
                 self.history
                     .push(ConversationMessage::Chat(ChatMessage::assistant(
@@ -1285,6 +1293,61 @@ pub async fn run(
     });
 
     Ok(())
+}
+
+/// Sanitize the final user-facing assistant reply for a zero-tool-call turn.
+///
+/// Addresses two system-prompt artifacts that otherwise leak into the UI:
+///
+/// 1. **`<plan>` blocks.** The execution-loop section of the system prompt
+///    instructs the model to emit a `<plan>…</plan>` block at the start of
+///    multi-step responses. For a one-shot greeting, the model over-applies
+///    this and ships the plan to the user. The internal plan is preserved
+///    upstream via `extract_task_plan` → `task_plan_note` for re-injection
+///    into subsequent LLM calls, so stripping it here loses no state.
+///
+/// 2. **Back-to-back duplicate lines.** The model occasionally emits the
+///    same line twice (e.g. writing the greeting as a "plan step output"
+///    and again as the "final response"). Collapse consecutive identical
+///    non-empty lines.
+///
+/// Also trims leading/trailing whitespace.
+pub(crate) fn sanitize_final_reply(raw: &str) -> String {
+    // 1. Strip <plan>...</plan> blocks (case-sensitive; the system prompt
+    //    template uses lowercase tags). Multi-line-aware: handle nested
+    //    newlines and multiple blocks. Keep it regex-free to avoid a
+    //    dependency surface for a small transform.
+    let mut stripped = String::with_capacity(raw.len());
+    let mut remaining = raw;
+    while let Some(open_idx) = remaining.find("<plan>") {
+        stripped.push_str(&remaining[..open_idx]);
+        let after_open = &remaining[open_idx + "<plan>".len()..];
+        if let Some(close_idx) = after_open.find("</plan>") {
+            remaining = &after_open[close_idx + "</plan>".len()..];
+        } else {
+            // Unterminated opener — drop the rest of the message from the
+            // opener onward; a dangling `<plan>` is never meant for the user.
+            remaining = "";
+            break;
+        }
+    }
+    stripped.push_str(remaining);
+
+    // 2. Collapse consecutive identical non-empty lines.
+    let mut deduped_lines: Vec<&str> = Vec::new();
+    for line in stripped.lines() {
+        if let Some(prev) = deduped_lines.last() {
+            if !line.trim().is_empty() && line == *prev {
+                continue;
+            }
+        }
+        deduped_lines.push(line);
+    }
+    let deduped = deduped_lines.join("\n");
+
+    // 3. Trim surrounding whitespace/blank lines that the plan strip often
+    //    leaves behind.
+    deduped.trim().to_string()
 }
 
 #[cfg(test)]
@@ -1718,6 +1781,45 @@ mod tests {
         );
         // User message must survive.
         assert!(msgs.iter().any(|m| m.role == "user" && m.content == "hi"));
+    }
+
+    #[test]
+    fn sanitize_final_reply_strips_plan_block_and_dedupes_duplicate_greeting() {
+        // This is the exact observed model output from the bug report:
+        // a <plan> prelude followed by two identical greeting lines.
+        let raw = "<plan>\n- [ ] Read session context and identify the current task\n- [ ] Respond directly to the user in the right tone\n</plan>\nHi, I'm Gloamy. What are we working on?\nHi, I'm Gloamy. What are we working on?";
+        let cleaned = sanitize_final_reply(raw);
+        assert_eq!(cleaned, "Hi, I'm Gloamy. What are we working on?");
+    }
+
+    #[test]
+    fn sanitize_final_reply_preserves_normal_prose() {
+        let raw = "Here is the answer.\n\nLine two.\nLine three.";
+        assert_eq!(sanitize_final_reply(raw), raw);
+    }
+
+    #[test]
+    fn sanitize_final_reply_handles_multiple_plan_blocks() {
+        let raw = "<plan>\n- [ ] a\n</plan>\nResult A\n<plan>\n- [ ] b\n</plan>\nResult B";
+        let cleaned = sanitize_final_reply(raw);
+        assert!(!cleaned.contains("<plan>"));
+        assert!(cleaned.contains("Result A"));
+        assert!(cleaned.contains("Result B"));
+    }
+
+    #[test]
+    fn sanitize_final_reply_drops_unterminated_plan_tail() {
+        let raw = "Visible answer.\n<plan>\n- [ ] dangling";
+        let cleaned = sanitize_final_reply(raw);
+        assert_eq!(cleaned, "Visible answer.");
+    }
+
+    #[test]
+    fn sanitize_final_reply_keeps_empty_line_separators() {
+        // Blank lines between identical content lines are allowed and should
+        // NOT be collapsed — only consecutive identical non-empty lines are.
+        let raw = "Paragraph one.\n\nParagraph two.";
+        assert_eq!(sanitize_final_reply(raw), raw);
     }
 
     #[test]
