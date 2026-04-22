@@ -8,7 +8,9 @@ const auth = useAuthStore()
 
 const code = ref('')
 const tokenInput = ref('')
+const apiBaseUrlInput = ref('')
 const loading = ref(false)
+const savingBaseUrl = ref(false)
 const error = ref('')
 const notice = ref('')
 
@@ -18,16 +20,14 @@ const authState = computed<AuthState>(() => unref(auth.authState) as AuthState)
 
 const daemonPaired = ref<boolean | null>(null)
 
-onMounted(async () => {
-  if (!auth.isLoaded)
-    await auth.load()
+async function probeDaemonPairing(baseUrl: string) {
+  daemonPaired.value = null
+  const normalized = String(baseUrl).trim().replace(/\/+$/, '')
+  if (!normalized)
+    return
 
   try {
-    const baseUrl = String(unref(auth.baseUrl) ?? '').trim().replace(/\/+$/, '')
-    if (!baseUrl)
-      return
-
-    const response = await fetch(`${baseUrl}/health`)
+    const response = await fetch(`${normalized}/health`)
     if (!response.ok)
       return
 
@@ -37,6 +37,46 @@ onMounted(async () => {
   }
   catch {
   }
+}
+
+async function persistBaseUrlIfChanged(): Promise<string> {
+  const nextValue = apiBaseUrlInput.value.trim()
+  const currentValue = String(unref(auth.baseUrl) ?? '').trim()
+  if (!nextValue)
+    throw new Error('API base URL is required.')
+
+  if (nextValue !== currentValue)
+    await auth.setBaseUrl(nextValue)
+
+  apiBaseUrlInput.value = nextValue
+  return nextValue
+}
+
+async function saveBaseUrlAndRetry() {
+  resetMessages()
+  savingBaseUrl.value = true
+  try {
+    const baseUrl = await persistBaseUrlIfChanged()
+    if (unref(auth.token))
+      await auth.validateToken()
+
+    await probeDaemonPairing(baseUrl)
+  }
+  catch (err) {
+    error.value = err instanceof Error ? err.message : 'Failed to save API base URL'
+  }
+  finally {
+    savingBaseUrl.value = false
+  }
+}
+
+onMounted(async () => {
+  if (!auth.isLoaded)
+    await auth.load()
+
+  const baseUrl = String(unref(auth.baseUrl) ?? '').trim().replace(/\/+$/, '')
+  apiBaseUrlInput.value = baseUrl
+  await probeDaemonPairing(baseUrl)
 })
 
 const resetMessages = () => {
@@ -46,6 +86,14 @@ const resetMessages = () => {
 
 const handleAuthenticate = async () => {
   resetMessages()
+  try {
+    await persistBaseUrlIfChanged()
+  }
+  catch (err) {
+    error.value = err instanceof Error ? err.message : 'Failed to save API base URL'
+    return
+  }
+
   const trimmedCode = code.value.trim()
   const trimmedToken = tokenInput.value.trim()
 
@@ -115,12 +163,32 @@ const handleLogout = async () => {
               <Icon icon="hugeicons:loading-03" class="size-6 animate-spin text-muted-foreground/40" />
             </div>
 
-            <div v-else-if="authState === 'unreachable'" class="text-sm text-red-500 font-bold text-center">
-              Daemon unreachable. Start the daemon and confirm the API base URL.
-            </div>
-
-            <template v-else-if="!isAuthenticated">
+            <template v-else-if="!isAuthenticated || authState === 'unreachable'">
               <div class="space-y-4">
+                <div v-if="authState === 'unreachable'" class="text-sm text-red-500 font-bold text-center">
+                  Daemon unreachable. Start the daemon and confirm the API base URL.
+                </div>
+
+                <div class="space-y-1.5">
+                  <label class="text-xs font-medium text-foreground">API base URL</label>
+                  <div class="flex gap-2">
+                    <input
+                      v-model="apiBaseUrlInput"
+                      type="text"
+                      class="w-full h-10 bg-muted/30 border border-border rounded-xl px-3 text-sm outline-none focus:border-primary/40 transition-all"
+                      placeholder="http://127.0.0.1:42617"
+                      @keyup.enter="saveBaseUrlAndRetry"
+                    >
+                    <button
+                      class="h-10 px-3 border border-border hover:bg-muted/30 rounded-xl text-xs font-medium transition-all disabled:opacity-40"
+                      :disabled="savingBaseUrl"
+                      @click="saveBaseUrlAndRetry"
+                    >
+                      {{ savingBaseUrl ? 'Saving...' : 'Save URL' }}
+                    </button>
+                  </div>
+                </div>
+
                 <div v-if="daemonPaired === true" class="text-xs text-muted-foreground text-center">
                   This daemon is already paired. If you lost your bearer token, clear gateway.paired_tokens in config.toml and restart the daemon to generate a new pairing code.
                 </div>

@@ -12,7 +12,7 @@ const TASK_STORE_REL_PATH: &str = "state/tasks.db";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "snake_case")]
-pub(crate) enum TaskStatus {
+pub enum TaskStatus {
     Running,
     Completed,
     Failed,
@@ -50,7 +50,7 @@ impl TaskStatus {
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-pub(crate) struct TaskCheckpointRecord {
+pub struct TaskCheckpointRecord {
     pub step_index: usize,
     pub checkpoint_note: Option<String>,
     pub(crate) items: Vec<ExecutionCheckpointItem>,
@@ -58,7 +58,7 @@ pub(crate) struct TaskCheckpointRecord {
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-pub(crate) struct TaskRecord {
+pub struct TaskRecord {
     pub task_id: String,
     pub thread_id: String,
     pub channel: String,
@@ -78,7 +78,7 @@ pub(crate) struct TaskRecord {
 }
 
 #[derive(Debug, Clone)]
-pub(crate) struct TaskSnapshot {
+pub struct TaskSnapshot {
     pub task_id: String,
     pub thread_id: String,
     pub channel: String,
@@ -93,7 +93,7 @@ pub(crate) struct TaskSnapshot {
 }
 
 #[derive(Debug, Clone)]
-pub(crate) struct TaskCheckpointUpdate {
+pub struct TaskCheckpointUpdate {
     pub task_id: String,
     pub thread_id: String,
     pub channel: String,
@@ -322,11 +322,12 @@ pub(crate) async fn clear_session(store: &dyn TaskStore, session_key: &str) -> a
 }
 
 #[async_trait]
-pub(crate) trait TaskStore: Send + Sync {
+pub trait TaskStore: Send + Sync {
     async fn load_by_thread_id(&self, thread_id: &str) -> anyhow::Result<Option<TaskRecord>>;
     async fn save_snapshot(&self, snapshot: TaskSnapshot) -> anyhow::Result<()>;
     async fn record_checkpoint(&self, update: TaskCheckpointUpdate) -> anyhow::Result<()>;
     async fn delete_by_thread_id(&self, thread_id: &str) -> anyhow::Result<()>;
+    async fn list_recent_tasks(&self, limit: usize) -> anyhow::Result<Vec<TaskRecord>>;
 }
 
 pub(crate) struct SqliteTaskStore {
@@ -734,9 +735,62 @@ impl TaskStore for SqliteTaskStore {
         })
         .await?
     }
+
+    async fn list_recent_tasks(&self, limit: usize) -> anyhow::Result<Vec<TaskRecord>> {
+        let conn = Arc::clone(&self.conn);
+        tokio::task::spawn_blocking(move || -> anyhow::Result<Vec<TaskRecord>> {
+            let conn = conn.lock();
+            let mut stmt = conn.prepare(
+                "SELECT
+                    task_id,
+                    thread_id,
+                    channel,
+                    provider,
+                    model,
+                    status,
+                    execution_history_json,
+                    resumable_history_json,
+                    latest_checkpoint_note,
+                    checkpoint_count,
+                    final_response,
+                    last_error,
+                    created_at,
+                    updated_at,
+                    completed_at
+                 FROM task_records
+                 ORDER BY updated_at DESC
+                 LIMIT ?1",
+            )?;
+
+            let records = stmt.query_map(params![limit as i64], |row| {
+                Ok(TaskRecord {
+                    task_id: row.get(0)?,
+                    thread_id: row.get(1)?,
+                    channel: row.get(2)?,
+                    provider: row.get(3)?,
+                    model: row.get(4)?,
+                    status: TaskStatus::from_str(&row.get::<_, String>(5)?),
+                    execution_history: Self::deserialize_history(&row.get::<_, String>(6)?).unwrap_or_default(),
+                    resumable_history: Self::deserialize_history(&row.get::<_, String>(7)?).unwrap_or_default(),
+                    latest_checkpoint_note: row.get(8)?,
+                    checkpoint_count: row.get::<_, i64>(9)?.max(0) as usize,
+                    final_response: row.get(10)?,
+                    last_error: row.get(11)?,
+                    created_at: row.get(12)?,
+                    updated_at: row.get(13)?,
+                    completed_at: row.get(14)?,
+                    checkpoints: Vec::new(), // Don't eagerly load checkpoints for list view to save memory
+                })
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
+
+            Ok(records)
+        })
+        .await?
+    }
 }
 
-pub(crate) fn create_task_store(workspace_dir: &Path) -> anyhow::Result<Box<dyn TaskStore>> {
+pub fn create_task_store(workspace_dir: &Path) -> anyhow::Result<Box<dyn TaskStore>> {
     Ok(Box::new(SqliteTaskStore::new(workspace_dir)?))
 }
 

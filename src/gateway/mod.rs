@@ -694,6 +694,8 @@ pub async fn run_gateway(host: &str, port: u16, config: Config) -> Result<()> {
         .route("/api/cron/{id}", delete(api::handle_api_cron_delete))
         .route("/api/integrations", get(api::handle_api_integrations))
         .route("/api/skills", get(api::handle_api_skills))
+        .route("/api/history", get(api::handle_api_history))
+        .route("/api/session/{thread_id}", get(api::handle_api_session))
         .route(
             "/api/doctor",
             get(api::handle_api_doctor).post(api::handle_api_doctor),
@@ -900,12 +902,13 @@ async fn run_gateway_chat_with_tools(state: &AppState, message: &str) -> anyhow:
     crate::agent::process_message(config, message).await
 }
 
-async fn run_gateway_api_chat(state: &AppState, message: &str) -> anyhow::Result<String> {
+async fn run_gateway_api_chat(state: &AppState, message: &str, session_id: Option<String>) -> anyhow::Result<String> {
     use std::time::Instant;
 
     let t_start = Instant::now();
     tracing::info!(
         message_len = message.len(),
+        session_id = ?session_id,
         "/api/chat received; building agent"
     );
 
@@ -913,6 +916,10 @@ async fn run_gateway_api_chat(state: &AppState, message: &str) -> anyhow::Result
     let t_config = t_start.elapsed();
 
     let mut agent = Agent::from_config(&config)?;
+    if let Some(sid) = session_id {
+        agent.set_task_session_id(Some(sid));
+    }
+
     let t_agent = t_start.elapsed();
     tracing::info!(
         build_agent_ms = t_agent.as_millis() as u64,
@@ -959,6 +966,7 @@ pub struct WebhookBody {
 #[derive(serde::Deserialize)]
 pub struct ApiChatBody {
     pub message: String,
+    pub session_id: Option<String>,
 }
 
 /// POST /api/chat, desktop-facing agent chat endpoint.
@@ -1042,7 +1050,7 @@ async fn handle_api_chat(
             model: model_label.clone(),
         });
 
-    match run_gateway_api_chat(&state, message).await {
+    match run_gateway_api_chat(&state, message, chat_body.session_id).await {
         Ok(response) => {
             let duration = started_at.elapsed();
             state.observer.record_metric(

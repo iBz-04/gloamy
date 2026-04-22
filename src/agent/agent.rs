@@ -298,6 +298,17 @@ impl Agent {
         &self.history
     }
 
+    pub fn set_task_session_id(&mut self, session_id: Option<String>) {
+        self.task_session_id = session_id;
+        if self.task_session_id.is_some() {
+            self.resume_persisted_session = true;
+            self.persisted_state_hydrated = false;
+        } else {
+            self.resume_persisted_session = false;
+            self.persisted_state_hydrated = true;
+        }
+    }
+
     pub async fn clear_history(&mut self) {
         self.history.clear();
         self.latest_checkpoint_note = None;

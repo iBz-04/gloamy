@@ -3,12 +3,19 @@ import { Icon } from '@iconify/vue'
 import { ToolCaseIcon } from '@hugeicons/core-free-icons'
 import { HugeiconsIcon } from '@hugeicons/vue'
 import { storeToRefs } from 'pinia'
-import { computed, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { useRoute } from 'vue-router'
 import { useUIStateStore } from '@/stores/uiState'
+import { useCoworkStore } from '@/stores/cowork'
+
 const route = useRoute()
 const uiStore = useUIStateStore()
+const coworkStore = useCoworkStore()
 const { state } = storeToRefs(uiStore)
+
+onMounted(() => {
+  coworkStore.fetchHistory()
+})
 
 type LeafNavItem = { icon?: string; hugeIcon?: object; label: string; to: string }
 type GroupNavItem = { icon: string; label: string; children: LeafNavItem[] }
@@ -51,11 +58,8 @@ const isGroupNavItem = (item: LeafNavItem | GroupNavItem): item is GroupNavItem 
 
 const getNavItemKey = (item: LeafNavItem | GroupNavItem) => (isGroupNavItem(item) ? `group-${item.label}` : item.to)
 
-const historyItems = [
-  { label: 'Agent loop refactor', icon: 'hugeicons:message-01' },
-  { label: 'UI polishing', icon: 'hugeicons:message-01' },
-  { label: 'New API routes', icon: 'hugeicons:message-01' },
-]
+const historyItems = computed(() => coworkStore.sessions)
+
 </script>
 
 <template>
@@ -177,16 +181,19 @@ const historyItems = [
       <div class="flex flex-col gap-0.5">
         <button
           v-for="(item, i) in historyItems"
-          :key="i"
+          :key="item.id"
           v-motion
           :initial="{ opacity: 0, x: -10 }"
           :enter="{ opacity: 1, x: 0, transition: { delay: 350 + i * 30 } }"
           class="flex items-center gap-3 px-3 py-2 text-[13px] font-medium rounded-md transition-colors duration-150 w-full"
           :class="[
             isCollapsed ? 'justify-center !px-2' : '',
-            'text-muted-foreground hover:text-foreground hover:bg-muted/25'
+            coworkStore.currentSessionId === item.id 
+              ? 'text-foreground bg-muted/25' 
+              : 'text-muted-foreground hover:text-foreground hover:bg-muted/25'
           ]"
           :title="isCollapsed ? item.label : undefined"
+          @click="coworkStore.setSessionId(item.id)"
         >
           <Icon :icon="item.icon" class="size-4 shrink-0" />
           <span v-if="!isCollapsed" class="truncate">{{ item.label }}</span>
