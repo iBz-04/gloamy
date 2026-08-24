@@ -591,6 +591,18 @@ pub struct AgentConfig {
     /// Maximum number of lesson memories injected per turn. Default: `3`.
     #[serde(default = "default_max_lessons_per_query")]
     pub max_lessons_per_query: usize,
+    /// Hard cap on the total character budget of the message payload sent to
+    /// the provider per turn. Oldest non-system messages are dropped first,
+    /// then oversized non-system messages are tail-truncated, and finally (as
+    /// a last resort) oversized system messages are tail-truncated too so
+    /// payloads never exceed the model's context window. A conservative
+    /// `~3 chars/token` heuristic is used (realistic for code/JSON-heavy
+    /// content), so the default of `600_000` targets roughly `~200k` tokens
+    /// — a safe budget under a 272k ceiling. Set to `0` to disable
+    /// enforcement.
+    /// Default: `600_000`.
+    #[serde(default = "default_agent_max_context_chars")]
+    pub max_context_chars: usize,
 }
 
 fn default_agent_max_tool_iterations() -> usize {
@@ -613,6 +625,10 @@ fn default_max_lessons_per_query() -> usize {
     3
 }
 
+fn default_agent_max_context_chars() -> usize {
+    600_000
+}
+
 impl Default for AgentConfig {
     fn default() -> Self {
         Self {
@@ -623,6 +639,7 @@ impl Default for AgentConfig {
             tool_dispatcher: default_agent_tool_dispatcher(),
             self_learning: default_self_learning(),
             max_lessons_per_query: default_max_lessons_per_query(),
+            max_context_chars: default_agent_max_context_chars(),
         }
     }
 }
@@ -5850,6 +5867,7 @@ reasoning_enabled = false
         assert_eq!(cfg.tool_dispatcher, "auto");
         assert!(cfg.self_learning);
         assert_eq!(cfg.max_lessons_per_query, 3);
+        assert_eq!(cfg.max_context_chars, 600_000);
     }
 
     #[test]

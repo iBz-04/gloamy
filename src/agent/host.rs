@@ -10,6 +10,7 @@ use std::sync::Arc;
 const MAX_PLANNED_STEPS: usize = 8;
 const MAX_REPLAN_ROUNDS: usize = 3;
 const MAX_EXECUTION_STEPS: usize = 24;
+const MAX_STEP_RETRIES: usize = 2;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum PostStepDecision {
@@ -69,13 +70,17 @@ impl HostAgent {
     }
 
     /// Plans and routes tactical steps based on global awareness.
-    pub async fn run_task(&mut self, user_goal: &str) -> Result<()> {
-        self.run_task_with_result(user_goal).await.map(|_| ())
+    pub async fn run_task(&mut self, full_context: &str, user_goal: &str) -> Result<()> {
+        self.run_task_with_result(full_context, user_goal).await.map(|_| ())
     }
 
     /// Plans and routes multiple tactical steps based on global awareness and returns
     /// the final worker result for callers that need direct response content.
-    pub async fn run_task_with_result(&mut self, user_goal: &str) -> Result<ToolResult> {
+    pub async fn run_task_with_result(
+        &mut self,
+        full_context: &str,
+        user_goal: &str,
+    ) -> Result<ToolResult> {
         if user_goal.trim().is_empty() {
             return Err(anyhow!("user goal cannot be empty"));
         }
@@ -90,6 +95,7 @@ impl HostAgent {
         let mut trajectory_context: Option<String> = None;
         let mut execution_count = 0usize;
         let mut replan_rounds = 0usize;
+        let mut step_retry_count = 0usize;
 
         while let Some(planned_step) = pending_steps.pop_front() {
             execution_count += 1;
@@ -107,7 +113,7 @@ impl HostAgent {
             }
             let worker = self.select_worker_for_context(&active_app)?;
             let step_instruction = Self::build_step_instruction(
-                user_goal,
+                full_context,
                 &planned_step,
                 execution_count,
                 total_steps,
@@ -157,12 +163,33 @@ impl HostAgent {
             self.episode_manager.flush().await?;
 
             if let Some(err) = worker_error {
+                let error_string = err.to_string();
+                let error_lower = error_string.to_ascii_lowercase();
+
+                if Self::is_transient_failure(&error_lower) && step_retry_count < MAX_STEP_RETRIES {
+                    step_retry_count += 1;
+                    tracing::warn!(
+                        worker = worker.name(),
+                        step = execution_count,
+                        retry = step_retry_count,
+                        max_retries = MAX_STEP_RETRIES,
+                        error = %error_string,
+                        "Transient worker error, retrying step"
+                    );
+                    // Push the step back to the front so it is retried immediately
+                    pending_steps.push_front(planned_step);
+                    continue;
+                }
+
                 return Err(err.context(format!(
                     "worker '{}' failed while executing planned step {execution_count}/{total_steps} for '{}'",
                     worker.name(),
                     active_app
                 )));
             }
+
+            // Step succeeded — reset retry counter for the next step
+            step_retry_count = 0;
 
             if let Some(result) = worker_result {
                 let decision = Self::decide_post_step_action(&result, &state_diff);
@@ -246,21 +273,21 @@ impl HostAgent {
     }
 
     fn build_step_instruction(
-        user_goal: &str,
+        full_context: &str,
         planned_step: &str,
         step_number: usize,
         total_steps: usize,
         previous_step_output: Option<&str>,
     ) -> String {
-        if total_steps <= 1 && planned_step.trim() == user_goal.trim() {
-            return user_goal.trim().to_string();
+        if total_steps <= 1 && planned_step.trim() == full_context.trim() {
+            return full_context.trim().to_string();
         }
 
         let mut instruction = if total_steps <= 1 {
-            format!("Overall goal:\n{user_goal}\n\nCurrent planned step:\n{planned_step}")
+            format!("Overall goal & context:\n{full_context}\n\nCurrent planned step:\n{planned_step}")
         } else {
             format!(
-                "Overall goal:\n{user_goal}\n\nCurrent planned step {step_number}/{total_steps}:\n{planned_step}"
+                "Overall goal & context:\n{full_context}\n\nCurrent planned step {step_number}/{total_steps}:\n{planned_step}"
             )
         };
 
@@ -500,6 +527,15 @@ impl HostAgent {
             || lower.contains("connection refused")
             || lower.contains("try again")
             || lower.contains("retry")
+            || lower.contains("500")
+            || lower.contains("502")
+            || lower.contains("503")
+            || lower.contains("504")
+            || lower.contains("server error")
+            || lower.contains("internal server")
+            || lower.contains("bad gateway")
+            || lower.contains("service unavailable")
+            || lower.contains("gateway timeout")
     }
 
     fn is_permission_or_policy_failure(lower: &str) -> bool {
@@ -763,7 +799,7 @@ mod tests {
             },
         }));
 
-        let result = host.run_task("type command").await;
+        let result = host.run_task("type command", "type command").await;
         assert!(result.is_ok());
     }
 
@@ -781,7 +817,7 @@ mod tests {
         }));
 
         let result = host
-            .run_task_with_result("type command")
+            .run_task_with_result("type command", "type command")
             .await
             .expect("host execution should succeed");
         assert_eq!(result.output, "ok");
@@ -802,7 +838,7 @@ mod tests {
         }));
 
         let result = host
-            .run_task_with_result("Open settings and then enable notifications.")
+            .run_task_with_result("Open settings and then enable notifications.", "Open settings and then enable notifications.")
             .await
             .expect("host execution should succeed");
 
@@ -848,7 +884,7 @@ mod tests {
         }));
 
         let result = host
-            .run_task_with_result("Open terminal and then check docs in browser.")
+            .run_task_with_result("Open terminal and then check docs in browser.", "Open terminal and then check docs in browser.")
             .await
             .expect("host execution should succeed");
 
@@ -893,7 +929,7 @@ mod tests {
         }));
 
         let result = host
-            .run_task_with_result("Run maintenance")
+            .run_task_with_result("Run maintenance", "Run maintenance")
             .await
             .expect("host should recover through replanning");
 
@@ -938,7 +974,7 @@ mod tests {
         }));
 
         let result = host
-            .run_task_with_result("type command")
+            .run_task_with_result("type command", "type command")
             .await
             .expect("host execution should succeed");
         assert_eq!(result.output, "first");
@@ -957,7 +993,7 @@ mod tests {
             },
         }));
 
-        let err = host.run_task("type command").await.unwrap_err();
+        let err = host.run_task("type command", "type command").await.unwrap_err();
         assert!(err.to_string().contains("no registered worker can handle"));
     }
 
@@ -974,7 +1010,7 @@ mod tests {
             },
         }));
 
-        let err = host.run_task("type command").await.unwrap_err();
+        let err = host.run_task("type command", "type command").await.unwrap_err();
         let message = err.to_string();
         assert!(
             message.contains("escalated while executing planned step")

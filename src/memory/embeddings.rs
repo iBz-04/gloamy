@@ -60,7 +60,16 @@ impl OpenAiEmbedding {
     }
 
     fn http_client(&self) -> reqwest::Client {
-        crate::config::build_runtime_proxy_client("memory.embeddings")
+        // Embedding API calls MUST have a bounded timeout. Without one, a
+        // stalled upstream (slow network, API throttling, dropped TCP, etc.)
+        // silently freezes every /api/chat turn because `memory.recall`
+        // sits in an unbounded `.send().await`. See the corresponding
+        // tracing in `Agent::turn` for observability.
+        crate::config::build_runtime_proxy_client_with_timeouts(
+            "memory.embeddings",
+            /* timeout_secs     */ 30,
+            /* connect_timeout  */ 10,
+        )
     }
 
     fn has_explicit_api_path(&self) -> bool {

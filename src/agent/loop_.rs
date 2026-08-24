@@ -4623,6 +4623,7 @@ fn message_scoped_session_id(prefix: &str, workspace_dir: &Path, message: &str) 
 #[allow(clippy::too_many_arguments)]
 async fn run_host_agent_single_step(
     session_id: String,
+    full_context: &str,
     user_goal: &str,
     system_prompt: String,
     provider: Arc<dyn Provider>,
@@ -4734,13 +4735,14 @@ async fn run_host_agent_single_step(
             click_at_preflight,
         )));
     }
-    let result = host_agent.run_task_with_result(user_goal).await?;
+    let result = host_agent.run_task_with_result(full_context, user_goal).await?;
     Ok(result.output)
 }
 
 #[allow(clippy::too_many_arguments)]
 async fn run_conversation_host_agent_single_step(
     session_id: String,
+    full_context: &str,
     user_goal: &str,
     shared_history: Arc<tokio::sync::Mutex<Vec<ChatMessage>>>,
     provider: Arc<dyn Provider>,
@@ -4832,7 +4834,7 @@ async fn run_conversation_host_agent_single_step(
         memory,
         click_at_preflight,
     )));
-    let result = host_agent.run_task_with_result(user_goal).await?;
+    let result = host_agent.run_task_with_result(full_context, user_goal).await?;
     Ok(result.output)
 }
 
@@ -5167,6 +5169,7 @@ pub async fn run(
         let response = run_host_agent_single_step(
             session_id,
             &enriched,
+            &msg,
             system_prompt.clone(),
             Arc::clone(&provider),
             Arc::new(std::mem::take(&mut tools_registry)),
@@ -5316,6 +5319,7 @@ pub async fn run(
             let response = match run_conversation_host_agent_single_step(
                 cli_session_id.clone(),
                 &enriched,
+                &user_input,
                 Arc::clone(&shared_history),
                 Arc::clone(&provider),
                 Arc::clone(&shared_tools_registry),
@@ -5582,6 +5586,7 @@ pub async fn process_message(config: Config, message: &str) -> Result<String> {
     let response = run_host_agent_single_step(
         session_id,
         &enriched,
+        message,
         system_prompt.clone(),
         provider,
         Arc::new(tools_registry),

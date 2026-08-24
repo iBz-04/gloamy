@@ -135,7 +135,7 @@ async fn e2e_cross_app_decomposition_routes_to_matching_workers() {
     host.register_worker(Arc::new(browser_worker));
 
     let result = host
-        .run_task_with_result("Open terminal and then inspect browser tab.")
+        .run_task_with_result("Open terminal and then inspect browser tab.", "Open terminal and then inspect browser tab.")
         .await
         .expect("host should route both app steps");
 
@@ -174,7 +174,7 @@ async fn e2e_replanning_recovers_after_no_progress_step() {
     host.register_worker(Arc::new(worker));
 
     let result = host
-        .run_task_with_result("Run maintenance")
+        .run_task_with_result("Run maintenance", "Run maintenance")
         .await
         .expect("host should replan and recover");
 

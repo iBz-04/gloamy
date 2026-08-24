@@ -137,6 +137,132 @@ fn read_log_file_entries(
         .collect()
 }
 
+#[derive(Serialize)]
+pub struct ApiHistoryEntry {
+    pub id: String,
+    pub title: String,
+    pub updated_at: String,
+    pub created_at: String,
+    pub message_count: usize,
+}
+
+#[derive(Serialize)]
+pub struct ApiSessionMessage {
+    pub role: String,
+    pub content: String,
+}
+
+pub async fn handle_api_session(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(thread_id): Path<String>,
+) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
+    require_auth(&state, &headers)?;
+
+    let config = state.config.lock().clone();
+    let store = match crate::agent::create_task_store(&config.workspace_dir) {
+        Ok(s) => s,
+        Err(e) => {
+            return Err((
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(serde_json::json!({ "error": format!("Failed to open task store: {e}") })),
+            ));
+        }
+    };
+
+    let record = match store.load_by_thread_id(&thread_id).await {
+        Ok(Some(r)) => r,
+        Ok(None) => {
+            return Err((
+                StatusCode::NOT_FOUND,
+                Json(serde_json::json!({ "error": "Session not found" })),
+            ));
+        }
+        Err(e) => {
+            return Err((
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(serde_json::json!({ "error": format!("Failed to load session: {e}") })),
+            ));
+        }
+    };
+
+    let messages: Vec<ApiSessionMessage> = record.execution_history.into_iter().map(|msg| {
+        ApiSessionMessage {
+            role: msg.role,
+            content: msg.content,
+        }
+    }).collect();
+
+    Ok(Json(serde_json::json!({
+        "thread_id": record.thread_id,
+        "messages": messages
+    })))
+}
+
+pub async fn handle_api_history(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
+    require_auth(&state, &headers)?;
+
+    let config = state.config.lock().clone();
+    let store = match crate::agent::create_task_store(&config.workspace_dir) {
+        Ok(s) => s,
+        Err(e) => {
+            return Err((
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(serde_json::json!({ "error": format!("Failed to open task store: {e}") })),
+            ));
+        }
+    };
+
+    let records = match store.list_recent_tasks(50).await {
+        Ok(r) => r,
+        Err(e) => {
+            return Err((
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(serde_json::json!({ "error": format!("Failed to list recent tasks: {e}") })),
+            ));
+        }
+    };
+
+    let entries: Vec<ApiHistoryEntry> = records.into_iter().map(|rec| {
+        // Derive a topic title from the first user message or use a fallback
+        let mut title = "New Topic".to_string();
+        for msg in &rec.execution_history {
+            if msg.role == "user" {
+                // Keep the first 3-5 words
+                let mut words: Vec<&str> = msg.content.split_whitespace().take(5).collect();
+                if words.len() > 3 {
+                    words.truncate(3);
+                }
+                let mut joined = words.join(" ");
+                if joined.len() > 30 {
+                    joined.truncate(27);
+                    joined.push_str("...");
+                }
+                title = joined;
+                break;
+            }
+        }
+        if title.is_empty() {
+            title = "New Topic".to_string();
+        }
+
+        ApiHistoryEntry {
+            id: rec.thread_id,
+            title,
+            updated_at: rec.updated_at,
+            created_at: rec.created_at,
+            message_count: rec.execution_history.len() / 2,
+        }
+    }).collect();
+
+    Ok(Json(serde_json::json!({
+        "history": entries
+    })))
+}
+
 fn bad_request(message: impl Into<String>) -> (StatusCode, Json<serde_json::Value>) {
     (
         StatusCode::BAD_REQUEST,

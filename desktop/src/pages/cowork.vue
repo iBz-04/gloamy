@@ -1,8 +1,9 @@
 <script setup lang="ts">
 import { Icon } from '@iconify/vue'
-import { ref, nextTick, unref } from 'vue'
+import { ref, nextTick, unref, watch, onMounted } from 'vue'
 import CoworkInput from '@/components/CoworkInput.vue'
 import { useAuthStore } from '@/stores/auth'
+import { useCoworkStore } from '@/stores/cowork'
 import { SSEClient, type SSEEvent } from '@/lib/sse'
 
 interface StreamStep {
@@ -26,11 +27,34 @@ interface ApiChatResponse {
 }
 
 const auth = useAuthStore()
+const coworkStore = useCoworkStore()
 const messages = ref<Message[]>([])
 const chatContainer = ref<HTMLElement | null>(null)
 const isSubmitting = ref(false)
 let messageCounter = 0
 let stepCounter = 0
+
+async function loadConversationHistory() {
+  const history = await coworkStore.loadSessionHistory(coworkStore.currentSessionId)
+  messages.value = history.map(msg => ({
+    id: nextMessageId(),
+    role: msg.role as 'user' | 'assistant',
+    content: msg.content,
+    status: 'ready',
+    collapsed: true,
+  }))
+  await scrollToBottom()
+}
+
+watch(() => coworkStore.currentSessionId, async (newSessionId, oldSessionId) => {
+  if (newSessionId !== oldSessionId) {
+    await loadConversationHistory()
+  }
+})
+
+onMounted(() => {
+  loadConversationHistory()
+})
 
 function humanizeTool(tool: string): string {
   const map: Record<string, string> = {
@@ -156,7 +180,10 @@ async function handleUserSubmit(text: string) {
   try {
     const response = await auth.fetchWithAuth<ApiChatResponse>('/api/chat', {
       method: 'POST',
-      body: JSON.stringify({ message: text }),
+      body: JSON.stringify({ 
+        message: text,
+        session_id: coworkStore.currentSessionId // Using active session from sidebar
+      }),
     })
 
     const assistantMessage = messages.value.find(message => message.id === placeholderId)

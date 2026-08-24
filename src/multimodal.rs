@@ -69,7 +69,9 @@ pub fn parse_image_markers(content: &str) -> (String, Vec<String>) {
         let end = marker_start + rel_end;
         let candidate = content[marker_start..end].trim();
 
-        if candidate.is_empty() {
+        // Reject markers that contain newlines (likely malformed JSON/tool output)
+        // JSON escape artifacts like \\\" or \", or are excessively long (likely grabbing too much content)
+        if candidate.is_empty() || candidate.contains('\n') || candidate.contains("\\\"") || candidate.contains("\"") || candidate.len() > 1024 {
             cleaned.push_str(&content[start..=end]);
         } else {
             refs.push(candidate.to_string());
@@ -464,6 +466,52 @@ mod tests {
         let (cleaned, refs) = parse_image_markers(input);
 
         assert_eq!(cleaned, "hello [IMAGE:] world");
+        assert!(refs.is_empty());
+    }
+
+    #[test]
+    fn parse_image_markers_rejects_marker_with_newlines() {
+        // This simulates the malformed JSON/tool output bug we saw:
+        // [IMAGE:/Users/ibz/\",\n \"action_result\": \"I cleaned up...]
+        let input = "Check this [IMAGE:/Users/ibz/\",\n \"action_result\": \"I cleaned up the Downloads folder\"] and more text";
+        let (cleaned, refs) = parse_image_markers(input);
+
+        // Should keep the malformed marker as-is, not extract it
+        assert!(cleaned.contains("[IMAGE:/Users/ibz/"));
+        assert!(refs.is_empty());
+    }
+
+    #[test]
+    fn parse_image_markers_rejects_marker_with_json_escapes() {
+        // Test for JSON escape artifacts like \\\" that cause OpenAI errors
+        let input = "Check this [IMAGE:/Users/ibz/\\\"] and more text";
+        let (cleaned, refs) = parse_image_markers(input);
+
+        // Should keep the malformed marker as-is, not extract it
+        assert!(cleaned.contains("[IMAGE:/Users/ibz/\\\"]"));
+        assert!(refs.is_empty());
+    }
+
+    #[test]
+    fn parse_image_markers_rejects_marker_with_quotes() {
+        // Test for regular quotes that indicate malformed JSON
+        let input = "Check this [IMAGE:/Users/ibz/\"] and more text";
+        let (cleaned, refs) = parse_image_markers(input);
+
+        // Should keep the malformed marker as-is, not extract it
+        assert!(cleaned.contains("[IMAGE:/Users/ibz/\"]"));
+        assert!(refs.is_empty());
+    }
+
+    #[test]
+    fn parse_image_markers_rejects_excessively_long_marker() {
+        // Markers longer than 1024 chars are likely malformed
+        let long_path = "a".repeat(1025);
+        let input = format!("Check this [IMAGE:{}]", long_path);
+        let (cleaned, refs) = parse_image_markers(&input);
+
+        // Should keep the malformed marker as-is
+        assert!(cleaned.contains("[IMAGE:"));
         assert!(refs.is_empty());
     }
 
