@@ -3,7 +3,7 @@
 /// This example demonstrates how the failure attribution system distinguishes
 /// between agent errors and environment blocks, providing better recovery hints.
 use gloamy::tools::gui_verify::build_report;
-use gloamy::tools::{FailureCause, GuiExpectation, GuiExpectationKind};
+use gloamy::tools::{GuiExpectation, GuiExpectationKind};
 use serde_json::json;
 
 fn main() {

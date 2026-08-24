@@ -1121,8 +1121,8 @@ impl DeviceStoreTrait for RusqliteStore {
                 device.app_version_secondary,
                 device.app_version_tertiary,
                 device.app_version_last_fetched_ms,
-                device.edge_routing_info.as_ref().map(|v| v.clone()),
-                device.props_hash.as_ref().map(|v| v.clone()),
+                device.edge_routing_info.clone(),
+                device.props_hash.clone(),
             ],
         ))
     }

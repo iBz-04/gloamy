@@ -16,10 +16,15 @@ logic lives in the daemon; this app only renders and talks HTTP.
 - A running Gloamy daemon. From the repository root:
 
   ```bash
-  cargo run -- serve
+  cargo run -- daemon
   ```
 
   The daemon listens on `http://127.0.0.1:42617` by default.
+
+  To run the daemon and this app together in containers instead, see
+  [Running Gloamy in Docker](../docs/docker-deployment.md) — `docker compose up
+  -d --build` from the repository root builds both and serves the UI on
+  <http://127.0.0.1:8080>.
 
 ## Development
 
