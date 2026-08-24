@@ -762,27 +762,30 @@ impl TaskStore for SqliteTaskStore {
                  LIMIT ?1",
             )?;
 
-            let records = stmt.query_map(params![limit as i64], |row| {
-                Ok(TaskRecord {
-                    task_id: row.get(0)?,
-                    thread_id: row.get(1)?,
-                    channel: row.get(2)?,
-                    provider: row.get(3)?,
-                    model: row.get(4)?,
-                    status: TaskStatus::from_str(&row.get::<_, String>(5)?),
-                    execution_history: Self::deserialize_history(&row.get::<_, String>(6)?).unwrap_or_default(),
-                    resumable_history: Self::deserialize_history(&row.get::<_, String>(7)?).unwrap_or_default(),
-                    latest_checkpoint_note: row.get(8)?,
-                    checkpoint_count: row.get::<_, i64>(9)?.max(0) as usize,
-                    final_response: row.get(10)?,
-                    last_error: row.get(11)?,
-                    created_at: row.get(12)?,
-                    updated_at: row.get(13)?,
-                    completed_at: row.get(14)?,
-                    checkpoints: Vec::new(), // Don't eagerly load checkpoints for list view to save memory
-                })
-            })?
-            .collect::<Result<Vec<_>, _>>()?;
+            let records = stmt
+                .query_map(params![limit as i64], |row| {
+                    Ok(TaskRecord {
+                        task_id: row.get(0)?,
+                        thread_id: row.get(1)?,
+                        channel: row.get(2)?,
+                        provider: row.get(3)?,
+                        model: row.get(4)?,
+                        status: TaskStatus::from_str(&row.get::<_, String>(5)?),
+                        execution_history: Self::deserialize_history(&row.get::<_, String>(6)?)
+                            .unwrap_or_default(),
+                        resumable_history: Self::deserialize_history(&row.get::<_, String>(7)?)
+                            .unwrap_or_default(),
+                        latest_checkpoint_note: row.get(8)?,
+                        checkpoint_count: row.get::<_, i64>(9)?.max(0) as usize,
+                        final_response: row.get(10)?,
+                        last_error: row.get(11)?,
+                        created_at: row.get(12)?,
+                        updated_at: row.get(13)?,
+                        completed_at: row.get(14)?,
+                        checkpoints: Vec::new(), // Don't eagerly load checkpoints for list view to save memory
+                    })
+                })?
+                .collect::<Result<Vec<_>, _>>()?;
 
             Ok(records)
         })

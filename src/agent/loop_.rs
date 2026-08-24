@@ -4735,7 +4735,9 @@ async fn run_host_agent_single_step(
             click_at_preflight,
         )));
     }
-    let result = host_agent.run_task_with_result(full_context, user_goal).await?;
+    let result = host_agent
+        .run_task_with_result(full_context, user_goal)
+        .await?;
     Ok(result.output)
 }
 
@@ -4834,7 +4836,9 @@ async fn run_conversation_host_agent_single_step(
         memory,
         click_at_preflight,
     )));
-    let result = host_agent.run_task_with_result(full_context, user_goal).await?;
+    let result = host_agent
+        .run_task_with_result(full_context, user_goal)
+        .await?;
     Ok(result.output)
 }
 
@@ -6323,9 +6327,11 @@ mod tests {
         .await
         .expect_err("oversized payload must fail");
 
-        assert!(err
-            .to_string()
-            .contains("multimodal image size limit exceeded"));
+        assert!(
+            err.to_string()
+                .contains("multimodal image size limit exceeded"),
+            "unexpected error: {err:#}"
+        );
         assert_eq!(calls.load(Ordering::SeqCst), 0);
     }
 

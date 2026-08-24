@@ -71,7 +71,9 @@ impl HostAgent {
 
     /// Plans and routes tactical steps based on global awareness.
     pub async fn run_task(&mut self, full_context: &str, user_goal: &str) -> Result<()> {
-        self.run_task_with_result(full_context, user_goal).await.map(|_| ())
+        self.run_task_with_result(full_context, user_goal)
+            .await
+            .map(|_| ())
     }
 
     /// Plans and routes multiple tactical steps based on global awareness and returns
@@ -284,7 +286,9 @@ impl HostAgent {
         }
 
         let mut instruction = if total_steps <= 1 {
-            format!("Overall goal & context:\n{full_context}\n\nCurrent planned step:\n{planned_step}")
+            format!(
+                "Overall goal & context:\n{full_context}\n\nCurrent planned step:\n{planned_step}"
+            )
         } else {
             format!(
                 "Overall goal & context:\n{full_context}\n\nCurrent planned step {step_number}/{total_steps}:\n{planned_step}"
@@ -838,7 +842,10 @@ mod tests {
         }));
 
         let result = host
-            .run_task_with_result("Open settings and then enable notifications.", "Open settings and then enable notifications.")
+            .run_task_with_result(
+                "Open settings and then enable notifications.",
+                "Open settings and then enable notifications.",
+            )
             .await
             .expect("host execution should succeed");
 
@@ -884,7 +891,10 @@ mod tests {
         }));
 
         let result = host
-            .run_task_with_result("Open terminal and then check docs in browser.", "Open terminal and then check docs in browser.")
+            .run_task_with_result(
+                "Open terminal and then check docs in browser.",
+                "Open terminal and then check docs in browser.",
+            )
             .await
             .expect("host execution should succeed");
 
@@ -993,7 +1003,10 @@ mod tests {
             },
         }));
 
-        let err = host.run_task("type command", "type command").await.unwrap_err();
+        let err = host
+            .run_task("type command", "type command")
+            .await
+            .unwrap_err();
         assert!(err.to_string().contains("no registered worker can handle"));
     }
 
@@ -1010,7 +1023,10 @@ mod tests {
             },
         }));
 
-        let err = host.run_task("type command", "type command").await.unwrap_err();
+        let err = host
+            .run_task("type command", "type command")
+            .await
+            .unwrap_err();
         let message = err.to_string();
         assert!(
             message.contains("escalated while executing planned step")

@@ -17,8 +17,8 @@ When the claws 🦞 are asleep the gloamies 🦉 come out to play !
 Hi I'm Gloamy, I execute tasks on your behalf without deleting your stuff, leaking your private business, oh and I'm lightweight unlike that damn lobster  (openclaw).
 
 # Overview
-![Desktop](/mobile_shots.png)
-![Desktop](/desktop.png)
+![Mobile](assets/mobile_shots.png)
+![Desktop](assets/desktop.png)
 
 
 Gloamy is built around explicit subsystem contracts:
@@ -69,7 +69,7 @@ High-level repository map:
 - [`src/gateway/`](src/gateway): HTTP and websocket gateway
 - [`src/runtime/`](src/runtime): runtime adapters
 - [`src/peripherals/`](src/peripherals): hardware integrations
-- [`desktop/`](desktop): Tauri + Vue desktop application
+- [`web/`](web): Vue 3 web application
 - [`docs/`](docs): operator, reference, and contribution docs
 
 ## Key Properties
@@ -193,6 +193,27 @@ Useful bootstrap variants:
 
 Reference: [`docs/one-click-bootstrap.md`](docs/one-click-bootstrap.md)
 
+### Docker
+
+To run the agent daemon and the web UI as containers:
+
+```bash
+cp .env.example .env
+```
+
+Add a provider API key to `.env`, then:
+
+```bash
+docker compose up -d --build
+```
+
+The UI is served at <http://127.0.0.1:8080>, and the gateway API at
+<http://127.0.0.1:42617>. Both are bound to loopback. On first start the gateway
+prints a one-time pairing code — read it with `docker compose logs gloamy` and
+enter it in the UI.
+
+Reference: [`docs/docker-deployment.md`](docs/docker-deployment.md)
+
 ### Non-Interactive Setup
 
 If you already know exactly what you want, you can skip the full wizard:
@@ -239,21 +260,25 @@ What it does not do:
 
 If you want a safe preview of the candidate entries without writing data, use `--dry-run`.
 
-## Desktop App
+## Web App
 
-This repository also includes a desktop application in [`desktop/`](desktop), built with Tauri (Rust backend) and Vue 3 (frontend).
+This repository also includes a web application in [`web/`](web), built with Vue 3 and Vite.
 
- Use the desktop app for the primary UI, and use the gateway for webhook/API access.
+Use the web app for the primary UI, and use the gateway for webhook/API access.
 
-If you want to run the desktop UI locally:
+The app is a thin client over the gateway's REST + SSE API. It reaches the
+daemon over same-origin paths (`/api/*`, `/pair`, `/health`), which the dev
+server forwards, so no CORS configuration is required.
+
+If you want to run the UI locally, start the gateway first, then:
 
 ```bash
-cd desktop
+cd web
 pnpm install
-pnpm tauri dev
+pnpm dev
 ```
 
-For desktop-specific setup, development, and packaging details, see [`desktop/README.md`](desktop/README.md).
+For setup, development, and deployment details, see [`web/README.md`](web/README.md).
 
 ## Running Modes
 

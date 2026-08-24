@@ -71,7 +71,19 @@ pub fn parse_image_markers(content: &str) -> (String, Vec<String>) {
 
         // Reject markers that contain newlines (likely malformed JSON/tool output)
         // JSON escape artifacts like \\\" or \", or are excessively long (likely grabbing too much content)
-        if candidate.is_empty() || candidate.contains('\n') || candidate.contains("\\\"") || candidate.contains("\"") || candidate.len() > 1024 {
+        //
+        // The length cap exists to stop a marker swallowing surrounding tool
+        // output. Base64 `data:` URIs are legitimately megabytes long and are
+        // unambiguous, so exempt them or inline images can never be parsed at
+        // all; their size is enforced later by `validate_size` against
+        // `max_image_size_mb`.
+        let over_length = candidate.len() > 1024 && !candidate.starts_with("data:");
+        if candidate.is_empty()
+            || candidate.contains('\n')
+            || candidate.contains("\\\"")
+            || candidate.contains('"')
+            || over_length
+        {
             cleaned.push_str(&content[start..=end]);
         } else {
             refs.push(candidate.to_string());

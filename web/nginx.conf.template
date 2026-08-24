@@ -1,0 +1,66 @@
+# Serves the built Gloamy web UI and reverse-proxies the daemon so the browser
+# sees a single origin.
+#
+# ${GLOAMY_DAEMON_URL} is substituted at container start by the nginx image's
+# envsubst entrypoint (see NGINX_ENVSUBST_FILTER in web/Dockerfile). The proxied
+# path set mirrors DAEMON_PATHS in vite.config.ts, so dev and Docker behave the
+# same.
+
+server {
+    listen      80;
+    listen      [::]:80;
+    server_name _;
+
+    root  /usr/share/nginx/html;
+    index index.html;
+
+    # PUT /api/config accepts up to 1MB upstream; stay above that.
+    client_max_body_size 2m;
+
+    # Docker's embedded DNS. Combined with the $gloamy_daemon variable in
+    # proxy_pass below, the daemon's address is resolved per request, so a
+    # recreated daemon container is picked up without restarting nginx.
+    resolver 127.0.0.11 valid=10s ipv6=off;
+    set $gloamy_daemon "${GLOAMY_DAEMON_URL}";
+
+    # ── Static app shell ──────────────────────────────────────────────────
+    # Asset filenames are content-hashed by Vite, so they are safe to pin.
+    location /assets/ {
+        try_files $uri =404;
+        expires 1y;
+        add_header Cache-Control "public, immutable";
+    }
+
+    # The shell must never be cached, or clients pin a stale asset manifest.
+    location = /index.html {
+        add_header Cache-Control "no-store";
+    }
+
+    # The router uses hash history today, so this fallback only becomes
+    # load-bearing if it switches to createWebHistory(). Correct either way.
+    location / {
+        try_files $uri $uri/ /index.html;
+    }
+
+    # ── Daemon proxy ──────────────────────────────────────────────────────
+    location /api/ {
+        proxy_pass $gloamy_daemon$request_uri;
+        include /etc/nginx/gloamy-proxy.conf;
+
+        # POST /api/chat runs the full agent loop and is capped at 300s
+        # upstream. Outlast that so nginx is never the side that cuts the
+        # request, and so long SSE streams on /api/events are not reaped.
+        proxy_read_timeout 360s;
+        proxy_send_timeout 360s;
+    }
+
+    location = /pair {
+        proxy_pass $gloamy_daemon$request_uri;
+        include /etc/nginx/gloamy-proxy.conf;
+    }
+
+    location = /health {
+        proxy_pass $gloamy_daemon$request_uri;
+        include /etc/nginx/gloamy-proxy.conf;
+    }
+}

@@ -1,23 +1,24 @@
-//! Static file handlers for the deprecated web dashboard surface.
+//! Static file handlers for the legacy embedded dashboard surface.
 //!
-//! Gloamy now prefers the desktop application. These handlers intentionally
-//! return a clear error instead of serving embedded dashboard assets.
+//! The gateway does not serve UI assets. The web app in `web/` is built and
+//! served separately and calls this gateway's REST/SSE API, so these handlers
+//! intentionally return a clear error instead of embedded dashboard assets.
 
 use axum::{http::StatusCode, response::IntoResponse};
 
 /// Serve static files from `/_app/*` path
 pub async fn handle_static() -> impl IntoResponse {
-    desktop_only_response()
+    no_embedded_ui_response()
 }
 
-/// SPA fallback for the removed browser dashboard.
+/// SPA fallback for the embedded dashboard that this gateway no longer serves.
 pub async fn handle_spa_fallback() -> impl IntoResponse {
-    desktop_only_response()
+    no_embedded_ui_response()
 }
 
-fn desktop_only_response() -> impl IntoResponse {
+fn no_embedded_ui_response() -> impl IntoResponse {
     (
         StatusCode::NOT_FOUND,
-        "The browser dashboard has been removed. Use the Gloamy desktop app instead.",
+        "This gateway serves the API only and does not host the UI. Build and serve the web app in web/, which calls this gateway's API.",
     )
 }

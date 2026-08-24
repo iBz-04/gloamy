@@ -2,7 +2,6 @@
 members = [
     ".",
     "crates/robot",
-    "desktop/src-tauri",
 ]
 resolver = "2"
 

@@ -41,6 +41,8 @@ max_input_chars = 4096
 voice_reply_mode = "voice_only"
 
 [observability]
+# Required field (no serde default); "none" disables OTEL export.
+backend = "none"
 runtime_trace_mode = "rolling"
 runtime_trace_path = "state/runtime-trace.jsonl"
 runtime_trace_max_entries = 400
@@ -113,6 +115,14 @@ allowed_commands = [
     "shasum",
 ]
 # Note: osascript and sleep are included for macOS automation skills
+
+# Required field (no serde default): the config fails to parse without it.
+# Mirrors AutonomyConfig::default() in src/config/schema.rs.
+forbidden_paths = [
+    "~/.ssh",
+    "~/.gnupg",
+    "~/.aws",
+]
 require_approval_for_medium_risk = false
 block_high_risk_commands = false
 max_actions_per_hour = 500

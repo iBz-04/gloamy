@@ -17,4 +17,4 @@ mod tests;
 pub use agent::{Agent, AgentBuilder};
 #[allow(unused_imports)]
 pub use loop_::{process_message, run};
-pub use task_store::{create_task_store, TaskStore, TaskRecord, TaskStatus};
+pub use task_store::{create_task_store, TaskRecord, TaskStatus, TaskStore};

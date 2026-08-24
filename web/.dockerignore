@@ -1,0 +1,11 @@
+# Build context for web/Dockerfile.
+.git
+.github
+node_modules
+dist
+dist-ssr
+coverage
+*.log
+.DS_Store
+Dockerfile
+.dockerignore

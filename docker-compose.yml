@@ -1,0 +1,75 @@
+# Run Gloamy from Docker: the agent daemon plus the web UI.
+#
+#   cp .env.example .env          # set at least one provider API key
+#   docker compose up -d --build
+#   docker compose logs -f gloamy # first run prints the one-time pairing code
+#   open http://127.0.0.1:8080
+#
+# Requires Docker Compose v2.24+ (for the optional `env_file` form below).
+# For the sandboxed development stack instead, see dev/docker-compose.yml.
+name: gloamy
+
+services:
+  # ── Agent daemon (REST + SSE API) ──
+  gloamy:
+    build:
+      context: .
+      target: release
+      args:
+        VERSION: ${GLOAMY_VERSION:-dev}
+    image: gloamy:local
+    container_name: gloamy
+    restart: unless-stopped
+    command: ["gateway"]
+    environment:
+      # Binding all interfaces is required for the web container to reach the
+      # gateway over the compose network. That trips the gateway's public-bind
+      # guard, so the guard is opted out of here deliberately — host exposure
+      # stays limited to loopback by the `ports` mapping below.
+      GLOAMY_GATEWAY_HOST: 0.0.0.0
+      GLOAMY_GATEWAY_PORT: "42617"
+      GLOAMY_ALLOW_PUBLIC_BIND: "true"
+      GLOAMY_WORKSPACE: /gloamy-data/workspace
+    # Passes provider keys through to the container. Optional so that
+    # `docker compose up` still works before you have written a .env.
+    env_file:
+      - path: .env
+        required: false
+    volumes:
+      # Config, memory, secret store, and workspace all live under $HOME.
+      - gloamy-data:/gloamy-data
+    ports:
+      # Loopback only. Publishing this on 0.0.0.0 would expose an agent that can
+      # execute shell commands to your whole network.
+      - "127.0.0.1:42617:42617"
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:42617/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      # The gateway initializes providers, memory, and the tool registry first.
+      start_period: 30s
+
+  # ── Web UI (static assets + same-origin API proxy) ──
+  web:
+    build:
+      context: ./web
+    image: gloamy-web:local
+    container_name: gloamy-web
+    restart: unless-stopped
+    environment:
+      GLOAMY_DAEMON_URL: http://gloamy:42617
+    depends_on:
+      gloamy:
+        condition: service_healthy
+    ports:
+      - "127.0.0.1:8080:80"
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://127.0.0.1:80/"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 5s
+
+volumes:
+  gloamy-data:

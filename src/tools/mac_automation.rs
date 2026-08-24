@@ -1680,9 +1680,11 @@ impl Tool for MacAutomationTool {
                 Self::add_applescript_failure_hint(result)
             }
             "move_mouse" => {
-                if let Some(refused) = Self::refuse_without_accessibility("move_mouse").await {
-                    return Ok(refused);
-                }
+                // Validate arguments before probing Accessibility trust. The
+                // refusal below still gates every CGEventPost, but ordering the
+                // cheap, pure check first means a malformed call reports the
+                // malformed argument instead of a host-permission error — and
+                // keeps these paths testable on machines without the grant.
                 let coords = match self.resolve_coordinates(&args, "move_mouse").await {
                     Ok(coords) => coords,
                     Err(error) => {
@@ -1693,6 +1695,9 @@ impl Tool for MacAutomationTool {
                         });
                     }
                 };
+                if let Some(refused) = Self::refuse_without_accessibility("move_mouse").await {
+                    return Ok(refused);
+                }
                 if let Some(result) = self
                     .maybe_request_gui_approval(
                         action,
@@ -1736,9 +1741,11 @@ impl Tool for MacAutomationTool {
                 }
             }
             "click_at" => {
-                if let Some(refused) = Self::refuse_without_accessibility("click_at").await {
-                    return Ok(refused);
-                }
+                // Validate arguments before probing Accessibility trust. The
+                // refusal below still gates every CGEventPost, but ordering the
+                // cheap, pure check first means a malformed call reports the
+                // malformed argument instead of a host-permission error — and
+                // keeps these paths testable on machines without the grant.
                 let coords = match self.resolve_coordinates(&args, "click_at").await {
                     Ok(coords) => coords,
                     Err(error) => {
@@ -1749,6 +1756,9 @@ impl Tool for MacAutomationTool {
                         });
                     }
                 };
+                if let Some(refused) = Self::refuse_without_accessibility("click_at").await {
+                    return Ok(refused);
+                }
                 let modifier_keys = match Self::parse_modifier_keys(&args) {
                     Ok(keys) => keys,
                     Err(error) => {

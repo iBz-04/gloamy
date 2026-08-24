@@ -64,9 +64,9 @@ Important security and runtime properties include:
 - deny-by-default channel allowlists
 - explicit policy for tool and command execution
 
-### Desktop app
+### Web app
 
-The repository also includes a desktop app in `desktop/`, built with Tauri and Vue 3.
+The repository also includes a web app in `web/`, built with Vue 3 and Vite.
 
 It is the main UI for people who want a graphical workflow rather than the terminal-first path.
 
