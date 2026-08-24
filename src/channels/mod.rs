@@ -4118,6 +4118,15 @@ mod tests {
             self.records.lock().unwrap().remove(thread_id);
             Ok(())
         }
+
+        async fn list_recent_tasks(&self, limit: usize) -> anyhow::Result<Vec<TaskRecord>> {
+            let mut records: Vec<TaskRecord> =
+                self.records.lock().unwrap().values().cloned().collect();
+            // Mirrors SqliteTaskStore: most recently updated first, capped at `limit`.
+            records.sort_by(|a, b| b.updated_at.cmp(&a.updated_at));
+            records.truncate(limit);
+            Ok(records)
+        }
     }
 
     fn make_workspace() -> TempDir {

@@ -12,10 +12,10 @@ pub mod sse;
 pub mod static_files;
 pub mod ws;
 
+use crate::agent::Agent;
 use crate::channels::{
     Channel, LinqChannel, NextcloudTalkChannel, SendMessage, WatiChannel, WhatsAppChannel,
 };
-use crate::agent::Agent;
 use crate::config::Config;
 use crate::cost::CostTracker;
 use crate::memory::{self, Memory, MemoryCategory};
@@ -902,7 +902,11 @@ async fn run_gateway_chat_with_tools(state: &AppState, message: &str) -> anyhow:
     crate::agent::process_message(config, message).await
 }
 
-async fn run_gateway_api_chat(state: &AppState, message: &str, session_id: Option<String>) -> anyhow::Result<String> {
+async fn run_gateway_api_chat(
+    state: &AppState,
+    message: &str,
+    session_id: Option<String>,
+) -> anyhow::Result<String> {
     use std::time::Instant;
 
     let t_start = Instant::now();
@@ -2382,6 +2386,7 @@ mod tests {
             headers,
             Ok(Json(ApiChatBody {
                 message: "hello".into(),
+                session_id: None,
             })),
         )
         .await
@@ -2423,6 +2428,7 @@ mod tests {
             HeaderMap::new(),
             Ok(Json(ApiChatBody {
                 message: "   ".into(),
+                session_id: None,
             })),
         )
         .await
@@ -2464,6 +2470,7 @@ mod tests {
             HeaderMap::new(),
             Ok(Json(ApiChatBody {
                 message: "   ".into(),
+                session_id: None,
             })),
         )
         .await
@@ -2476,6 +2483,7 @@ mod tests {
             HeaderMap::new(),
             Ok(Json(ApiChatBody {
                 message: "   ".into(),
+                session_id: None,
             })),
         )
         .await

@@ -226,10 +226,7 @@ impl AgentBuilder {
         self
     }
 
-    pub fn multimodal_config(
-        mut self,
-        multimodal_config: crate::config::MultimodalConfig,
-    ) -> Self {
+    pub fn multimodal_config(mut self, multimodal_config: crate::config::MultimodalConfig) -> Self {
         self.multimodal_config = Some(multimodal_config);
         self
     }
@@ -610,8 +607,7 @@ impl Agent {
             if current <= max_chars {
                 break;
             }
-            let Some(oldest_non_system_idx) =
-                messages.iter().position(|m| m.role != "system")
+            let Some(oldest_non_system_idx) = messages.iter().position(|m| m.role != "system")
             else {
                 break;
             };
@@ -818,10 +814,7 @@ impl Agent {
 
     pub async fn turn(&mut self, user_message: &str) -> Result<String> {
         let t_turn_start = std::time::Instant::now();
-        tracing::info!(
-            msg_len = user_message.len(),
-            "Agent::turn start"
-        );
+        tracing::info!(msg_len = user_message.len(), "Agent::turn start");
 
         self.hydrate_persisted_history_if_needed().await;
 
@@ -966,7 +959,8 @@ impl Agent {
                         .into_iter()
                         .map(|m| {
                             if m.role == "user" {
-                                let (cleaned, _) = crate::multimodal::parse_image_markers(&m.content);
+                                let (cleaned, _) =
+                                    crate::multimodal::parse_image_markers(&m.content);
                                 ChatMessage {
                                     role: m.role,
                                     content: if cleaned.is_empty() {
@@ -1752,19 +1746,21 @@ mod tests {
         // Oldest user dropped; at least one non-system remains.
         assert!(msgs.iter().any(|m| m.role != "system"));
         let total: usize = msgs.iter().map(|m| m.content.len()).sum();
-        assert!(total <= 600 + 100, "expected total under ~budget, got {total}");
+        assert!(
+            total <= 600 + 100,
+            "expected total under ~budget, got {total}"
+        );
     }
 
     #[test]
     fn enforce_context_budget_truncates_oversized_single_message() {
         let huge = "y".repeat(2000);
-        let mut msgs = vec![
-            ChatMessage::system("sys"),
-            ChatMessage::user(huge),
-        ];
+        let mut msgs = vec![ChatMessage::system("sys"), ChatMessage::user(huge)];
         Agent::enforce_context_budget(&mut msgs, 500);
         let user = msgs.iter().find(|m| m.role == "user").unwrap();
-        assert!(user.content.contains("[…content truncated to fit context budget…]"));
+        assert!(user
+            .content
+            .contains("[…content truncated to fit context budget…]"));
         let total: usize = msgs.iter().map(|m| m.content.len()).sum();
         assert!(total <= 500 + 100);
     }
@@ -1775,10 +1771,7 @@ mod tests {
         // exceeds the context window, so non-system trimming/truncation can't
         // bring us under budget — must truncate system as last resort.
         let huge_system = "s".repeat(5000);
-        let mut msgs = vec![
-            ChatMessage::system(huge_system),
-            ChatMessage::user("hi"),
-        ];
+        let mut msgs = vec![ChatMessage::system(huge_system), ChatMessage::user("hi")];
         Agent::enforce_context_budget(&mut msgs, 1000);
         let total: usize = msgs.iter().map(|m| m.content.len()).sum();
         assert!(
@@ -1787,7 +1780,9 @@ mod tests {
         );
         let system_msg = msgs.iter().find(|m| m.role == "system").unwrap();
         assert!(
-            system_msg.content.contains("[…content truncated to fit context budget…]"),
+            system_msg
+                .content
+                .contains("[…content truncated to fit context budget…]"),
             "oversized system prompt must be tail-truncated with marker"
         );
         // User message must survive.

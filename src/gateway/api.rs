@@ -186,12 +186,14 @@ pub async fn handle_api_session(
         }
     };
 
-    let messages: Vec<ApiSessionMessage> = record.execution_history.into_iter().map(|msg| {
-        ApiSessionMessage {
+    let messages: Vec<ApiSessionMessage> = record
+        .execution_history
+        .into_iter()
+        .map(|msg| ApiSessionMessage {
             role: msg.role,
             content: msg.content,
-        }
-    }).collect();
+        })
+        .collect();
 
     Ok(Json(serde_json::json!({
         "thread_id": record.thread_id,
@@ -226,37 +228,40 @@ pub async fn handle_api_history(
         }
     };
 
-    let entries: Vec<ApiHistoryEntry> = records.into_iter().map(|rec| {
-        // Derive a topic title from the first user message or use a fallback
-        let mut title = "New Topic".to_string();
-        for msg in &rec.execution_history {
-            if msg.role == "user" {
-                // Keep the first 3-5 words
-                let mut words: Vec<&str> = msg.content.split_whitespace().take(5).collect();
-                if words.len() > 3 {
-                    words.truncate(3);
+    let entries: Vec<ApiHistoryEntry> = records
+        .into_iter()
+        .map(|rec| {
+            // Derive a topic title from the first user message or use a fallback
+            let mut title = "New Topic".to_string();
+            for msg in &rec.execution_history {
+                if msg.role == "user" {
+                    // Keep the first 3-5 words
+                    let mut words: Vec<&str> = msg.content.split_whitespace().take(5).collect();
+                    if words.len() > 3 {
+                        words.truncate(3);
+                    }
+                    let mut joined = words.join(" ");
+                    if joined.len() > 30 {
+                        joined.truncate(27);
+                        joined.push_str("...");
+                    }
+                    title = joined;
+                    break;
                 }
-                let mut joined = words.join(" ");
-                if joined.len() > 30 {
-                    joined.truncate(27);
-                    joined.push_str("...");
-                }
-                title = joined;
-                break;
             }
-        }
-        if title.is_empty() {
-            title = "New Topic".to_string();
-        }
+            if title.is_empty() {
+                title = "New Topic".to_string();
+            }
 
-        ApiHistoryEntry {
-            id: rec.thread_id,
-            title,
-            updated_at: rec.updated_at,
-            created_at: rec.created_at,
-            message_count: rec.execution_history.len() / 2,
-        }
-    }).collect();
+            ApiHistoryEntry {
+                id: rec.thread_id,
+                title,
+                updated_at: rec.updated_at,
+                created_at: rec.created_at,
+                message_count: rec.execution_history.len() / 2,
+            }
+        })
+        .collect();
 
     Ok(Json(serde_json::json!({
         "history": entries

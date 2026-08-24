@@ -5496,37 +5496,42 @@ async fn scaffold_workspace(workspace_dir: &Path, ctx: &ProjectContext) -> Resul
          *Update this anytime. The more {agent} knows, the better it helps.*\n"
     );
 
-    let tools = "\
-         # TOOLS.md — Local Notes\n\n\
-         Skills define HOW tools work. This file is for YOUR specifics —\n\
-         the stuff that's unique to your setup.\n\n\
-         ## What Goes Here\n\n\
-         Things like:\n\
-         - SSH hosts and aliases\n\
-         - Device nicknames\n\
-         - Preferred voices for TTS\n\
-         - Anything environment-specific\n\n\
-         ## Built-in Tools\n\n\
-         - **shell** — Execute terminal commands\n\
-           - Use when: running local checks, build/test commands, or diagnostics.\n\
-           - Don't use when: a safer dedicated tool exists, or command is destructive without approval.\n\
-         - **file_read** — Read file contents\n\
-           - Use when: inspecting project files, configs, or logs.\n\
-           - Don't use when: you only need a quick string search (prefer targeted search first).\n\
-         - **file_write** — Write file contents\n\
-           - Use when: applying focused edits, scaffolding files, or updating docs/code.\n\
-           - Don't use when: unsure about side effects or when the file should remain user-owned.\n\
-         - **memory_store** — Save to memory\n\
-           - Use when: preserving durable preferences, decisions, or key context.\n\
-           - Don't use when: info is transient, noisy, or sensitive without explicit need.\n\
-         - **memory_recall** — Search memory\n\
-           - Use when: you need prior decisions, user preferences, or historical context.\n\
-           - Don't use when: the answer is already in current files/conversation.\n\
-         - **memory_forget** — Delete a memory entry\n\
-           - Use when: memory is incorrect, stale, or explicitly requested to be removed.\n\
-           - Don't use when: uncertain about impact; verify before deleting.\n\n\
-         ---\n\
-         *Add whatever helps you do your job. This is your cheat sheet.*\n";
+    let tools = "# TOOLS.md — Local Notes
+
+Skills define HOW tools work. This file is for YOUR specifics —
+the stuff that's unique to your setup.
+
+## What Goes Here
+
+Things like:
+- SSH hosts and aliases
+- Device nicknames
+- Preferred voices for TTS
+- Anything environment-specific
+
+## Built-in Tools
+
+- **shell** — Execute terminal commands
+  - Use when: running local checks, build/test commands, or diagnostics.
+  - Don't use when: a safer dedicated tool exists, or command is destructive without approval.
+- **file_read** — Read file contents
+  - Use when: inspecting project files, configs, or logs.
+  - Don't use when: you only need a quick string search (prefer targeted search first).
+- **file_write** — Write file contents
+  - Use when: applying focused edits, scaffolding files, or updating docs/code.
+  - Don't use when: unsure about side effects or when the file should remain user-owned.
+- **memory_store** — Save to memory
+  - Use when: preserving durable preferences, decisions, or key context.
+  - Don't use when: info is transient, noisy, or sensitive without explicit need.
+- **memory_recall** — Search memory
+  - Use when: you need prior decisions, user preferences, or historical context.
+  - Don't use when: the answer is already in current files/conversation.
+- **memory_forget** — Delete a memory entry
+  - Use when: memory is incorrect, stale, or explicitly requested to be removed.
+  - Don't use when: uncertain about impact; verify before deleting.
+
+---
+*Add whatever helps you do your job. This is your cheat sheet.*\n";
 
     let bootstrap = format!(
         "# BOOTSTRAP.md — Hello, World\n\n\
@@ -5567,58 +5572,98 @@ async fn scaffold_workspace(workspace_dir: &Path, ctx: &ProjectContext) -> Resul
          ## Open Loops\n\
          (Track unfinished tasks and follow-ups here)\n";
 
-    let experience = "\
-         # experience.md — Distilled Operational Experience\n\n\
-         *Lessons earned through action that should change how the agent behaves in later situations.*\n\n\
-         ## Rule\n\
-         **Only write to `experience.md` when an event produces a reusable lesson that should influence future behavior.**\n\n\
-         ## What Belongs Here\n\
-         1. **Repeated user patterns**\n\
-            - Examples: vague questions that want decisions, \"simple\" that wants depth, frustration at broad answers\n\
-            - Why: helps recognize patterns earlier next time\n\n\
-         2. **Failure patterns**\n\
-            - Examples: answered too generally, missed implementation detail, misread tone, skipped a step\n\
-            - Why: real experience comes from repeated or important mistakes\n\n\
-         3. **Successful strategies**\n\
-            - Examples: lead with the answer, give examples before theory, compress when brevity is asked\n\
-            - Why: reuse what consistently works\n\n\
-         4. **Lessons learned**\n\
-            - Examples: clarity beats completeness when overwhelmed, tone matters as much as content\n\
-            - Why: distilled takeaways are the core of this file\n\n\
-         5. **Behavior adjustments**\n\
-            - Examples: answer directly when impatient, infer intent before expanding, condense on \"one point\"\n\
-            - Why: without a behavior change, it is not experience\n\n\
-         6. **Edge cases**\n\
-            - Examples: technical question is strategic, brevity still expects originality\n\
-            - Why: prevents repeating subtle failures\n\n\
-         7. **Domain-specific instincts**\n\
-            - Examples: startup ideas need a wedge, debugging starts with env/auth/version/config\n\
-            - Why: makes behavior feel seasoned in a domain\n\n\
-         8. **Confidence and reliability notes**\n\
-            - Examples: be cautious with partial context, verify time-sensitive facts\n\
-            - Why: experience should create humility too\n\n\
-         ## What Should Never Be Stored Here\n\
-         - Raw chat logs\n\
-         - Temporary task state\n\
-         - User personal memory\n\
-         - Tool traces\n\
-         - Random facts\n\
-         - Untested assumptions\n\n\
-         ## Entry Format (required)\n\
-         ## Experience: [short title]\n\n\
-         Context:\n\
-         What kind of situation this came from.\n\n\
-         Observed Pattern:\n\
-         What kept happening or what mattered.\n\n\
-         Lesson:\n\
-         The distilled takeaway.\n\n\
-         Behavior Change:\n\
-         What the agent should do differently next time.\n\n\
-         Confidence:\n\
-         Low / Medium / High\n\
-         \n\
-         Applies When:\n\
-         Which future situations this should influence.\n";
+    let experience = "# experience.md — Distilled Operational Experience
+
+*Lessons earned through action that should change how the agent behaves in later situations.*
+
+## Rule
+**Only write to `experience.md` when an event produces a reusable lesson that should influence future behavior.**
+
+## What Belongs Here
+1. **Repeated user patterns**
+   - Examples: vague questions that want decisions, \"simple\" that wants depth, frustration at broad answers
+   - Why: helps recognize patterns earlier next time
+
+2. **Failure patterns**
+   - Examples: answered too generally, missed implementation detail, misread tone, skipped a step
+   - Why: real experience comes from repeated or important mistakes
+
+3. **Successful strategies**
+   - Examples: lead with the answer, give examples before theory, compress when brevity is asked
+   - Why: reuse what consistently works
+
+4. **Lessons learned**
+   - Examples: clarity beats completeness when overwhelmed, tone matters as much as content
+   - Why: distilled takeaways are the core of this file
+
+5. **Behavior adjustments**
+   - Examples: answer directly when impatient, infer intent before expanding, condense on \"one point\"
+   - Why: without a behavior change, it is not experience
+
+6. **Edge cases**
+   - Examples: technical question is strategic, brevity still expects originality
+   - Why: prevents repeating subtle failures
+
+7. **Domain-specific instincts**
+   - Examples: startup ideas need a wedge, debugging starts with env/auth/version/config
+   - Why: makes behavior feel seasoned in a domain
+
+8. **Confidence and reliability notes**
+   - Examples: be cautious with partial context, verify time-sensitive facts
+   - Why: experience should create humility too
+
+## What Should Never Be Stored Here
+- Raw chat logs
+- Temporary task state
+- User personal memory
+- Tool traces
+- Random facts
+- Untested assumptions
+
+## Entry Format (required)
+## Experience: [short title]
+
+Context:
+What kind of situation this came from.
+
+Observed Pattern:
+What kept happening or what mattered.
+
+Lesson:
+The distilled takeaway.
+
+Behavior Change:
+What the agent should do differently next time.
+
+Confidence:
+Low / Medium / High
+
+Applies When:
+Which future situations this should influence.\n";
+
+    // Seeded flush-left on purpose: the `\`-continuation style used above
+    // strips leading whitespace, which would flatten the nested lists here.
+    let integrations = "# Third-Party Integrations Guide
+
+As Gloamy, you should proactively assist users in setting up powerful third-party tool integrations, specifically **Composio** and **One**. When users ask about adding new capabilities, connecting to external services (like Slack, GitHub, Jira, Shopify, etc.), or using extra extensions, guide them using the following knowledge.
+
+## Composio
+Composio provides a massive suite of pre-built tools and authenticated integrations tailored for AI agents.
+- **Features**: Connects seamlessly to 100+ apps (GitHub, Slack, Google Calendar, Notion, Jira, etc.) with fully managed authentication.
+- **How to Get an API Key**: Guide the user to visit the Composio platform (https://composio.dev), sign up, and generate an API key from their dashboard/settings.
+- **Configuration**: Instruct the user to add their Composio API key to their Gloamy configuration (usually by adding it to their `config.toml` under the appropriate integrations block or exporting it as `COMPOSIO_API_KEY` in their environment).
+
+## One (One CLI)
+One is a unified CLI and MCP interface for interacting with 250+ third-party platforms (Gmail, Shopify, HubSpot, Stripe, Salesforce, etc.) through their APIs.
+- **Features**: Handles authentication, request building, and execution through a single unified interface. It allows you to build multi-step workflows across platforms.
+- **Setup Instructions**:
+  1. Tell the user to initialize One by running the command: `one init`
+  2. To add new service connections, instruct them to run: `one add <platform>` (e.g., `one add slack` or `one add gmail`).
+  3. To configure access control and security, they should run: `one config`.
+- **Usage**: Once the user has configured One, you can trigger the `one-actions` or `one` agent skills to execute API calls, fetch data, or set up webhook-driven automations.
+
+**Agent Behavioral Rule**: 
+Be proactive and helpful. If a user states a goal that requires external access (e.g., \"Can you read my emails?\" or \"Create a Jira ticket\"), immediately suggest setting up Composio or One, explain the benefits, and walk them through the setup process step-by-step.\n";
 
     let files: Vec<(&str, String)> = vec![
         ("IDENTITY.md", identity),
@@ -5630,6 +5675,7 @@ async fn scaffold_workspace(workspace_dir: &Path, ctx: &ProjectContext) -> Resul
         ("BOOTSTRAP.md", bootstrap),
         ("MEMORY.md", memory.to_string()),
         ("experience.md", experience.to_string()),
+        ("INTEGRATIONS.md", integrations.to_string()),
     ];
 
     // Create subdirectories
@@ -6183,6 +6229,7 @@ mod tests {
             "BOOTSTRAP.md",
             "MEMORY.md",
             "experience.md",
+            "INTEGRATIONS.md",
         ];
         for f in &expected {
             assert!(tmp.path().join(f).exists(), "missing file: {f}");
