@@ -20,7 +20,7 @@ For first-time installation, start from [one-click-bootstrap.md](one-click-boots
 | Mode | Command | When to use |
 |---|---|---|
 | Foreground runtime | `gloamy daemon` | local debugging, short-lived sessions |
-| Foreground gateway only | `gloamy gateway` | webhook/API endpoint testing and desktop client connectivity |
+| Foreground gateway only | `gloamy gateway` | webhook/API endpoint testing and web app connectivity |
 | User service | `gloamy service install && gloamy service start` | persistent operator-managed runtime |
 
 ## Baseline Operator Checklist

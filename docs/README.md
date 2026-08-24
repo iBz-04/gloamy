@@ -20,6 +20,7 @@ Localization index: [i18n/README.md](i18n/README.md).
 | Configure Z.AI / GLM provider | [zai-glm-setup.md](zai-glm-setup.md) |
 | Use LangGraph integration patterns | [langgraph-integration.md](langgraph-integration.md) |
 | Operate runtime (day-2 runbook) | [operations-runbook.md](operations-runbook.md) |
+| Run the agent and web UI in Docker | [docker-deployment.md](docker-deployment.md) |
 | Troubleshoot install/runtime/channel issues | [troubleshooting.md](troubleshooting.md) |
 | Run Matrix encrypted-room setup and diagnostics | [matrix-e2ee-guide.md](matrix-e2ee-guide.md) |
 | Browse docs by category | [SUMMARY.md](SUMMARY.md) |
@@ -60,6 +61,7 @@ Localization index: [i18n/README.md](i18n/README.md).
 - [zai-glm-setup.md](zai-glm-setup.md) — Z.AI/GLM setup and endpoint matrix
 - [langgraph-integration.md](langgraph-integration.md) — fallback integration for model/tool-calling edge cases
 - [operations-runbook.md](operations-runbook.md) — day-2 runtime operations and rollback flow
+- [docker-deployment.md](docker-deployment.md) — Docker images and the Compose stack (daemon + web UI)
 - [troubleshooting.md](troubleshooting.md) — common failure signatures and recovery steps
 
 ### Contributors / Maintainers

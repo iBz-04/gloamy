@@ -255,7 +255,7 @@ Expected behavior:
 
 What to do:
 
-- use the desktop app for the primary UI
+- use the web app for the primary UI
 - use gateway routes only for integrations, automation, health checks, and API traffic
 
 ### Pairing / auth failures on webhook

@@ -6,7 +6,9 @@ A fully containerized development sandbox for Gloamy agents. This environment al
 
 - **`agent/`**: (Merged into root Dockerfile)
     - The development image is built from the root `Dockerfile` using the `dev` stage (`target: dev`).
-    - Based on `debian:bookworm-slim` (unlike production `distroless`).
+    - Based on `debian:bookworm-slim`, the same base as the production `release` stage.
+      The two differ only in tooling: `dev` adds `python3`, `ripgrep`, editors, and
+      process/network utilities on top of the runtime layer.
     - Includes `bash`, `curl`, and debug tools.
 - **`sandbox/`**: Dockerfile for the simulated user environment.
     - Based on `ubuntu:22.04`.
@@ -36,7 +38,7 @@ Builds the agent from source and starts both containers.
 Use this to run `gloamy` CLI commands manually, debug the binary, or check logs internally.
 
 - **Path**: `/gloamy-data`
-- **User**: `nobody` (65534)
+- **User**: `gloamy` (1000)
 
 ### 3. Enter Sandbox (`sandbox`)
 

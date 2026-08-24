@@ -5,6 +5,7 @@ For operators running Gloamy in persistent or production-like environments.
 ## Core Operations
 
 - Day-2 runbook: [../operations-runbook.md](../operations-runbook.md)
+- Docker / Compose deployment: [../docker-deployment.md](../docker-deployment.md)
 - Release runbook: [../release-process.md](../release-process.md)
 - Troubleshooting matrix: [../troubleshooting.md](../troubleshooting.md)
 - Safe network/gateway deployment: [../network-deployment.md](../network-deployment.md)

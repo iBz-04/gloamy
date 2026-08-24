@@ -4,9 +4,11 @@ set -e
 # Detect execution context (root or dev/)
 if [ -f "dev/docker-compose.yml" ]; then
     BASE_DIR="dev"
+    ROOT_DIR="."
     HOST_TARGET_DIR="target"
 elif [ -f "docker-compose.yml" ] && [ "$(basename "$(pwd)")" == "dev" ]; then
     BASE_DIR="."
+    ROOT_DIR=".."
     HOST_TARGET_DIR="../target"
 else
     echo "❌ Error: Run this script from the project root or dev/ directory."
@@ -14,11 +16,7 @@ else
 fi
 
 COMPOSE_FILE="$BASE_DIR/docker-compose.yml"
-if [ "$BASE_DIR" = "dev" ]; then
-    ENV_FILE=".env"
-else
-    ENV_FILE="../.env"
-fi
+ENV_FILE="$ROOT_DIR/.env"
 
 # Colors
 GREEN='\033[0;32m'
@@ -46,6 +44,28 @@ function ensure_config {
 
         # Copy template
         cat "$BASE_DIR/config.template.toml" > "$CONFIG_FILE"
+    fi
+
+    # docker-compose.yml mounts ../.env as a secret, so `up` fails outright when
+    # the file is absent.
+    if [ ! -f "$ENV_FILE" ]; then
+        echo -e "${YELLOW}⚙️  $ENV_FILE missing. Creating a stub so the compose secret can mount...${NC}"
+        # Deliberately not a copy of .env.example: its placeholder values would be
+        # sourced into the container as if they were real credentials.
+        cat > "$ENV_FILE" <<'ENVSTUB'
+# Local secrets for the Gloamy dev containers. Sourced inside the container, so
+# use plain KEY=value lines. See .env.example for the full list of supported keys.
+# GLOAMY_API_KEY=
+# GLOAMY_PROVIDER=
+# GLOAMY_MODEL=
+ENVSTUB
+        echo -e "${YELLOW}   Add your provider API key to $ENV_FILE (see .env.example).${NC}"
+    fi
+
+    # Shared playground volume. Creating it here keeps ownership with the current
+    # user instead of letting Docker create it as root.
+    if [ ! -d "$ROOT_DIR/playground" ]; then
+        mkdir -p "$ROOT_DIR/playground"
     fi
 }
 
