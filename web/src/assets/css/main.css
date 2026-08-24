@@ -1,0 +1,191 @@
+:root {
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  -webkit-text-size-adjust: 100%;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html {
+  height: 100%;
+  font-size: 16px;
+}
+
+body {
+  margin: 0;
+  padding: 0;
+  min-height: 100%;
+  user-select: none;
+  cursor: default;
+  overflow: hidden;
+}
+
+button {
+  cursor: pointer;
+}
+
+a {
+  text-decoration: none;
+}
+
+/* Friendly rounded scrollbar */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 0;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border-radius: 999px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--muted-foreground);
+}
+
+::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
+/* Firefox */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--border) transparent;
+}
+
+/* Checkerboard pattern for transparent background indication */
+.checkerboard-bg {
+  --checker-size: 16px;
+  --checker-light: #ffffff;
+  --checker-dark: #e5e5e5;
+  background-image:
+    linear-gradient(45deg, var(--checker-dark) 25%, transparent 25%),
+    linear-gradient(-45deg, var(--checker-dark) 25%, transparent 25%),
+    linear-gradient(45deg, transparent 75%, var(--checker-dark) 75%),
+    linear-gradient(-45deg, transparent 75%, var(--checker-dark) 75%);
+  background-size: var(--checker-size) var(--checker-size);
+  background-position:
+    0 0,
+    0 calc(var(--checker-size) / 2),
+    calc(var(--checker-size) / 2) calc(var(--checker-size) * -1 / 2),
+    calc(var(--checker-size) * -1 / 2) 0;
+  background-color: var(--checker-light);
+}
+
+.dark .checkerboard-bg {
+  --checker-light: #2a2a2a;
+  --checker-dark: #1a1a1a;
+}
+
+/* Segmented input style - shared draggable input component */
+.segmented-input {
+  display: flex;
+  align-items: center;
+  background: var(--card, #FFFFFF);
+  border: 1px solid var(--border, rgba(0, 0, 0, 0.06));
+  border-radius: 2px;
+  overflow: hidden;
+  height: 28px;
+  position: relative;
+  --seg-value-width: 50px;
+  --seg-divider-width: 1px;
+  cursor: grab;
+}
+
+.segmented-input:active {
+  cursor: grabbing;
+}
+
+.segmented-label {
+  flex: 1;
+  padding: 0 10px;
+  font-size: 11px;
+  color: var(--muted-foreground, #737373);
+  font-weight: 400;
+  cursor: inherit;
+  user-select: none;
+  position: relative;
+  z-index: 1;
+}
+
+.segmented-track {
+  position: absolute;
+  left: 0;
+  top: 0;
+  height: 100%;
+  background: rgba(0, 0, 0, 0.15);
+  right: calc(var(--seg-value-width) + var(--seg-divider-width));
+  border-radius: 2px;
+  transform-origin: left;
+  transform: scaleX(var(--fill, 0));
+  pointer-events: none;
+  transition: transform 0.1s ease-out;
+}
+
+.dark .segmented-track {
+  background: #C4B8A5;
+}
+
+.segmented-divider {
+  width: var(--seg-divider-width);
+  height: 14px;
+  background: var(--border, rgba(0, 0, 0, 0.06));
+  position: relative;
+  z-index: 1;
+}
+
+.segmented-value {
+  width: var(--seg-value-width);
+  height: 100%;
+  padding: 0 10px;
+  background: transparent;
+  border: none;
+  outline: none;
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--foreground, #171717);
+  text-align: center;
+  border-radius: 0 2px 2px 0;
+  position: relative;
+  z-index: 1;
+  cursor: text;
+}
+
+.segmented-value::-webkit-outer-spin-button,
+.segmented-value::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  appearance: none;
+  margin: 0;
+}
+
+.segmented-value {
+  -moz-appearance: textfield;
+  appearance: textfield;
+}
+
+/* Accordion content animation */
+.accordion-content {
+  display: grid;
+  grid-template-rows: 0fr;
+  transition: grid-template-rows 0.2s ease-out;
+}
+
+.accordion-content.collapsed {
+  grid-template-rows: 0fr;
+}
+
+.accordion-content.expanded {
+  grid-template-rows: 1fr;
+}
+
+.accordion-content > div {
+  overflow: hidden;
+}

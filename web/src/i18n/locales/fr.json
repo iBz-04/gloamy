@@ -1,0 +1,241 @@
+{
+  "common": {
+    "color": "Couleur",
+    "size": "Taille",
+    "position": "Position",
+    "center": "Centrer",
+    "none": "Aucun",
+    "solid": "Uni",
+    "linear": "Linéaire",
+    "radial": "Radial",
+    "angle": "Angle",
+    "radius": "Rayon",
+    "opacity": "Opacité",
+    "px": "px",
+    "percent": "%",
+    "degree": "°",
+    "all": "Tout",
+    "search": "Rechercher...",
+    "noMatches": "Aucun résultat",
+    "loading": "Chargement...",
+    "today": "Aujourd'hui",
+    "yesterday": "Hier",
+    "daysAgo": "Il y a {n} jours",
+    "export": "Exporter",
+    "save": "Enregistrer"
+  },
+  "sidebar": {
+    "home": "Accueil",
+    "create": "Créer",
+    "settings": "Paramètres"
+  },
+  "home": {
+    "label": "Accueil",
+    "title": "Vos Logos",
+    "projectsCount": "{n} projet enregistré | {n} projets enregistrés",
+    "noLogos": "Aucun logo enregistré pour le moment",
+    "createFirst": "créez votre premier logo.",
+    "createButton": "Créer un Logo",
+    "rename": "Renommer",
+    "delete": "Supprimer",
+    "gridView": "Vue Grille",
+    "listView": "Vue Liste"
+  },
+  "icon": {
+    "label": "Créateur de Logos",
+    "preview": "Aperçu",
+    "background": "Arrière-plan",
+    "fillType": "Type de Remplissage",
+    "solid": "Uni",
+    "linear": "Linéaire",
+    "radial": "Radial",
+    "startColor": "Couleur de Début",
+    "endColor": "Couleur de Fin",
+    "angle": "Angle",
+    "radius": "Rayon",
+    "iconSettings": "Icône",
+    "iconColor": "Couleur de l'Icône",
+    "iconSize": "Taille de l'Icône",
+    "presets": "Préréglages",
+    "export": "Exporter",
+    "exportPng": "Exporter en PNG",
+    "exportSvg": "Exporter en SVG",
+    "undo": "Annuler",
+    "redo": "Rétablir",
+    "shuffle": "Mélanger",
+    "reset": "Réinitialiser",
+    "design": "Design",
+    "advanced": "Avancé",
+    "shufflePreset": "Mélanger le préréglage",
+    "presetName": "Préréglage {n}",
+    "newLogoStarted": "Nouveau logo commencé",
+    "projectSaved": "Projet enregistré",
+    "saveFailed": "Échec de l'enregistrement du projet"
+  },
+  "editor": {
+    "fill": {
+      "label": "Remplissage",
+      "transparentInfo": "Les exportations auront un arrière-plan transparent",
+      "endColor": "Couleur de Fin",
+      "noiseTexture": "Texture de Bruit"
+    },
+    "symbol": {
+      "label": "Symbole",
+      "showIcon": "Afficher l'Icône",
+      "originalColors": "Couleurs Originales",
+      "chooseIcon": "Choisir une Icône",
+      "uploadSvg": "Télécharger SVG",
+      "saved": "enregistré",
+      "errors": {
+        "onlySvg": "Seuls les fichiers SVG sont autorisés",
+        "maxSize": "Max 500 Ko",
+        "invalidSvg": "SVG invalide",
+        "readFailed": "Échec de la lecture du fichier"
+      }
+    },
+    "text": {
+      "label": "Logo Texte",
+      "enable": "Activer le Logo Texte",
+      "content": "Texte",
+      "placeholder": "Entrez votre texte...",
+      "font": "Police",
+      "searchFonts": "Rechercher des polices...",
+      "noFonts": "Aucune police trouvée",
+      "preview": "Aperçu",
+      "weight": "Graisse",
+      "size": "Taille",
+      "spacing": "Espacement",
+      "stroke": "Contour",
+      "shadow": "Ombre",
+      "blur": "Flou",
+      "categories": {
+        "modern": "Moderne",
+        "bold": "Gras",
+        "rounded": "Arrondi",
+        "creative": "Créatif",
+        "serif": "Serif",
+        "mono": "Mono"
+      },
+      "weights": {
+        "light": "Léger",
+        "regular": "Régulier",
+        "medium": "Moyen",
+        "semibold": "Semi-gras",
+        "bold": "Gras",
+        "extrabold": "Extra-gras",
+        "black": "Noir"
+      }
+    },    "position": {
+      "label": "Position",
+      "offsetX": "Décalage X",
+      "offsetY": "Décalage Y"
+    },    "effects": {
+      "label": "Effets",
+      "glassEffect": "Effet de Verre",
+      "intensity": "Intensité",
+      "backgroundBlur": "Flou d'Arrière-plan",
+      "amount": "Quantité",
+      "comingSoon": "Plus à venir : téléchargements personnalisés, effets de lueur."
+    },
+    "stroke": {
+      "label": "Bordure",
+      "size": "Taille",
+      "color": "Couleur",
+      "opacity": "Opacité"
+    },
+    "backgrounds": {
+      "label": "Image d'Arrière-plan",
+      "browse": "Parcourir tous les arrière-plans →",
+      "title": "Arrière-plans",
+      "noBackgrounds": "Aucun arrière-plan"
+    },
+    "toolbar": {
+      "newLogo": "Nouveau Logo",
+      "move": "Déplacer",
+      "hand": "Outil Main",
+      "scale": "Mise à l'échelle",
+      "draw": "Dessiner",
+      "brushes": {
+        "label": "Pinceaux",
+        "solid": "Solide",
+        "solidDesc": "Traits lisses et réguliers",
+        "gouache": "Gouache",
+        "gouacheDesc": "Sensation douce et picturale",
+        "charcoal": "Fusain",
+        "charcoalDesc": "Rude, texturé",
+        "scribble": "Gribouillis",
+        "scribbleDesc": "Lâche, esquissé",
+        "gritty": "Granuleux",
+        "grittyDesc": "Texture granuleuse",
+        "sparse": "Clairsemé",
+        "sparseDesc": "Traits légers et aériens"
+      },
+      "addText": "Ajouter du texte au logo",
+      "undo": "Annuler",
+      "redo": "Rétablir",
+      "export": "Exporter",
+      "exporting": "Exportation...",
+      "exportPng": "Exporter en PNG",
+      "exportWebp": "Exporter en WebP",
+      "exportSvg": "Exporter en SVG (Vecteur)",
+      "pngAtRes": "PNG à la résolution",
+      "webpAtRes": "WebP à la résolution",
+      "defaultRes": "Résolution par défaut"
+    },
+    "exportMessages": {
+      "success": "{format} exporté avec succès",
+      "savedToDownloads": "{format} enregistré dans Téléchargements ({size}×{size})",
+      "failed": "Échec de l'exportation {format} : {error}",
+      "canvasError": "Échec de la création du canevas",
+      "imageError": "Échec de la création de l'image"
+    },
+    "iconPicker": {
+      "title": "Choisir une Icône",
+      "search": "Rechercher {category}...",
+      "loadMore": "Faites défiler pour charger plus...",
+      "noResults": "Aucun {category} trouvé",
+      "categories": {
+        "sudeft": "Sudeft",
+        "avatars": "Avatars",
+        "brands": "Marques",
+        "ui": "Interface",
+        "shapes": "Formes"
+      }
+    },
+    "backgroundPicker": {
+      "title": "Arrière-plans",
+      "search": "Rechercher des arrière-plans...",
+      "all": "Tous",
+      "noResults": "Aucun arrière-plan trouvé",
+      "loading": "Chargement des arrière-plans..."
+    },
+    "zoom": {
+      "zoomIn": "Zoom avant",
+      "zoomOut": "Zoom arrière",
+      "reset": "Réinitialiser la vue (Ctrl+0)"
+    },
+    "saveProject": "Enregistrer le Projet"
+  },
+  "languages": {
+    "label": "Langues"
+  },
+  "settings": {
+    "label": "Paramètres",
+    "interfaceTheme": "Thème de l'interface",
+    "customizeUI": "Personnalisez votre interface",
+    "theme": {
+      "light": "Clair",
+      "dark": "Sombre",
+      "system": "Système"
+    },
+    "language": {
+      "label": "Langue",
+      "description": "Sélectionnez votre langue préférée"
+    },
+    "about": {
+      "label": "À propos",
+      "version": "Version",
+      "company": "Entreprise"
+    }
+  }
+}
