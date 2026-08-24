@@ -1,3 +1,17 @@
+# Build context for the root Dockerfile (the Rust `gloamy` binary).
+# The web UI has its own context and its own web/.dockerignore.
+#
+# ⚠️  Build-critical paths — excluding any of these breaks `cargo build`:
+#   firmware/**                     embedded by src/peripherals via include_str!
+#   src/skills/assets/**/SKILL.md   embedded by src/skills via include_str!
+#   benches/**                      Cargo.toml declares [[bench]]; cargo fails if absent
+#   crates/**                       workspace member `gloamy-robot`
+#   .cargo/config.toml              per-target linker/rustflags settings
+#   Cargo.lock                      required by `cargo build --locked`
+#
+# Note: patterns here do not cross `/`, so `*.md` and `assets` only match at the
+# context root. Use `**/` prefixes if you ever need to match nested paths.
+
 # VCS and CI metadata
 .git
 .githooks
@@ -5,6 +19,12 @@
 
 # Build artifacts
 target
+.cache
+
+# The frontend is built from its own context (see web/Dockerfile), and its
+# node_modules tree would otherwise dominate this context.
+web
+node_modules
 
 # Docs, examples, and tests are not needed in runtime images
 docs
@@ -16,7 +36,11 @@ tests
 .DS_Store
 .tmp_*
 
+# Local dev scratch space mounted into the dev containers at runtime
+playground
+
 # Large or unnecessary asset/document types
+assets
 *.md
 *.png
 *.db
