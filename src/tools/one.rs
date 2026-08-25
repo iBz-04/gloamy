@@ -132,7 +132,11 @@ impl Tool for OneTool {
 
     fn description(&self) -> &str {
         "Execute actions on 200+ third-party platforms (Gmail, Slack, GitHub, etc.) through the One CLI. \
-        Workflow: list_connections, search_actions, get_action_knowledge, execute_action."
+        Workflow: list_connections, search_actions, get_action_knowledge, execute_action. \
+        ALWAYS call get_action_knowledge before execute_action to learn the exact parameter names \
+        (path variable casing differs per action). On a validation error, the error names the exact \
+        missing flag/param — fix that parameter and retry the SAME action; do not switch tools. \
+        The One CLI binary is only reachable through this tool, never via the shell tool."
     }
 
     fn parameters_schema(&self) -> serde_json::Value {
@@ -172,7 +176,7 @@ impl Tool for OneTool {
                 },
                 "path_vars": {
                     "type": "string",
-                    "description": "JSON string of path variables (execute_action)"
+                    "description": "JSON string of path variables (execute_action). Keys MUST exactly match the {{placeholder}} names in the chosen action's URL path — casing varies per action (e.g. one action uses {{pull_number}}, another {{pullNumber}}). Get the exact names from get_action_knowledge for THIS action_id; never guess or reuse names from a different action. If execution fails with 'Missing value for path variable: X', re-send with a key named exactly X."
                 },
                 "query_params": {
                     "type": "string",

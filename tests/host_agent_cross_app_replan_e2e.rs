@@ -184,3 +184,47 @@ async fn e2e_replanning_recovers_after_no_progress_step() {
     assert_eq!(calls.load(Ordering::SeqCst), 2);
     assert_eq!(result.output, "replanned-done");
 }
+
+#[tokio::test]
+async fn e2e_replanning_escalates_after_consecutive_identical_failures() {
+    let perception = Arc::new(SequencePerceptionProvider {
+        states: vec![state_for("Terminal")],
+        calls: AtomicUsize::new(0),
+    });
+
+    let calls = Arc::new(AtomicUsize::new(0));
+    let repeated_failure = ToolResult {
+        success: false,
+        output: String::new(),
+        error: Some("rate limit: missing value for path variable: pullNumber".to_string()),
+    };
+    let worker = QueueWorker {
+        name: "terminal_worker".to_string(),
+        handles: "Terminal".to_string(),
+        calls: Arc::clone(&calls),
+        results: Arc::new(Mutex::new(VecDeque::from(vec![
+            repeated_failure.clone(),
+            repeated_failure,
+        ]))),
+    };
+
+    let mut host = HostAgent::new(perception, episode_manager());
+    host.register_worker(Arc::new(worker));
+
+    let error = host
+        .run_task_with_result("Review the pull request", "Review the pull request")
+        .await
+        .expect_err("identical consecutive failures should escalate, not loop");
+
+    let message = format!("{error:#}");
+    assert!(
+        message.contains("identical error"),
+        "escalation should name the repeated-failure guard, got: {message}"
+    );
+    assert!(
+        message.contains("pullNumber"),
+        "escalation should carry the underlying diagnostic, got: {message}"
+    );
+    // One initial attempt plus exactly one informed retry — never a third blind round.
+    assert_eq!(calls.load(Ordering::SeqCst), 2);
+}

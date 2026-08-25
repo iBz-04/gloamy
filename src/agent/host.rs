@@ -98,6 +98,7 @@ impl HostAgent {
         let mut execution_count = 0usize;
         let mut replan_rounds = 0usize;
         let mut step_retry_count = 0usize;
+        let mut last_replan_failure: Option<String> = None;
 
         while let Some(planned_step) = pending_steps.pop_front() {
             execution_count += 1;
@@ -195,17 +196,36 @@ impl HostAgent {
 
             if let Some(result) = worker_result {
                 let decision = Self::decide_post_step_action(&result, &state_diff);
-                previous_step_output = Some(result.output.clone());
+                // Carry the failure diagnostic (not just stdout, which is empty
+                // on failures) forward so the next step instruction sees it.
+                previous_step_output = Some(result.diagnostic_output());
                 final_result = Some(result.clone());
 
                 match decision {
-                    PostStepDecision::Continue => {}
+                    PostStepDecision::Continue => {
+                        last_replan_failure = None;
+                    }
                     PostStepDecision::Replan(reason) => {
                         if replan_rounds >= MAX_REPLAN_ROUNDS {
                             return Err(anyhow!(
                                 "replanning exhausted after {MAX_REPLAN_ROUNDS} rounds: {reason}"
                             ));
                         }
+
+                        // Two-strike guard: if the exact same failure repeats
+                        // on consecutive replan rounds, more blind rounds will
+                        // not help — escalate with the diagnostic instead.
+                        let failure_signature = Self::failure_reason_from_result(&result)
+                            .unwrap_or_else(|| reason.clone())
+                            .to_ascii_lowercase();
+                        if last_replan_failure.as_deref() == Some(failure_signature.as_str()) {
+                            return Err(anyhow!(
+                                "replanning aborted: consecutive rounds failed with the identical error — {}",
+                                Self::failure_reason_from_result(&result)
+                                    .unwrap_or_else(|| reason.clone())
+                            ));
+                        }
+                        last_replan_failure = Some(failure_signature);
 
                         replan_rounds += 1;
                         let replanned = Self::build_replanned_steps(
@@ -474,6 +494,14 @@ impl HostAgent {
         if next_steps.is_empty() {
             let mut recovery_step =
                 format!("Recover and re-attempt safely: {}", completed_step.trim());
+            if let Some(failure) = Self::failure_reason_from_result(result) {
+                let truncated: String = failure.chars().take(300).collect();
+                write!(
+                    recovery_step,
+                    " (previous attempt failed with: {truncated} — fix the cause named in this error; do not repeat the identical call)"
+                )
+                .expect("writing failure diagnostic to string");
+            }
             if state_diff.app_changed {
                 if let Some(app_after) = state_diff.app_after.as_deref() {
                     write!(
