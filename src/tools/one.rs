@@ -7,24 +7,20 @@
 // The One API key is stored in the encrypted secret store.
 
 use super::traits::{Tool, ToolResult};
-use crate::security::SecurityPolicy;
 use anyhow::Context;
 use async_trait::async_trait;
 use serde_json::json;
-use std::process::Command;
-use std::sync::Arc;
+use tokio::process::Command;
 
 /// A tool that proxies actions to the One managed tool platform via CLI.
 pub struct OneTool {
     api_key: String,
-    security: Arc<SecurityPolicy>,
 }
 
 impl OneTool {
-    pub fn new(api_key: &str, security: Arc<SecurityPolicy>) -> Self {
+    pub fn new(api_key: &str) -> Self {
         Self {
             api_key: api_key.to_string(),
-            security,
         }
     }
 
@@ -35,14 +31,31 @@ impl OneTool {
             .arg("--agent")
             .args(args);
 
-        let output = cmd.output().context("Failed to execute One CLI")?;
-
-        if !output.status.success() {
-            let stderr = String::from_utf8_lossy(&output.stderr);
-            anyhow::bail!("One CLI failed: {}", stderr);
-        }
+        let output = cmd.output().await.context("Failed to execute One CLI")?;
 
         let stdout = String::from_utf8_lossy(&output.stdout);
+
+        if !output.status.success() {
+            // The One CLI reports API/validation failures as JSON on stdout
+            // with a non-zero exit and an empty stderr, so stderr alone is
+            // often blank — surface whichever stream carries the detail.
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            let detail = if stderr.trim().is_empty() {
+                stdout.trim()
+            } else {
+                stderr.trim()
+            };
+            anyhow::bail!(
+                "One CLI failed (exit {}): {}",
+                output
+                    .status
+                    .code()
+                    .map(|c| c.to_string())
+                    .unwrap_or_else(|| "signal".into()),
+                detail
+            );
+        }
+
         let json: serde_json::Value =
             serde_json::from_str(&stdout).context("Failed to parse One CLI output as JSON")?;
 
@@ -265,23 +278,20 @@ mod tests {
 
     #[test]
     fn one_tool_has_correct_name() {
-        let security = Arc::new(SecurityPolicy::default());
-        let tool = OneTool::new("test_key", security);
+        let tool = OneTool::new("test_key");
         assert_eq!(tool.name(), "one");
     }
 
     #[test]
     fn one_tool_has_description() {
-        let security = Arc::new(SecurityPolicy::default());
-        let tool = OneTool::new("test_key", security);
+        let tool = OneTool::new("test_key");
         assert!(!tool.description().is_empty());
         assert!(tool.description().contains("One"));
     }
 
     #[test]
     fn one_tool_has_valid_schema() {
-        let security = Arc::new(SecurityPolicy::default());
-        let tool = OneTool::new("test_key", security);
+        let tool = OneTool::new("test_key");
         let schema = tool.parameters_schema();
         assert!(schema.is_object());
         assert!(schema["properties"].is_object());

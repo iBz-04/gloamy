@@ -347,7 +347,7 @@ pub fn all_tools_with_runtime(
 
     if let Some(key) = one_key {
         if !key.is_empty() {
-            tool_arcs.push(Arc::new(OneTool::new(key, security.clone())));
+            tool_arcs.push(Arc::new(OneTool::new(key)));
         }
     }
 
