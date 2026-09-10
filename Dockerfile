@@ -18,7 +18,7 @@
 # builder
 # ══════════════════════════════════════════════════════════════════════════════
 # Pinned to bookworm so the runtime stage below can share the same glibc.
-FROM rust:1.92-slim-bookworm AS builder
+FROM rust:1.98-slim-bookworm AS builder
 
 # build-essential + pkg-config: C toolchain for the bundled SQLite and `ring`.
 # git: crates resolved from git and build scripts that read repository metadata.
