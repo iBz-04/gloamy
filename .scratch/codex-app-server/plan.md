@@ -42,5 +42,6 @@ Add the opt-in `codex-app-server` provider through the installed Codex CLI's std
 - `cargo fmt --all -- --check` — passed.
 - `cargo check --locked` — passed; two warnings remain in untouched modules (`src/approval/mod.rs` and `src/tools/browser_services.rs`).
 - `cargo clippy --lib --bin gloamy --locked -- -D warnings` — not clean because the existing baseline reports warnings across unrelated modules; no findings were reported in the new App Server/provider/onboarding/main files.
+- `codex app-server ... --print-startup-config` — passed on installed Codex CLI 0.166.0 with the configured MCP/web overrides and disabled optional tools; this checks local configuration parsing, not OAuth or inference.
 - `git diff --check` — passed.
 - Tests were not run. Live Codex OAuth and model inference were not exercised.
