@@ -296,8 +296,7 @@ pub struct LarkChannel {
     /// Bot open_id resolved at runtime via `/bot/v3/info`.
     resolved_bot_open_id: Arc<StdRwLock<Option<String>>>,
     mention_only: bool,
-    /// When true, use Feishu (CN) endpoints; when false, use Lark (international).
-    use_feishu: bool,
+    platform: LarkPlatform,
     /// How to receive events: WebSocket long-connection or HTTP webhook.
     receive_mode: crate::config::schema::LarkReceiveMode,
     /// Cached tenant access token
@@ -321,6 +320,7 @@ impl LarkChannel {
             verification_token,
             port,
             allowed_users,
+            mention_only,
             LarkPlatform::Lark,
         )
     }
@@ -331,6 +331,7 @@ impl LarkChannel {
         verification_token: String,
         port: Option<u16>,
         allowed_users: Vec<String>,
+        mention_only: bool,
         platform: LarkPlatform,
     ) -> Self {
         Self {
@@ -341,7 +342,7 @@ impl LarkChannel {
             allowed_users,
             resolved_bot_open_id: Arc::new(StdRwLock::new(None)),
             mention_only,
-            use_feishu: true,
+            platform,
             receive_mode: crate::config::schema::LarkReceiveMode::default(),
             tenant_token: Arc::new(RwLock::new(None)),
             ws_seen_ids: Arc::new(RwLock::new(HashMap::new())),
@@ -356,6 +357,18 @@ impl LarkChannel {
         } else {
             LarkPlatform::Lark
         };
+        Self::from_lark_config_with_platform(config, platform)
+    }
+
+    /// Build an international Lark channel, ignoring the legacy `use_feishu` setting.
+    pub fn from_lark_config(config: &crate::config::schema::LarkConfig) -> Self {
+        Self::from_lark_config_with_platform(config, LarkPlatform::Lark)
+    }
+
+    fn from_lark_config_with_platform(
+        config: &crate::config::schema::LarkConfig,
+        platform: LarkPlatform,
+    ) -> Self {
         let mut ch = Self::new_with_platform(
             config.app_id.clone(),
             config.app_secret.clone(),
@@ -363,6 +376,22 @@ impl LarkChannel {
             config.port,
             config.allowed_users.clone(),
             config.mention_only,
+            platform,
+        );
+        ch.receive_mode = config.receive_mode.clone();
+        ch
+    }
+
+    /// Build a Feishu channel using the China-region endpoints.
+    pub fn from_feishu_config(config: &crate::config::schema::FeishuConfig) -> Self {
+        let mut ch = Self::new_with_platform(
+            config.app_id.clone(),
+            config.app_secret.clone(),
+            config.verification_token.clone().unwrap_or_default(),
+            config.port,
+            config.allowed_users.clone(),
+            false,
+            LarkPlatform::Feishu,
         );
         ch.receive_mode = config.receive_mode.clone();
         ch
@@ -2069,6 +2098,29 @@ mod tests {
     }
 
     #[test]
+    fn lark_from_config_preserves_legacy_feishu_region() {
+        use crate::config::schema::{LarkConfig, LarkReceiveMode};
+
+        let cfg = LarkConfig {
+            app_id: "cli_app123".into(),
+            app_secret: "secret456".into(),
+            encrypt_key: None,
+            verification_token: Some("vtoken789".into()),
+            allowed_users: vec!["*".into()],
+            mention_only: false,
+            use_feishu: true,
+            receive_mode: LarkReceiveMode::Webhook,
+            port: Some(9898),
+        };
+
+        let ch = LarkChannel::from_config(&cfg);
+
+        assert_eq!(ch.api_base(), FEISHU_BASE_URL);
+        assert_eq!(ch.ws_base(), FEISHU_WS_BASE_URL);
+        assert_eq!(ch.name(), "feishu");
+    }
+
+    #[test]
     fn lark_from_lark_config_ignores_legacy_feishu_flag() {
         use crate::config::schema::{LarkConfig, LarkReceiveMode};
 
@@ -2078,6 +2130,7 @@ mod tests {
             encrypt_key: None,
             verification_token: Some("vtoken789".into()),
             allowed_users: vec!["*".into()],
+            mention_only: true,
             use_feishu: true,
             receive_mode: LarkReceiveMode::Webhook,
             port: Some(9898),
@@ -2088,6 +2141,7 @@ mod tests {
         assert_eq!(ch.api_base(), LARK_BASE_URL);
         assert_eq!(ch.ws_base(), LARK_WS_BASE_URL);
         assert_eq!(ch.name(), "lark");
+        assert!(ch.mention_only);
     }
 
     #[test]
