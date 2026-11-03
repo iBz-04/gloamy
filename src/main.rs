@@ -79,6 +79,7 @@ mod agent;
 mod approval;
 mod auth;
 mod channels;
+mod codex_app_server;
 mod rag {
     pub use gloamy::rag::*;
 }
@@ -207,7 +208,7 @@ Examples:
         #[arg(short, long)]
         message: Option<String>,
 
-        /// Provider to use (openai, openrouter, anthropic, openai-codex)
+        /// Provider to use (openai, openrouter, anthropic, openai-codex, codex-app-server)
         #[arg(short, long)]
         provider: Option<String>,
 
@@ -514,9 +515,9 @@ enum EstopSubcommands {
 
 #[derive(Subcommand, Debug)]
 enum AuthCommands {
-    /// Login with OAuth (OpenAI Codex or Gemini)
+    /// Login with OAuth (OpenAI Codex, Codex App Server, or Gemini)
     Login {
-        /// Provider (`openai-codex` or `gemini`)
+        /// Provider (`openai-codex`, `codex-app-server`, or `gemini`)
         #[arg(long)]
         provider: String,
         /// Profile name (default: default)
@@ -528,7 +529,7 @@ enum AuthCommands {
     },
     /// Complete OAuth by pasting redirect URL or auth code
     PasteRedirect {
-        /// Provider (`openai-codex`)
+        /// Provider (`openai-codex` or `gemini`)
         #[arg(long)]
         provider: String,
         /// Profile name (default: default)
@@ -562,9 +563,9 @@ enum AuthCommands {
         #[arg(long, default_value = "default")]
         profile: String,
     },
-    /// Refresh OpenAI Codex access token using refresh token
+    /// Refresh OAuth credentials for OpenAI Codex, Codex App Server, or Gemini
     Refresh {
-        /// Provider (`openai-codex`)
+        /// Provider (`openai-codex`, `codex-app-server`, or `gemini`)
         #[arg(long)]
         provider: String,
         /// Profile name or profile id
@@ -1455,6 +1456,33 @@ fn format_expiry(profile: &auth::profiles::AuthProfile) -> String {
     }
 }
 
+async fn print_codex_app_server_auth_status() {
+    if !codex_app_server::CodexAppServerClient::is_installed() {
+        println!("Codex App Server: Codex CLI not found on PATH.");
+        return;
+    }
+
+    let status = match codex_app_server::CodexAppServerClient::connect().await {
+        Ok(mut client) => client.account_status().await,
+        Err(_) => {
+            println!("Codex App Server: account status unavailable.");
+            return;
+        }
+    };
+
+    match status {
+        Ok(status) if status.is_chatgpt_oauth() => {
+            println!("Codex App Server: ChatGPT OAuth signed in.");
+        }
+        Ok(status) => match status.account_type.as_deref() {
+            Some("apiKey") => println!("Codex App Server: signed in with Codex API key auth."),
+            Some(_) => println!("Codex App Server: signed in with another account type."),
+            None => println!("Codex App Server: no account signed in."),
+        },
+        Err(_) => println!("Codex App Server: account status unavailable."),
+    }
+}
+
 #[allow(clippy::too_many_lines)]
 async fn handle_auth_command(auth_command: AuthCommands, config: &Config) -> Result<()> {
     let auth_service = auth::AuthService::from_config(config);
@@ -1555,6 +1583,40 @@ async fn handle_auth_command(auth_command: AuthCommands, config: &Config) -> Res
                     println!("Active profile for gemini: {profile}");
                     Ok(())
                 }
+                "codex-app-server" => {
+                    if profile != "default" {
+                        bail!(
+                            "Codex App Server keeps one account in the Codex CLI credential store; omit --profile or use --profile default"
+                        );
+                    }
+
+                    let mut app_server = codex_app_server::CodexAppServerClient::connect().await?;
+                    let prompt = app_server.start_login(device_code).await?;
+                    let login_id = match prompt {
+                        codex_app_server::LoginPrompt::Browser {
+                            login_id,
+                            authorization_url,
+                        } => {
+                            println!("Open this URL to sign in to Codex:");
+                            println!("{authorization_url}");
+                            login_id
+                        }
+                        codex_app_server::LoginPrompt::DeviceCode {
+                            login_id,
+                            verification_url,
+                            user_code,
+                        } => {
+                            println!("Open this URL to sign in to Codex:");
+                            println!("{verification_url}");
+                            println!("Code: {user_code}");
+                            login_id
+                        }
+                    };
+                    println!("Waiting for Codex App Server OAuth login to complete...");
+                    app_server.wait_for_login(&login_id).await?;
+                    println!("Codex App Server ChatGPT OAuth login completed.");
+                    Ok(())
+                }
                 "openai-codex" => {
                     // OpenAI Codex OAuth flow
                     if device_code {
@@ -1640,7 +1702,7 @@ async fn handle_auth_command(auth_command: AuthCommands, config: &Config) -> Res
                 }
                 _ => {
                     bail!(
-                        "`auth login` supports --provider openai-codex or gemini, got: {provider}"
+                        "`auth login` supports --provider openai-codex, codex-app-server, or gemini, got: {provider}"
                     );
                 }
             }
@@ -1759,6 +1821,9 @@ async fn handle_auth_command(auth_command: AuthCommands, config: &Config) -> Res
             auth_kind,
         } => {
             let provider = auth::normalize_provider(&provider)?;
+            if provider == "codex-app-server" {
+                bail!("Codex App Server manages its credentials through the Codex CLI; use `gloamy auth login --provider codex-app-server`");
+            }
             let token = match token {
                 Some(token) => token.trim().to_string(),
                 None => read_auth_input("Paste token")?,
@@ -1784,6 +1849,9 @@ async fn handle_auth_command(auth_command: AuthCommands, config: &Config) -> Res
 
         AuthCommands::SetupToken { provider, profile } => {
             let provider = auth::normalize_provider(&provider)?;
+            if provider == "codex-app-server" {
+                bail!("Codex App Server manages its credentials through the Codex CLI; use `gloamy auth login --provider codex-app-server`");
+            }
             let token = read_auth_input("Paste token")?;
             if token.is_empty() {
                 bail!("Token cannot be empty");
@@ -1824,6 +1892,15 @@ async fn handle_auth_command(auth_command: AuthCommands, config: &Config) -> Res
                         }
                     }
                 }
+                "codex-app-server" => {
+                    if profile.as_deref().is_some_and(|name| name != "default") {
+                        bail!("Codex App Server has one Codex CLI account and does not support Gloamy auth profiles");
+                    }
+                    let mut app_server = codex_app_server::CodexAppServerClient::connect().await?;
+                    app_server.refresh_account().await?;
+                    println!("Codex App Server account refreshed successfully.");
+                    Ok(())
+                }
                 "gemini" => {
                     match auth_service
                         .get_valid_gemini_access_token(profile.as_deref())
@@ -1842,12 +1919,23 @@ async fn handle_auth_command(auth_command: AuthCommands, config: &Config) -> Res
                         }
                     }
                 }
-                _ => bail!("`auth refresh` supports --provider openai-codex or gemini"),
+                _ => bail!(
+                    "`auth refresh` supports --provider openai-codex, codex-app-server, or gemini"
+                ),
             }
         }
 
         AuthCommands::Logout { provider, profile } => {
             let provider = auth::normalize_provider(&provider)?;
+            if provider == "codex-app-server" {
+                if profile != "default" {
+                    bail!("Codex App Server has one Codex CLI account and does not support Gloamy auth profiles");
+                }
+                let mut app_server = codex_app_server::CodexAppServerClient::connect().await?;
+                app_server.logout().await?;
+                println!("Signed out from the Codex CLI ChatGPT account.");
+                return Ok(());
+            }
             let removed = auth_service.remove_profile(&provider, &profile).await?;
             if removed {
                 println!("Removed auth profile {provider}:{profile}");
@@ -1859,6 +1947,9 @@ async fn handle_auth_command(auth_command: AuthCommands, config: &Config) -> Res
 
         AuthCommands::Use { provider, profile } => {
             let provider = auth::normalize_provider(&provider)?;
+            if provider == "codex-app-server" {
+                bail!("Codex App Server uses the account selected by the Codex CLI and does not support Gloamy auth profiles");
+            }
             auth_service.set_active_profile(&provider, &profile).await?;
             println!("Active profile for {provider}: {profile}");
             Ok(())
@@ -1867,43 +1958,41 @@ async fn handle_auth_command(auth_command: AuthCommands, config: &Config) -> Res
         AuthCommands::List => {
             let data = auth_service.load_profiles().await?;
             if data.profiles.is_empty() {
-                println!("No auth profiles configured.");
-                return Ok(());
+                println!("No Gloamy auth profiles configured.");
+            } else {
+                for (id, profile) in &data.profiles {
+                    let active = data
+                        .active_profiles
+                        .get(&profile.provider)
+                        .is_some_and(|active_id| active_id == id);
+                    let marker = if active { "*" } else { " " };
+                    println!("{marker} {id}");
+                }
             }
-
-            for (id, profile) in &data.profiles {
-                let active = data
-                    .active_profiles
-                    .get(&profile.provider)
-                    .is_some_and(|active_id| active_id == id);
-                let marker = if active { "*" } else { " " };
-                println!("{marker} {id}");
-            }
-
+            print_codex_app_server_auth_status().await;
             Ok(())
         }
 
         AuthCommands::Status => {
             let data = auth_service.load_profiles().await?;
             if data.profiles.is_empty() {
-                println!("No auth profiles configured.");
-                return Ok(());
-            }
-
-            for (id, profile) in &data.profiles {
-                let active = data
-                    .active_profiles
-                    .get(&profile.provider)
-                    .is_some_and(|active_id| active_id == id);
-                let marker = if active { "*" } else { " " };
-                println!(
-                    "{} {} kind={:?} account={} expires={}",
-                    marker,
-                    id,
-                    profile.kind,
-                    crate::security::redact(profile.account_id.as_deref().unwrap_or("unknown")),
-                    format_expiry(profile)
-                );
+                println!("No Gloamy auth profiles configured.");
+            } else {
+                for (id, profile) in &data.profiles {
+                    let active = data
+                        .active_profiles
+                        .get(&profile.provider)
+                        .is_some_and(|active_id| active_id == id);
+                    let marker = if active { "*" } else { " " };
+                    println!(
+                        "{} {} kind={:?} account={} expires={}",
+                        marker,
+                        id,
+                        profile.kind,
+                        crate::security::redact(profile.account_id.as_deref().unwrap_or("unknown")),
+                        format_expiry(profile)
+                    );
+                }
             }
 
             println!();
@@ -1912,6 +2001,7 @@ async fn handle_auth_command(auth_command: AuthCommands, config: &Config) -> Res
                 println!("  {provider}: {profile_id}");
             }
 
+            print_codex_app_server_auth_status().await;
             Ok(())
         }
     }

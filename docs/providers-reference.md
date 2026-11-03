@@ -29,6 +29,8 @@ credential is not reused for fallback providers.
 | `openrouter` | — | No | `OPENROUTER_API_KEY` |
 | `anthropic` | — | No | `ANTHROPIC_OAUTH_TOKEN`, `ANTHROPIC_API_KEY` |
 | `openai` | — | No | `OPENAI_API_KEY` |
+| `openai-codex` | `openai_codex`, `codex` | No | Gloamy OAuth profile (optional `OPENAI_API_KEY`) |
+| `codex-app-server` | — | No | Codex CLI ChatGPT OAuth account (no Gloamy API key) |
 | `ollama` | — | Yes | `OLLAMA_API_KEY` (optional) |
 | `gemini` | `google`, `google-gemini` | No | `GEMINI_API_KEY`, `GOOGLE_API_KEY` |
 | `venice` | — | No | `VENICE_API_KEY` |
@@ -77,6 +79,18 @@ credential is not reused for fallback providers.
 - API key requests use `generativelanguage.googleapis.com/v1beta`
 - Gemini CLI OAuth requests use `cloudcode-pa.googleapis.com/v1internal` with Code Assist request envelope semantics
 - Thinking models (e.g. `gemini-3-pro-preview`) are supported — internal reasoning parts are automatically filtered from the response
+
+### Codex App Server Notes
+
+- Provider ID: `codex-app-server` (separate from `openai-codex` and its Gloamy OAuth profiles).
+- Requires the Codex CLI installed on `PATH`; Gloamy starts its local `codex app-server` process over stdio.
+- Codex App Server is experimental and versioned with the installed Codex CLI. Keep Codex CLI current; a CLI protocol change may require a Gloamy update.
+- Sign in with `gloamy auth login --provider codex-app-server` or add `--device-code` to use the device-code flow.
+- Discover the models exposed by the signed-in Codex installation with `gloamy models refresh --force --provider codex-app-server`. Gloamy stores the returned model IDs in its normal model cache; the `default` model setting delegates default selection to Codex.
+- Set `default_provider = "codex-app-server"` and `default_model = "default"` to use the installation default, or set `default_model` to an exact ID from the Codex model list.
+- The catalog is supplied by the installed Codex version and account. Catalog presence does not guarantee access; inference can reject models unavailable to the account.
+- `gloamy auth logout --provider codex-app-server` signs out the account held by Codex CLI, which also affects other Codex CLI clients using that account. This provider does not store a second token copy in Gloamy.
+- Each inference uses an ephemeral App Server thread scoped to a private temporary working directory with read-only sandboxing, no MCP servers or environments, and shell, browser, image-viewing, app, plugin, and web-search tools disabled. The sandbox denies tool-side network access. Gloamy sends the conversation contents to the selected model as the provider request.
 
 ### Ollama Vision Notes
 
