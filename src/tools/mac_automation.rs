@@ -497,7 +497,7 @@ impl MacAutomationTool {
 
         let mut out = trimmed.to_string();
         if out.len() > MAX_OUTPUT_CHARS {
-            out.truncate(out.floor_char_boundary(MAX_OUTPUT_CHARS));
+            out.truncate(crate::util::floor_char_boundary(&out, MAX_OUTPUT_CHARS));
             out.push_str("\n... [output truncated]");
         }
         out
