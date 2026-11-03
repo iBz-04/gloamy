@@ -17,8 +17,8 @@
 # ══════════════════════════════════════════════════════════════════════════════
 # builder
 # ══════════════════════════════════════════════════════════════════════════════
-# Pinned to bookworm so the runtime stage below can share the same glibc.
-FROM rust:1.92-slim-bookworm AS builder
+# Pinned to trixie so the runtime stage below can share the same glibc.
+FROM rust:1.99.1-slim-trixie AS builder
 
 # build-essential + pkg-config: C toolchain for the bundled SQLite and `ring`.
 # git: crates resolved from git and build scripts that read repository metadata.
@@ -46,7 +46,7 @@ RUN --mount=type=cache,id=gloamy-cargo-registry-${TARGETARCH},target=/usr/local/
 # ══════════════════════════════════════════════════════════════════════════════
 # runtime
 # ══════════════════════════════════════════════════════════════════════════════
-FROM debian:bookworm-slim AS runtime
+FROM debian:trixie-slim AS runtime
 
 # ca-certificates: outbound TLS to model providers.
 # curl, git, jq: present in the default `autonomy.allowed_commands` allowlist, so
