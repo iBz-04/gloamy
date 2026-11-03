@@ -6,6 +6,10 @@ Time-bound project status snapshots for planning documentation and operations wo
 
 - [../project-triage-snapshot-2026-02-18.md](../project-triage-snapshot-2026-02-18.md)
 
+## Architecture Decisions
+
+- [Rust MSRV and build toolchains](adr/0001-rust-msrv-and-build-toolchains.md)
+
 ## Scope
 
 Project snapshots are time-bound assessments of open PRs, issues, and documentation health. Use these to:
