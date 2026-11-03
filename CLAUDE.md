@@ -1,5 +1,15 @@
 # CLAUDE.md — Gloamy Agent Engineering Protocol
 
+## Agent skills
+
+### Issue tracker
+
+Issues and specs are local markdown files under `.scratch/`. See `docs/agents/issue-tracker.md`.
+
+### Domain docs
+
+Single-context domain docs use the root `GLOSSARY.md` and `docs/adr/` layout. See `docs/agents/domain.md`.
+
 This file defines the default working protocol for Claude agents in this repository.
 Scope: entire repository.
 
