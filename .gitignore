@@ -49,7 +49,7 @@ venv/
 # ── Local scratch and machine-specific files ──────────────────
 # Shared agent workspace mounted into the dev containers (created by dev/cli.sh)
 playground/
-# Git worktrees created per CLAUDE.md §6.2
+# Git worktrees created per AGENTS.md §6.2
 .worktrees/
 .wt-*/
 .tmp_*
