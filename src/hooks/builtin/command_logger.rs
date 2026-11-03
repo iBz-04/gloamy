@@ -57,7 +57,10 @@ impl HookHandler for CommandLoggerHook {
                 .unwrap_or("(no detail)");
             // Cap the reason to keep log lines scannable.
             let capped = if reason.len() > 200 {
-                format!("{}...", &reason[..reason.floor_char_boundary(200)])
+                format!(
+                    "{}...",
+                    &reason[..crate::util::floor_char_boundary(reason, 200)]
+                )
             } else {
                 reason.to_string()
             };
