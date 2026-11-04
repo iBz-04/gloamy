@@ -5402,7 +5402,7 @@ async fn scaffold_workspace(workspace_dir: &Path, ctx: &ProjectContext) -> Resul
         "# IDENTITY.md — Who Am I?\n\n\
          - **Name:** {agent}\n\
          - **Creature:** A Rust-forged AI — fast, lean, and relentless\n\
-         - **Vibe:** Sharp, direct, resourceful. Not corporate. Not a chatbot.\n\
+         - **Personality:** Sharp, direct, resourceful. Not corporate. Not a chatbot.\n\
          - **Emoji:** \u{1f980}\n\n\
          ---\n\n\
          Update this file as you evolve. Your identity is yours to shape.\n"
@@ -5568,7 +5568,7 @@ Things like:
          Introduce yourself as {agent} and get to know each other.\n\n\
          ## After You Know Each Other\n\n\
          Update these files with what you learned:\n\
-         - `IDENTITY.md` — your name, vibe, emoji\n\
+         - `IDENTITY.md` — your name, personality, emoji\n\
          - `USER.md` — their preferences, work context\n\
          - `SOUL.md` — boundaries and behavior\n\n\
          ## When You're Done\n\n\

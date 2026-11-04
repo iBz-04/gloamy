@@ -12,6 +12,7 @@ use std::path::{Path, PathBuf};
 use std::process::Stdio;
 use std::sync::OnceLock;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
+#[cfg(target_os = "macos")]
 use tokio::fs;
 use tokio::net::TcpListener;
 use tokio::process::Command;

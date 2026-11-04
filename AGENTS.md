@@ -473,7 +473,7 @@ When handing off work, include:
 4. Remaining risks / unknowns
 5. Next recommended action
 
-## 12) Vibe Coding Guardrails
+## 12) Agent Development Guardrails
 
 When working in fast iterative mode:
 

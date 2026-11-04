@@ -11,6 +11,7 @@ use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 use std::io::{self, BufRead, IsTerminal, Write};
+#[cfg(target_os = "macos")]
 use std::process::Command;
 
 // ── Types ────────────────────────────────────────────────────────
