@@ -72,7 +72,7 @@ impl ResponseCache {
         hasher.update(b"|");
         hasher.update(user_prompt.as_bytes());
         let hash = hasher.finalize();
-        format!("{:064x}", hash)
+        hex::encode(hash)
     }
 
     /// Look up a cached response. Returns `None` on miss or expired entry.

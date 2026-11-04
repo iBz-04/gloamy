@@ -42,10 +42,10 @@ tokio-util = { version = "0.7", default-features = false }
 tokio-stream = { version = "0.1.19", default-features = false, features = ["fs", "sync"] }
 
 # HTTP client - minimal features
-reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls", "blocking", "multipart", "stream", "socks"] }
+reqwest = { version = "0.13", default-features = false, features = ["json", "rustls", "blocking", "multipart", "stream", "socks", "query", "form"] }
 
 # Matrix client + E2EE decryption
-matrix-sdk = { version = "0.16.1", optional = true, default-features = false, features = ["e2e-encryption", "rustls-tls", "markdown", "sqlite"] }
+matrix-sdk = { version = "0.19.1", optional = true, default-features = false, features = ["e2e-encryption", "rustls-aws-lc-rs", "markdown", "sqlite"] }
 
 # Serialization
 serde = { version = "1.0", default-features = false, features = ["derive"] }
@@ -88,11 +88,11 @@ thiserror = "2.0"
 uuid = { version = "1.26", default-features = false, features = ["v4", "std"] }
 
 # Authenticated encryption (AEAD) for secret store
-chacha20poly1305 = "0.10"
+chacha20poly1305 = "0.11"
 
 # HMAC for webhook signature verification
-hmac = "0.12"
-sha2 = "0.10"
+hmac = "0.13"
+sha2 = "0.11"
 hex = "0.4"
 
 # CSPRNG for secure token generation
@@ -114,7 +114,7 @@ ring = "0.17"
 prost = { version = "0.14", default-features = false, features = ["derive"], optional = true }
 
 # Memory / persistence
-rusqlite = { version = "0.37", features = ["bundled"] }
+rusqlite = { version = "0.40.2", features = ["bundled"] }
 postgres = { version = "0.19", features = ["with-chrono-0_4"], optional = true }
 chrono = { version = "0.4", default-features = false, features = ["clock", "std", "serde"] }
 chrono-tz = "0.10"
@@ -133,7 +133,8 @@ which = "8.0"
 # WebSocket client channels (Discord/Lark/DingTalk/Nostr)
 tokio-tungstenite = { version = "0.28", features = ["rustls-tls-webpki-roots"] }
 futures-util = { version = "0.3", default-features = false, features = ["sink"] }
-nostr-sdk = { version = "0.44", default-features = false, features = ["nip04", "nip59"] }
+nostr = { version = "0.45.6", default-features = false, features = ["nip04", "nip59", "os-rng", "rand", "std"] }
+nostr-sdk = { version = "0.45.6", default-features = false, features = ["ring", "rustls-tls-webpki-roots"] }
 regex = "1.13"
 hostname = "0.4.2"
 rustls = "0.23"
@@ -156,9 +157,9 @@ http-body-util = "0.1"
 # Use the blocking HTTP exporter client to avoid Tokio-reactor panics in
 # OpenTelemetry background batch threads when Gloamy emits spans/metrics from
 # non-Tokio contexts.
-opentelemetry = { version = "0.31", default-features = false, features = ["trace", "metrics"], optional = true }
-opentelemetry_sdk = { version = "0.31", default-features = false, features = ["trace", "metrics"], optional = true }
-opentelemetry-otlp = { version = "0.31", default-features = false, features = ["trace", "metrics", "http-proto", "reqwest-blocking-client", "reqwest-rustls-webpki-roots"], optional = true }
+opentelemetry = { version = "0.33.1", default-features = false, features = ["trace", "metrics"], optional = true }
+opentelemetry_sdk = { version = "0.33.1", default-features = false, features = ["trace", "metrics"], optional = true }
+opentelemetry-otlp = { version = "0.33.1", default-features = false, features = ["trace", "metrics", "http-proto", "reqwest-blocking-client", "reqwest-rustls"], optional = true }
 
 # Serial port for peripheral communication (STM32, etc.)
 tokio-serial = { version = "5", default-features = false, optional = true }
@@ -172,7 +173,7 @@ nusb = { version = "0.2", default-features = false, optional = true }
 probe-rs = { version = "0.31", optional = true }
 
 # PDF extraction for datasheet RAG (optional, enable with --features rag-pdf)
-pdf-extract = { version = "0.10", optional = true }
+pdf-extract = { version = "0.12.1", optional = true }
 
 # Terminal QR rendering for WhatsApp Web pairing flow.
 qrcode = { version = "0.14", optional = true }

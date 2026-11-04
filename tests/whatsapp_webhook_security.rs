@@ -6,7 +6,7 @@
 //! 3. Webhooks with missing signatures are rejected
 //! 4. Webhooks are rejected even if JSON is valid but signature is bad
 
-use hmac::{Hmac, Mac};
+use hmac::{Hmac, KeyInit, Mac};
 use sha2::Sha256;
 
 /// Compute valid HMAC-SHA256 signature for a webhook payload

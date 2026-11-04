@@ -10,7 +10,7 @@ use crate::providers::traits::{
 };
 use crate::tools::ToolSpec;
 use async_trait::async_trait;
-use hmac::{Hmac, Mac};
+use hmac::{Hmac, KeyInit, Mac};
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
