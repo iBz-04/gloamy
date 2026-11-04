@@ -26,6 +26,8 @@ Schema export command:
 | `default_model` | `gpt-5-mini` | model routed through selected provider |
 | `default_temperature` | `0.7` | model temperature |
 
+For `default_provider = "codex-app-server"`, install the Codex CLI and sign in with `gloamy auth login --provider codex-app-server`. Set `default_model = "default"` to use the Codex installation's default model, or select an exact ID discovered by `gloamy models refresh --provider codex-app-server`.
+
 ## `[observability]`
 
 | Key | Default | Purpose |

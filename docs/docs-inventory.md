@@ -2,7 +2,7 @@
 
 This inventory classifies docs by intent so readers can quickly distinguish runtime-contract guides from design proposals.
 
-Last reviewed: **March 2, 2026**.
+Last reviewed: **November 3, 2026**.
 
 ## Classification Legend
 
@@ -10,6 +10,8 @@ Last reviewed: **March 2, 2026**.
 - **Policy/Process**: collaboration or governance rules
 - **Proposal/Roadmap**: design exploration; may include hypothetical commands
 - **Snapshot**: time-bound operational report
+- **Architecture Decision**: accepted record of an architectural choice
+- **Domain Glossary**: stable definitions for project terminology
 
 ## Documentation Entry Points
 
@@ -31,6 +33,13 @@ Last reviewed: **March 2, 2026**.
 | `docs/security/README.md` | Current Guide | operators/contributors |
 | `docs/hardware/README.md` | Current Guide | hardware builders |
 | `docs/project/README.md` | Current Guide | maintainers |
+
+## Architecture & Domain Terms
+
+| Doc | Type | Audience |
+|---|---|---|
+| `docs/project/adr/0002-codex-app-server-oauth-ownership.md` | Architecture Decision | maintainers/integrators |
+| `docs/project/glossary.md` | Domain Glossary | all readers |
 
 ## Current Guides & References
 

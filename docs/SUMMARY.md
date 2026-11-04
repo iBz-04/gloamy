@@ -2,7 +2,7 @@
 
 This file is the canonical table of contents for the documentation system.
 
-Last refreshed: **February 18, 2026**.
+Last refreshed: **November 3, 2026**.
 
 ## Language Entry
 
@@ -81,5 +81,7 @@ Last refreshed: **February 18, 2026**.
 ### 8) Project Status & Snapshot
 
 - [project/README.md](project/README.md)
+- [project/adr/0002-codex-app-server-oauth-ownership.md](project/adr/0002-codex-app-server-oauth-ownership.md)
+- [project/glossary.md](project/glossary.md)
 - [project-triage-snapshot-2026-02-18.md](project-triage-snapshot-2026-02-18.md)
 - [docs-inventory.md](docs-inventory.md)
