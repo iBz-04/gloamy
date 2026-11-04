@@ -589,7 +589,7 @@ fn prompt_evolution_rule_id(guideline: &str, guard_event: &str, reason_key: &str
     hasher.update(guard_event.trim().to_ascii_lowercase().as_bytes());
     hasher.update(b"|");
     hasher.update(reason_key.trim().to_ascii_lowercase().as_bytes());
-    format!("{:x}", hasher.finalize())
+    hex::encode(hasher.finalize())
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]

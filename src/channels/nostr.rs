@@ -1,6 +1,7 @@
 use crate::channels::traits::{Channel, ChannelMessage, SendMessage};
 use anyhow::{Context, Result};
 use async_trait::async_trait;
+use futures_util::StreamExt;
 use nostr_sdk::prelude::*;
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -51,6 +52,7 @@ impl AllowList {
 /// Replies use the same protocol the sender used. Unsolicited sends default to NIP-17.
 pub struct NostrChannel {
     client: Client,
+    keys: Keys,
     public_key: PublicKey,
     allowed: AllowList,
     /// Tracks last-seen protocol per sender pubkey so replies match.
@@ -70,7 +72,9 @@ impl NostrChannel {
         let public_key = keys.public_key();
         let allowed = AllowList::parse(allowed_pubkeys)?;
 
-        let client = Client::builder().signer(keys).build();
+        let client = Client::builder()
+            .authenticator(SignerAuthenticator::new(keys.clone()))
+            .build();
         for relay in &relays {
             client
                 .add_relay(relay.as_str())
@@ -81,6 +85,7 @@ impl NostrChannel {
 
         Ok(Self {
             client,
+            keys,
             public_key,
             allowed,
             sender_protocols: Arc::new(RwLock::new(HashMap::new())),
@@ -107,8 +112,12 @@ impl Channel for NostrChannel {
         match protocol {
             NostrProtocol::Nip17 => {
                 // NIP-17: gift-wrapped private message
+                let event = PrivateDirectMessageBuilder::new(recipient, message.content.clone())
+                    .finalize_async(&self.keys)
+                    .await
+                    .context("Failed to build NIP-17 message")?;
                 self.client
-                    .send_private_msg(recipient, &message.content, None)
+                    .send_event(&event)
                     .await
                     .context("Failed to send NIP-17 message")?;
                 tracing::debug!(
@@ -118,15 +127,19 @@ impl Channel for NostrChannel {
             }
             NostrProtocol::Nip04 => {
                 // NIP-04: legacy encrypted DM (kind 4)
-                let signer = self.client.signer().await.context("No signer on client")?;
-                let encrypted = signer
-                    .nip04_encrypt(&recipient, &message.content)
+                let encrypted = self
+                    .keys
+                    .nip04_encrypt_async(&recipient, &message.content)
                     .await
                     .context("NIP-04 encryption failed")?;
                 let builder = EventBuilder::new(Kind::EncryptedDirectMessage, encrypted)
                     .tag(Tag::public_key(recipient));
+                let event = builder
+                    .finalize_async(&self.keys)
+                    .await
+                    .context("Failed to build NIP-04 event")?;
                 self.client
-                    .send_event_builder(builder)
+                    .send_event(&event)
                     .await
                     .context("Failed to send NIP-04 message")?;
                 tracing::debug!(
@@ -151,8 +164,11 @@ impl Channel for NostrChannel {
             .kinds(vec![Kind::EncryptedDirectMessage, Kind::GiftWrap])
             .limit(10);
 
+        // Start receiving notifications before subscribing so relay events
+        // cannot arrive in the gap between those operations.
+        let mut notifications = self.client.notifications();
         self.client
-            .subscribe(filter, None)
+            .subscribe(filter)
             .await
             .context("Failed to subscribe to Nostr events")?;
 
@@ -162,18 +178,15 @@ impl Channel for NostrChannel {
         );
 
         let sender_protocols = Arc::clone(&self.sender_protocols);
-        let signer = self.client.signer().await.context("No signer on client")?;
-
         loop {
-            let notification = self
-                .client
-                .notifications()
-                .recv()
+            let notification = notifications
+                .next()
                 .await
                 .context("Notification channel closed")?;
 
             match notification {
-                RelayPoolNotification::Event { event, .. } => {
+                ClientNotification::Event { event, .. } => {
+                    let event = *event;
                     let result = match event.kind {
                         Kind::EncryptedDirectMessage => {
                             // NIP-04: created_at is the real timestamp (no jitter)
@@ -187,7 +200,11 @@ impl Channel for NostrChannel {
                                 );
                                 continue;
                             }
-                            match signer.nip04_decrypt(&event.pubkey, &event.content).await {
+                            match self
+                                .keys
+                                .nip04_decrypt_async(&event.pubkey, &event.content)
+                                .await
+                            {
                                 Ok(content) => {
                                     let sender = event.pubkey;
                                     sender_protocols
@@ -210,7 +227,7 @@ impl Channel for NostrChannel {
                         Kind::GiftWrap => {
                             // NIP-17: unwrap first, then check the rumor's created_at
                             // (the outer gift-wrap timestamp is jittered for privacy)
-                            match self.client.unwrap_gift_wrap(&event).await {
+                            match UnwrappedGift::from_gift_wrap_async(&self.keys, &event).await {
                                 Ok(unwrapped) => {
                                     let rumor = unwrapped.rumor;
                                     if rumor.created_at < listen_start {
@@ -260,11 +277,11 @@ impl Channel for NostrChannel {
                         }
                     }
                 }
-                RelayPoolNotification::Shutdown => {
+                ClientNotification::Shutdown => {
                     tracing::info!("Nostr relay pool shut down");
                     break;
                 }
-                RelayPoolNotification::Message { .. } => {}
+                ClientNotification::Message { .. } => {}
             }
         }
 
@@ -276,7 +293,7 @@ impl Channel for NostrChannel {
             .relays()
             .await
             .values()
-            .any(|r| r.is_connected())
+            .any(|r| r.status().is_connected())
     }
 }
 

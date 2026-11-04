@@ -5105,7 +5105,7 @@ fn setup_channels() -> Result<ChannelsConfig> {
                 }
 
                 // Validate the key immediately
-                match nostr_sdk::Keys::parse(private_key.trim()) {
+                match nostr_sdk::prelude::Keys::parse(private_key.trim()) {
                     Ok(keys) => {
                         println!(
                             "  {} Key valid — public key: {}",

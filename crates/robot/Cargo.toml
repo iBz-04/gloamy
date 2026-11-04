@@ -10,7 +10,7 @@ documentation = "https://docs.rs/gloamy-robot"
 readme = "README.md"
 keywords = ["robotics", "raspberry-pi", "agent-runtime", "hardware", "ollama"]
 categories = ["science::robotics", "embedded", "hardware-support"]
-rust-version = "1.87"
+rust-version = "1.96"
 
 [features]
 default = ["safety"]
@@ -32,7 +32,7 @@ serde_json = "1.0"
 toml = "1.1"
 
 # HTTP client (for Ollama vision)
-reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+reqwest = { version = "0.13", default-features = false, features = ["json", "rustls"] }
 
 # Base64 encoding (for image data)
 base64 = "0.22"

@@ -408,7 +408,7 @@ mod tests {
         use super::*;
 
         /// Minimal valid PDF with one text page ("Hello PDF").
-        /// Generated offline and verified with pdf-extract 0.10.
+        /// Generated offline and verified with pdf-extract 0.12.1.
         fn minimal_pdf_bytes() -> Vec<u8> {
             // A hand-crafted single-page PDF containing the text "Hello PDF".
             let body = b"%PDF-1.4\n\
