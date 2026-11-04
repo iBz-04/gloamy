@@ -16,7 +16,7 @@ repository = "https://github.com/iBz-04/gloamy"
 readme = "README.md"
 keywords = ["agent-runtime", "llm", "automation", "cli", "gateway"]
 categories = ["command-line-utilities", "network-programming", "asynchronous"]
-rust-version = "1.89"
+rust-version = "1.96"
 include = [
     "/Cargo.toml",
     "/Cargo.lock",
@@ -45,7 +45,7 @@ tokio-stream = { version = "0.1.19", default-features = false, features = ["fs",
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls", "blocking", "multipart", "stream", "socks"] }
 
 # Matrix client + E2EE decryption
-matrix-sdk = { version = "0.16", optional = true, default-features = false, features = ["e2e-encryption", "rustls-tls", "markdown", "sqlite"] }
+matrix-sdk = { version = "0.16.1", optional = true, default-features = false, features = ["e2e-encryption", "rustls-tls", "markdown", "sqlite"] }
 
 # Serialization
 serde = { version = "1.0", default-features = false, features = ["derive"] }

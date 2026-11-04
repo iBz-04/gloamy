@@ -10,7 +10,7 @@ documentation = "https://docs.rs/gloamy-robot"
 readme = "README.md"
 keywords = ["robotics", "raspberry-pi", "agent-runtime", "hardware", "ollama"]
 categories = ["science::robotics", "embedded", "hardware-support"]
-rust-version = "1.87"
+rust-version = "1.96"
 
 [features]
 default = ["safety"]
