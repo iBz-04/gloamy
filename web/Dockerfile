@@ -10,8 +10,8 @@
 # ══════════════════════════════════════════════════════════════════════════════
 # builder
 # ══════════════════════════════════════════════════════════════════════════════
-# Node 22 matches web/.nvmrc.
-FROM node:22-bookworm-slim AS builder
+# Node 24 matches web/.nvmrc.
+FROM node:24.22.2-trixie-slim AS builder
 
 ENV PNPM_HOME=/pnpm \
     PATH=/pnpm:$PATH \

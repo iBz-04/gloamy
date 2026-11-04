@@ -1,14 +1,17 @@
+[workspace]
+
 [package]
 name = "gloamy-fuzz"
 version = "0.0.0"
 publish = false
 edition = "2021"
+rust-version = "1.96"
 
 [package.metadata]
 cargo-fuzz = true
 
 [dependencies]
-libfuzzer-sys = "0.4"
+libfuzzer-sys = "0.4.13"
 
 [dependencies.gloamy]
 path = ".."
