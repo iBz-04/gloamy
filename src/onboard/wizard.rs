@@ -747,6 +747,7 @@ fn default_model_for_provider(provider: &str) -> String {
         "anthropic" => "claude-sonnet-4-5-20250929".into(),
         "openai" => "gpt-5-mini".into(),
         "openai-codex" => "gpt-5-codex".into(),
+        "codex-app-server" => "default".into(),
         "venice" => "zai-org-glm-5".into(),
         "groq" => "llama-3.3-70b-versatile".into(),
         "mistral" => "mistral-large-latest".into(),
@@ -848,6 +849,10 @@ fn curated_models_for_provider(provider_name: &str) -> Vec<(String, String)> {
             ),
             ("o4-mini".to_string(), "o4-mini (fallback)".to_string()),
         ],
+        "codex-app-server" => vec![(
+            "default".to_string(),
+            "Codex installation default (recommended)".to_string(),
+        )],
         "venice" => vec![
             (
                 "zai-org-glm-5".to_string(),
@@ -1192,6 +1197,7 @@ fn supports_live_model_fetch(provider_name: &str) -> bool {
     matches!(
         canonical_provider_name(provider_name),
         "openrouter"
+            | "codex-app-server"
             | "openai-codex"
             | "openai"
             | "anthropic"
@@ -1606,6 +1612,12 @@ async fn fetch_live_models_for_provider_async(
     api_key: &str,
     provider_api_url: Option<&str>,
 ) -> Result<Vec<String>> {
+    if canonical_provider_name(provider_name) == "codex-app-server" {
+        let mut client = crate::codex_app_server::CodexAppServerClient::connect().await?;
+        let models = client.list_models().await?;
+        return Ok(models.into_iter().map(|model| model.id).collect());
+    }
+
     let provider_name = provider_name.to_string();
     let api_key = api_key.to_string();
     let provider_api_url = provider_api_url.map(str::to_string);
@@ -2215,6 +2227,10 @@ async fn setup_provider(workspace_dir: &Path) -> Result<(String, String, String,
                 "openai-codex",
                 "OpenAI Codex (ChatGPT subscription OAuth, no API key)",
             ),
+            (
+                "codex-app-server",
+                "Codex App Server (Codex CLI OAuth and installed models)",
+            ),
             ("deepseek", "DeepSeek — V3 & R1 (affordable)"),
             ("mistral", "Mistral — Large & Codestral"),
             ("xai", "xAI — Grok 3 & 4"),
@@ -2330,7 +2346,15 @@ async fn setup_provider(workspace_dir: &Path) -> Result<(String, String, String,
 
     // ── API key / endpoint ──
     let mut provider_api_url: Option<String> = None;
-    let api_key = if provider_name == "ollama" {
+    let api_key = if provider_name == "codex-app-server" {
+        if crate::codex_app_server::CodexAppServerClient::is_installed() {
+            print_bullet("Using the locally installed Codex CLI; no Gloamy API key is needed.");
+            print_bullet("Sign in with `gloamy auth login --provider codex-app-server`.");
+        } else {
+            print_bullet("Codex CLI was not found on PATH. Install it before using this provider.");
+        }
+        String::new()
+    } else if provider_name == "ollama" {
         let use_remote_ollama = Confirm::new()
             .with_prompt("  Use a remote Ollama endpoint (for example Ollama Cloud)?")
             .default(false)
@@ -2722,8 +2746,9 @@ async fn setup_provider(workspace_dir: &Path) -> Result<(String, String, String,
     if supports_live_model_fetch(provider_name) {
         let ollama_remote = canonical_provider == "ollama"
             && ollama_uses_remote_endpoint(provider_api_url.as_deref());
-        let can_fetch_without_key =
-            allows_unauthenticated_model_fetch(provider_name) && !ollama_remote;
+        let can_fetch_without_key = (canonical_provider == "codex-app-server"
+            || allows_unauthenticated_model_fetch(provider_name))
+            && !ollama_remote;
         let has_api_key = !api_key.trim().is_empty()
             || ((canonical_provider != "ollama" || ollama_remote)
                 && std::env::var(provider_env_var(provider_name))
@@ -2975,7 +3000,7 @@ fn provider_supports_keyless_local_usage(provider_name: &str) -> bool {
 fn provider_supports_device_flow(provider_name: &str) -> bool {
     matches!(
         canonical_provider_name(provider_name),
-        "copilot" | "gemini" | "openai-codex"
+        "copilot" | "gemini" | "openai-codex" | "codex-app-server"
     )
 }
 

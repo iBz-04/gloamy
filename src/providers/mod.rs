@@ -18,6 +18,7 @@
 
 pub mod anthropic;
 pub mod bedrock;
+pub mod codex_app_server;
 pub mod compatible;
 pub mod copilot;
 pub mod gemini;
@@ -905,6 +906,21 @@ fn parse_custom_provider_url(
     }
 }
 
+fn validate_codex_app_server_profile_override(
+    options: &ProviderRuntimeOptions,
+) -> anyhow::Result<()> {
+    if options
+        .auth_profile_override
+        .as_deref()
+        .is_some_and(|profile| profile != "default")
+    {
+        anyhow::bail!(
+            "codex-app-server uses the Codex CLI's selected account and does not support named Gloamy auth profiles"
+        );
+    }
+    Ok(())
+}
+
 /// Factory: create the right provider from config (without custom URL)
 pub fn create_provider(name: &str, api_key: Option<&str>) -> anyhow::Result<Box<dyn Provider>> {
     create_provider_with_options(name, api_key, &ProviderRuntimeOptions::default())
@@ -917,6 +933,10 @@ pub fn create_provider_with_options(
     options: &ProviderRuntimeOptions,
 ) -> anyhow::Result<Box<dyn Provider>> {
     match name {
+        "codex-app-server" => {
+            validate_codex_app_server_profile_override(options)?;
+            Ok(Box::new(codex_app_server::CodexAppServerProvider::new()))
+        }
         "openai-codex" | "openai_codex" | "codex" => Ok(Box::new(
             openai_codex::OpenAiCodexProvider::new(options, api_key)?,
         )),
@@ -941,6 +961,11 @@ fn create_provider_with_url_and_options(
     api_url: Option<&str>,
     options: &ProviderRuntimeOptions,
 ) -> anyhow::Result<Box<dyn Provider>> {
+    if name == "codex-app-server" {
+        validate_codex_app_server_profile_override(options)?;
+        return Ok(Box::new(codex_app_server::CodexAppServerProvider::new()));
+    }
+
     let qwen_oauth_context = is_qwen_oauth_alias(name).then(|| resolve_qwen_oauth_context(api_key));
 
     // Resolve credential and break static-analysis taint chain from the
@@ -1485,6 +1510,12 @@ pub fn list_providers() -> Vec<ProviderInfo> {
             name: "openai-codex",
             display_name: "OpenAI Codex (OAuth)",
             aliases: &["openai_codex", "codex"],
+            local: false,
+        },
+        ProviderInfo {
+            name: "codex-app-server",
+            display_name: "Codex App Server (Codex CLI OAuth)",
+            aliases: &[],
             local: false,
         },
         ProviderInfo {

@@ -75,7 +75,7 @@ Runtime notes:
 
 Authentication management for providers and services.
 
-- `gloamy auth login --provider <openai-codex|gemini> [--profile <NAME>] [--device-code]`
+- `gloamy auth login --provider <openai-codex|codex-app-server|gemini> [--profile <NAME>] [--device-code]`
 - `gloamy auth paste-redirect --provider <openai-codex|gemini> [--profile <NAME>]`
 - `gloamy auth paste-token --provider anthropic [--profile <NAME>] [--auth-kind <authorization|api-key>]`
 - `gloamy auth status`
@@ -88,19 +88,20 @@ Authentication management for providers and services.
 
 | Command | Purpose |
 |---------|---------|
-| `auth login` | Start OAuth login for OpenAI Codex or Gemini, optionally using device-code mode |
+| `auth login` | Start OAuth login for OpenAI Codex, Codex App Server, or Gemini, optionally using device-code mode |
 | `auth paste-redirect` | Finish OAuth by pasting a redirect URL or code when browser callback capture is not available |
 | `auth paste-token` | Store an Anthropic setup token or API key under a named profile |
-| `auth status` | Show authentication status for all providers, active profile, and token expiry |
+| `auth status` | Show Gloamy authentication profiles and Codex App Server account status |
 | `auth use <provider> <profile>` | Set active authentication profile for a provider |
-| `auth refresh` | Refresh authentication tokens for OAuth-based providers (OpenAI Codex, Gemini) |
-| `auth logout` | Remove authentication profile and clear stored tokens |
-| `auth list` | List stored auth profiles and show which one is active |
+| `auth refresh` | Refresh authentication for OpenAI Codex, Codex App Server, or Gemini |
+| `auth logout` | Remove a Gloamy auth profile, or sign out from the Codex CLI account for Codex App Server |
+| `auth list` | List stored Gloamy auth profiles and Codex App Server account status |
 
 **Examples:**
 
 ```bash
 gloamy auth login --provider openai-codex --device-code
+gloamy auth login --provider codex-app-server --device-code
 gloamy auth login --provider gemini --profile default
 gloamy auth paste-token --provider anthropic --profile default --auth-kind authorization
 gloamy auth status
@@ -111,9 +112,10 @@ gloamy auth logout --provider anthropic --profile default
 
 Notes:
 
-- OpenAI Codex and Gemini use OAuth-backed profiles, so `auth refresh` can renew access tokens when the stored refresh token is valid.
+- `openai-codex` and Gemini use OAuth-backed Gloamy profiles. `codex-app-server` delegates login and refresh to the local Codex CLI account and does not create a Gloamy profile.
+- `auth logout --provider codex-app-server` signs out of the Codex CLI account used by other Codex CLI clients as well.
 - Anthropic token auth is stored as a token profile and does not use OAuth refresh.
-- `auth use` selects the active profile for a provider; the runtime will prefer the active profile when one is set.
+- `auth use` selects the active profile for providers with Gloamy-managed profiles; `codex-app-server` uses the Codex CLI's selected account.
 
 ### `gateway` / `daemon`
 
@@ -193,7 +195,9 @@ Notes:
 - `gloamy models refresh --force`
 - `gloamy models set <model_id>`
 
-`models refresh` currently supports live catalog refresh for provider IDs: `openrouter`, `openai`, `anthropic`, `groq`, `mistral`, `deepseek`, `xai`, `together-ai`, `gemini`, `ollama`, `llamacpp`, `sglang`, `vllm`, `astrai`, `venice`, `fireworks`, `cohere`, `moonshot`, `glm`, `zai`, `qwen`, and `nvidia`.
+`models refresh` currently supports live catalog refresh for provider IDs: `openrouter`, `openai`, `codex-app-server`, `anthropic`, `groq`, `mistral`, `deepseek`, `xai`, `together-ai`, `gemini`, `ollama`, `llamacpp`, `sglang`, `vllm`, `astrai`, `venice`, `fireworks`, `cohere`, `moonshot`, `glm`, `zai`, `qwen`, and `nvidia`.
+
+For `codex-app-server`, refresh the locally installed Codex model catalog with `gloamy models refresh --force --provider codex-app-server`. The catalog contains the model IDs exposed by that Codex installation and account. Use `gloamy models list --provider codex-app-server` to inspect the cached IDs, then `gloamy models set <MODEL_ID>` to select one. `default` delegates model selection to Codex.
 
 **Options:**
 
