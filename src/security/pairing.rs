@@ -270,7 +270,7 @@ fn generate_token() -> String {
 
 /// SHA-256 hash a bearer token for storage. Returns lowercase hex.
 fn hash_token(token: &str) -> String {
-    format!("{:x}", Sha256::digest(token.as_bytes()))
+    hex::encode(Sha256::digest(token.as_bytes()))
 }
 
 /// Check if a stored value looks like a SHA-256 hash (64 hex chars)

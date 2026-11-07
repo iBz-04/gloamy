@@ -1337,7 +1337,7 @@ async fn handle_whatsapp_verify(
 /// Returns true if the signature is valid, false otherwise.
 /// See: <https://developers.facebook.com/docs/graph-api/webhooks/getting-started#verification-requests>
 pub fn verify_whatsapp_signature(app_secret: &str, body: &[u8], signature_header: &str) -> bool {
-    use hmac::{Hmac, Mac};
+    use hmac::{Hmac, KeyInit, Mac};
     use sha2::Sha256;
 
     // Signature format: "sha256=<hex_signature>"
@@ -2782,7 +2782,7 @@ mod tests {
     }
 
     fn compute_nextcloud_signature_hex(secret: &str, random: &str, body: &str) -> String {
-        use hmac::{Hmac, Mac};
+        use hmac::{Hmac, KeyInit, Mac};
         use sha2::Sha256;
 
         let payload = format!("{random}{body}");
@@ -2897,7 +2897,7 @@ mod tests {
     // ══════════════════════════════════════════════════════════
 
     fn compute_whatsapp_signature_hex(secret: &str, body: &[u8]) -> String {
-        use hmac::{Hmac, Mac};
+        use hmac::{Hmac, KeyInit, Mac};
         use sha2::Sha256;
 
         let mut mac = Hmac::<Sha256>::new_from_slice(secret.as_bytes()).unwrap();
