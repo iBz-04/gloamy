@@ -66,7 +66,7 @@ description: "Task list for supported host architecture pruning"
 - [x] T026 Check changed markdown links and documentation navigation; preserve locale parity required by `AGENTS.md`.
 - [x] T027 Run `git diff --check` and approved Rust formatting/build/static checks; record any test commands not run.
 - [x] T028 Load `brownfield.validate` and verify the Spec Kit scaffold/profile against current project structure without running project-provided test commands.
-- [ ] T029 Review the full worktree diff, including pre-existing user changes, before creating a single squash commit on `main`.
+- [x] T029 Review the full worktree diff, including pre-existing user changes, before creating a single squash commit on `main`.
 - [ ] T030 Squash-merge the completed worktree into the existing local `main` branch and leave remote push untouched.
 
 ## Dependencies and Execution Order
