@@ -2,6 +2,15 @@
 //!
 //! This module contains reusable helper functions used across the codebase.
 
+/// Return the greatest UTF-8 character boundary at or before `index`.
+pub(crate) fn floor_char_boundary(text: &str, index: usize) -> usize {
+    let mut boundary = index.min(text.len());
+    while boundary > 0 && !text.is_char_boundary(boundary) {
+        boundary -= 1;
+    }
+    boundary
+}
+
 /// Truncate a string to at most `max_chars` characters, appending "..." if truncated.
 ///
 /// This function safely handles multi-byte UTF-8 characters (emoji, CJK, accented characters)
@@ -53,6 +62,16 @@ pub enum MaybeSet<T> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn floor_char_boundary_handles_utf8_and_out_of_range_indexes() {
+        let text = "abc😀def";
+
+        assert_eq!(floor_char_boundary(text, 5), 3);
+        assert_eq!(floor_char_boundary(text, 7), 7);
+        assert_eq!(floor_char_boundary(text, usize::MAX), text.len());
+        assert_eq!(floor_char_boundary(text, 0), 0);
+    }
 
     #[test]
     fn test_truncate_ascii_no_truncation() {
