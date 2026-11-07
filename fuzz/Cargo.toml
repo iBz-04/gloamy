@@ -1,3 +1,5 @@
+[workspace]
+
 [package]
 name = "gloamy-fuzz"
 version = "0.0.0"
@@ -8,7 +10,7 @@ edition = "2021"
 cargo-fuzz = true
 
 [dependencies]
-libfuzzer-sys = "0.4"
+libfuzzer-sys = "0.4.13"
 
 [dependencies.gloamy]
 path = ".."
