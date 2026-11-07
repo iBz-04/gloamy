@@ -33,7 +33,6 @@ Localization index: [i18n/README.md](i18n/README.md).
 - Need production/service operations? → [operations/README.md](operations/README.md)
 - Seeing failures or regressions? → [troubleshooting.md](troubleshooting.md)
 - Working on security hardening or roadmap? → [security/README.md](security/README.md)
-- Working with boards/peripherals? → [hardware/README.md](hardware/README.md)
 - Contributing/reviewing/CI workflow? → [pr-workflow.md](pr-workflow.md)
 - Want the full map? → [SUMMARY.md](SUMMARY.md)
 
@@ -44,7 +43,6 @@ Localization index: [i18n/README.md](i18n/README.md).
 - Feature overview: [feature-overview.md](feature-overview.md)
 - Operations & deployment: [operations/README.md](operations/README.md)
 - Security docs: [security/README.md](security/README.md)
-- Hardware/peripherals: [hardware/README.md](hardware/README.md)
 - Contributing/CI: [pr-workflow.md](pr-workflow.md)
 - Project snapshots: [project/README.md](project/README.md)
 
@@ -76,7 +74,6 @@ Localization index: [i18n/README.md](i18n/README.md).
 
 - [security/README.md](security/README.md)
 - [agnostic-security.md](agnostic-security.md)
-- [frictionless-security.md](frictionless-security.md)
 - [sandboxing.md](sandboxing.md)
 - [audit-logging.md](audit-logging.md)
 - [resource-limits.md](resource-limits.md)

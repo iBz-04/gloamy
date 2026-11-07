@@ -1,61 +1,37 @@
-# Network Deployment — Gloamy on Raspberry Pi and Local Network
+# Network Deployment on Supported Linux Hosts
 
-This document covers deploying Gloamy on a Raspberry Pi or other host on your local network, with Telegram and optional webhook channels.
+This guide covers operating Gloamy on generic Linux amd64 or Linux arm64 hosts. The maintained host targets are listed in [README.md](../README.md#supported-hosts). Board, firmware, and embedded-device setup is outside this guide.
 
----
-
-## 1. Overview
+## 1. Network Modes
 
 | Mode | Inbound port needed? | Use case |
-|------|----------------------|----------|
-| **Telegram polling** | No | Gloamy polls Telegram API; works from anywhere |
-| **Matrix sync (including E2EE)** | No | Gloamy syncs via Matrix client API; no inbound webhook required |
-| **Discord/Slack** | No | Same — outbound only |
-| **Nostr** | No | Connects to relays via WebSocket; outbound only |
-| **Gateway webhook** | Yes | POST /webhook, /whatsapp, /linq, /nextcloud-talk need a public URL |
-| **Gateway pairing** | Yes | If you pair clients via the gateway |
-| **Alpine/OpenRC service** | No | System-wide background service on Alpine Linux |
+|---|---|---|
+| Telegram polling | No | Gloamy polls the Telegram API from behind NAT. |
+| Matrix sync, including E2EE | No | Gloamy syncs through the Matrix client API. |
+| Discord and Slack | No | Outbound channel connections. |
+| Nostr | No | Outbound WebSocket connections to relays. |
+| Gateway webhooks | Yes | Webhook providers and external clients need a reachable URL. |
+| Gateway pairing | Yes | Clients connect through the gateway. |
 
-**Key:** Telegram, Discord, Slack, and Nostr use **outbound connections** — Gloamy connects to external servers/relays. No port forwarding or public IP required.
+Telegram, Matrix, Discord, Slack, and Nostr use outbound connections by default. They do not require port forwarding or a public IP.
 
----
+## 2. Install and Configure a Linux Host
 
-## 2. Gloamy on Raspberry Pi
-
-### 2.1 Prerequisites
-
-- Raspberry Pi (3/4/5) with Raspberry Pi OS
-- USB peripherals (Arduino, Nucleo) if using serial transport
-- Optional: `rppal` for native GPIO (`peripheral-rpi` feature)
-
-### 2.2 Install
+Use the release artifact for the host target, or build from source with the matching Rust target. For a source build:
 
 ```bash
-# Build for RPi (or cross-compile from host)
-cargo build --release --features hardware
+# Linux amd64
+cargo build --release --locked --target x86_64-unknown-linux-gnu
 
-# Or install via your preferred method
+# Linux arm64
+cargo build --release --locked --target aarch64-unknown-linux-gnu
 ```
 
-### 2.3 Config
+See [one-click-bootstrap.md](one-click-bootstrap.md) for installer options. Cross-compiling Linux arm64 on an amd64 host also requires an AArch64 GNU linker.
 
-Edit `~/.gloamy/config.toml`:
+Configure only the channels and gateway features you intend to run in `~/.gloamy/config.toml`. For example:
 
 ```toml
-[peripherals]
-enabled = true
-
-[[peripherals.boards]]
-board = "rpi-gpio"
-transport = "native"
-
-# Or Arduino over USB
-[[peripherals.boards]]
-board = "arduino-uno"
-transport = "serial"
-path = "/dev/ttyACM0"
-baud = 115200
-
 [channels_config.telegram]
 bot_token = "YOUR_BOT_TOKEN"
 allowed_users = []
@@ -66,23 +42,17 @@ port = 42617
 allow_public_bind = false
 ```
 
-### 2.4 Run Daemon (Local Only)
+Run the daemon locally:
 
 ```bash
 gloamy daemon --host 127.0.0.1 --port 42617
 ```
 
-- Gateway binds to `127.0.0.1` — not reachable from other machines
-- Telegram channel works: Gloamy polls Telegram API (outbound)
-- No firewall or port forwarding needed
+The gateway remains reachable only from the host. Telegram polling can still connect outbound.
 
----
+## 3. Binding to a Local Network
 
-## 3. Binding to 0.0.0.0 (Local Network)
-
-To allow other devices on your LAN to hit the gateway (e.g. for pairing or webhooks):
-
-### 3.1 Option A: Explicit Opt-In
+To let other devices on a trusted LAN reach the gateway, explicitly opt in:
 
 ```toml
 [gateway]
@@ -95,211 +65,58 @@ allow_public_bind = true
 gloamy daemon --host 0.0.0.0 --port 42617
 ```
 
-**Security:** `allow_public_bind = true` exposes the gateway to your local network. Only use on trusted LANs.
+Binding to `0.0.0.0` exposes the gateway to the network. Use pairing and firewall rules, and expose it only on a network you trust.
 
-### 3.2 Option B: Tunnel (Recommended for Webhooks)
+### Public webhook URLs
 
-If you need a **public URL** (e.g. WhatsApp webhook, external clients):
+For webhooks or clients outside the LAN, keep the gateway on localhost and use a tunnel:
 
-1. Run gateway on localhost:
-   ```bash
-   gloamy daemon --host 127.0.0.1 --port 42617
-   ```
+```toml
+[tunnel]
+provider = "tailscale" # or "ngrok" or "cloudflare"
+```
 
-2. Start a tunnel:
-   ```toml
-   [tunnel]
-   provider = "tailscale"   # or "ngrok", "cloudflare"
-   ```
-   Or use `gloamy tunnel` (see tunnel docs).
+See the tunnel configuration and [operations runbook](operations-runbook.md) for access controls and lifecycle management. Do not bind a public interface solely to make a webhook work.
 
-3. Gloamy will refuse `0.0.0.0` unless `allow_public_bind = true` or a tunnel is active.
+## 4. Telegram Polling
 
----
-
-## 4. Telegram Polling (No Inbound Port)
-
-Telegram uses **long-polling** by default:
-
-- Gloamy calls `https://api.telegram.org/bot{token}/getUpdates`
-- No inbound port or public IP needed
-- Works behind NAT, on RPi, in a home lab
-
-**Config:**
+Telegram uses long polling, so no inbound port is needed:
 
 ```toml
 [channels_config.telegram]
 bot_token = "YOUR_BOT_TOKEN"
-allowed_users = []            # deny-by-default, bind identities explicitly
+allowed_users = [] # deny by default; bind identities explicitly
 ```
 
-Run `gloamy daemon` — Telegram channel starts automatically.
+Run `gloamy daemon` to start the configured channel. Keep one runtime instance per bot token; the Telegram Bot API supports only one active `getUpdates` poller. If you see `Conflict: terminated by other getUpdates request`, stop the duplicate process and restart the intended daemon.
 
-To approve one Telegram account at runtime:
+Approve an account with:
 
 ```bash
 gloamy channel bind-telegram <IDENTITY>
 ```
 
-`<IDENTITY>` can be a numeric Telegram user ID or a username (without `@`).
+`<IDENTITY>` can be a numeric user ID or a username without `@`.
 
-### 4.1 Single Poller Rule (Important)
+## 5. Webhook Channels
 
-Telegram Bot API `getUpdates` supports only one active poller per bot token.
+Webhook channels need a public URL so the provider can send events. Tailscale Funnel, ngrok, and Cloudflare Tunnel can forward to `127.0.0.1:42617`. Keep gateway pairing enabled and configure each provider's webhook secret where available.
 
-- Keep one runtime instance for the same token (recommended: `gloamy daemon` service).
-- Do not run `cargo run -- channel start` or another bot process at the same time.
+## 6. Deployment Checklist
 
-If you hit this error:
+- [ ] Choose the supported Linux amd64 or Linux arm64 release artifact.
+- [ ] Configure only the required channels and gateway routes.
+- [ ] Keep the gateway bound to localhost unless LAN access is required.
+- [ ] Use pairing, firewall rules, and a tunnel for remote webhook access.
+- [ ] Run one daemon per Telegram bot token.
+- [ ] Install and start the user service if Gloamy should run after login or reboot.
+- [ ] Confirm logs and health through the [operations runbook](operations-runbook.md).
 
-`Conflict: terminated by other getUpdates request`
+## References
 
-you have a polling conflict. Stop extra instances and restart only one daemon.
-
----
-
-## 5. Webhook Channels (WhatsApp, Nextcloud Talk, Custom)
-
-Webhook-based channels need a **public URL** so Meta (WhatsApp) or your client can POST events.
-
-### 5.1 Tailscale Funnel
-
-```toml
-[tunnel]
-provider = "tailscale"
-```
-
-Tailscale Funnel exposes your gateway via a `*.ts.net` URL. No port forwarding.
-
-### 5.2 ngrok
-
-```toml
-[tunnel]
-provider = "ngrok"
-```
-
-Or run ngrok manually:
-```bash
-ngrok http 42617
-# Use the HTTPS URL for your webhook
-```
-
-### 5.3 Cloudflare Tunnel
-
-Configure Cloudflare Tunnel to forward to `127.0.0.1:42617`, then set your webhook URL to the tunnel's public hostname.
-
----
-
-## 6. Checklist: RPi Deployment
-
-- [ ] Build with `--features hardware` (and `peripheral-rpi` if using native GPIO)
-- [ ] Configure `[peripherals]` and `[channels_config.telegram]`
-- [ ] Run `gloamy daemon --host 127.0.0.1 --port 42617` (Telegram works without 0.0.0.0)
-- [ ] For LAN access: `--host 0.0.0.0` + `allow_public_bind = true` in config
-- [ ] For webhooks: use Tailscale, ngrok, or Cloudflare tunnel
-
----
-
-## 7. OpenRC (Alpine Linux Service)
-
-Gloamy supports OpenRC for Alpine Linux and other distributions using the OpenRC init system. OpenRC services run **system-wide** and require root/sudo.
-
-### 7.1 Prerequisites
-
-- Alpine Linux (or another OpenRC-based distro)
-- Root or sudo access
-- A dedicated `gloamy` system user (created during install)
-
-### 7.2 Install Service
-
-```bash
-# Install service (OpenRC is auto-detected on Alpine)
-sudo gloamy service install
-```
-
-This creates:
-- Init script: `/etc/init.d/gloamy`
-- Config directory: `/etc/gloamy/`
-- Log directory: `/var/log/gloamy/`
-
-### 7.3 Configuration
-
-Manual config copy is usually not required.
-
-`sudo gloamy service install` automatically prepares `/etc/gloamy`, migrates existing runtime state from your user setup when available, and sets ownership/permissions for the `gloamy` service user.
-
-If no prior runtime state is available to migrate, create `/etc/gloamy/config.toml` before starting the service.
-
-### 7.4 Enable and Start
-
-```bash
-# Add to default runlevel
-sudo rc-update add gloamy default
-
-# Start the service
-sudo rc-service gloamy start
-
-# Check status
-sudo rc-service gloamy status
-```
-
-### 7.5 Manage Service
-
-| Command | Description |
-|---------|-------------|
-| `sudo rc-service gloamy start` | Start the daemon |
-| `sudo rc-service gloamy stop` | Stop the daemon |
-| `sudo rc-service gloamy status` | Check service status |
-| `sudo rc-service gloamy restart` | Restart the daemon |
-| `sudo gloamy service status` | Gloamy status wrapper (uses `/etc/gloamy` config) |
-
-### 7.6 Logs
-
-OpenRC routes logs to:
-
-| Log | Path |
-|-----|------|
-| Access/stdout | `/var/log/gloamy/access.log` |
-| Errors/stderr | `/var/log/gloamy/error.log` |
-
-View logs:
-
-```bash
-sudo tail -f /var/log/gloamy/error.log
-```
-
-### 7.7 Uninstall
-
-```bash
-# Stop and remove from runlevel
-sudo rc-service gloamy stop
-sudo rc-update del gloamy default
-
-# Remove init script
-sudo gloamy service uninstall
-```
-
-### 7.8 Notes
-
-- OpenRC is **system-wide only** (no user-level services)
-- Requires `sudo` or root for all service operations
-- The service runs as the `gloamy:gloamy` user (least privilege)
-- Config must be at `/etc/gloamy/config.toml` (explicit path in init script)
-- If the `gloamy` user does not exist, install will fail with instructions to create it
-
-### 7.9 Checklist: Alpine/OpenRC Deployment
-
-- [ ] Install: `sudo gloamy service install`
-- [ ] Enable: `sudo rc-update add gloamy default`
-- [ ] Start: `sudo rc-service gloamy start`
-- [ ] Verify: `sudo rc-service gloamy status`
-- [ ] Check logs: `/var/log/gloamy/error.log`
-
----
-
-## 8. References
-
-- [channels-reference.md](./channels-reference.md) — Channel configuration overview
-- [matrix-e2ee-guide.md](./matrix-e2ee-guide.md) — Matrix setup and encrypted-room troubleshooting
-- [hardware-peripherals-design.md](./hardware-peripherals-design.md) — Peripherals design
-- [adding-boards-and-tools.md](./adding-boards-and-tools.md) — Hardware setup and adding boards
+- [Commands reference](commands-reference.md)
+- [Channels reference](channels-reference.md)
+- [Configuration reference](config-reference.md)
+- [Docker deployment](docker-deployment.md)
+- [Operations runbook](operations-runbook.md)
+- [Troubleshooting](troubleshooting.md)

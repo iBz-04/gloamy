@@ -29,7 +29,6 @@ Gloamy is built around explicit subsystem contracts:
 - `Memory` for persistence and recall
 - `Observer` for observability
 - `RuntimeAdapter` for runtime isolation
-- `Peripheral` for boards and device integrations
 
 The project goal is simple: Local first agents for real-world tasks
 
@@ -44,7 +43,6 @@ Gloamy can:
 - use different AI models to answer questions
 - run tools and scripts on your computer or online, safely
 - remember things between sessions
-- connect to devices and smart hardware
 
 Out of the box, the runtime supports:
 
@@ -52,6 +50,18 @@ Out of the box, the runtime supports:
 - channel-based operation through providers such as Telegram, Discord, Slack, Matrix, WhatsApp, iMessage, Email, IRC, Nostr, and others
 - OpenAI-compatible and non-OpenAI model providers
 - SQLite, Markdown, Lucid, PostgreSQL, and no-op memory modes
+
+## Supported Hosts
+
+Gloamy releases and CI maintain these generic PC-class host targets:
+
+| Host label | Rust target |
+|---|---|
+| `linux-amd64` | `x86_64-unknown-linux-gnu` |
+| `linux-arm64` | `aarch64-unknown-linux-gnu` |
+| `aarch64-darwin` | `aarch64-apple-darwin` |
+
+Embedded boards, microcontrollers, firmware, Android, Windows, Intel macOS, and alternate Linux ABIs are outside the maintained support set.
 
 ## Project Shape
 
@@ -68,7 +78,6 @@ High-level repository map:
 - [`src/security/`](src/security): policy, pairing, secret handling
 - [`src/gateway/`](src/gateway): HTTP and websocket gateway
 - [`src/runtime/`](src/runtime): runtime adapters
-- [`src/peripherals/`](src/peripherals): hardware integrations
 - [`web/`](web): Vue 3 web application
 - [`docs/`](docs): operator, reference, and contribution docs
 
@@ -80,18 +89,6 @@ High-level repository map:
 - Explicit config and CLI contracts
 - Swappable providers, channels, memory backends, and tools
 - Deterministic, Rust-first deployment model
-
-## Optional Robot
-
-The repository also includes [`crates/robot`](crates/robot), a standalone robot-control crate for motion, sensing, speech, vision, simple robot expression, and safety-gated drive control.
-
-Use it when you want to experiment with Raspberry Pi or robot hardware integrations without wiring those surfaces directly into the main runtime. It is a workspace member, but it is not auto-registered into `gloamy`'s core tool factory.
-
-Start here:
-
-- [`crates/robot/README.md`](crates/robot/README.md) for the crate surface and integration model
-- [`crates/robot/robot.toml`](crates/robot/robot.toml) for the sample configuration
-- [`crates/robot/PI5_SETUP.md`](crates/robot/PI5_SETUP.md) for Raspberry Pi 5 setup notes
 
 ## Quick Start
 
@@ -599,7 +596,6 @@ Start from the docs hub:
 - Reference: [`docs/reference/README.md`](docs/reference/README.md)
 - Operations: [`docs/operations/README.md`](docs/operations/README.md)
 - Security: [`docs/security/README.md`](docs/security/README.md)
-- Hardware: [`docs/hardware/README.md`](docs/hardware/README.md)
 - Contributing workflow: [`docs/pr-workflow.md`](docs/pr-workflow.md)
 
 High-signal runtime references:

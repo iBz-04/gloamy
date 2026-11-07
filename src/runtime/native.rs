@@ -1,7 +1,7 @@
 use super::traits::RuntimeAdapter;
 use std::path::{Path, PathBuf};
 
-/// Native runtime — full access, runs on Mac/Linux/Docker/Raspberry Pi
+/// Native runtime — full access, runs on supported macOS and Linux hosts.
 pub struct NativeRuntime;
 
 impl NativeRuntime {

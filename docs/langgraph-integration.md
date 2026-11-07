@@ -201,7 +201,7 @@ gloamy-tools -i
 
 **When to use Rust Gloamy:**
 - Production edge deployments
-- Resource-constrained environments (Raspberry Pi, etc.)
+- Lower-resource Linux arm64 hosts
 - Maximum performance requirements
 
 **When to use gloamy-tools:**

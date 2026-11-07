@@ -7,7 +7,7 @@ Last verified: **March 27, 2026**.
 ## Release Goals
 
 - Keep releases predictable and repeatable.
-- Publish only from code already in `master`.
+- Publish only from code already in `main`.
 - Verify multi-target artifacts before publish.
 - Keep release cadence regular even with high PR volume.
 
@@ -20,10 +20,10 @@ Release automation currently lives in:
 
 ### Beta release path
 
-- Trigger: every push to `master`.
+- Trigger: every push to `main`.
 - Output:
   - prerelease GitHub tag/version in form `v<cargo-version>-beta.<run-number>`
-  - build artifacts (`tar.gz`/`zip`) and `SHA256SUMS`
+  - build artifacts (`tar.gz`) and `SHA256SUMS`
   - Docker images tagged with beta tag and `beta`
 
 ### Stable release path
@@ -39,15 +39,15 @@ Release automation currently lives in:
 
 ## Maintainer Procedure
 
-### 1) Preflight on `master`
+### 1) Preflight on `main`
 
 1. Ensure CI is green for the target commit.
 2. Confirm no known high-priority regressions are unresolved.
-3. Confirm release matrix targets are still expected (Linux x86_64/aarch64, macOS arm64, Windows x86_64).
+3. Confirm the release matrix targets remain `x86_64-unknown-linux-gnu`, `aarch64-unknown-linux-gnu`, and `aarch64-apple-darwin`.
 
 ### 2) Beta verification (automatic)
 
-1. Merge release-ready changes to `master`.
+1. Merge release-ready changes to `main`.
 2. Monitor `Beta Release` workflow run.
 3. Verify prerelease assets and Docker `beta` tag update.
 
@@ -68,7 +68,7 @@ Release automation currently lives in:
 
 If stable promotion fails:
 
-1. Fix the issue on `master`.
+1. Fix the issue on `main`.
 2. Re-run `Promote Release` with the same target version if no tag was created.
 3. If tag was already created but publish steps failed, resolve the workflow issue and re-run the failed job path.
 

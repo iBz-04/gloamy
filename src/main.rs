@@ -80,9 +80,6 @@ mod approval;
 mod auth;
 mod channels;
 mod codex_app_server;
-mod rag {
-    pub use gloamy::rag::*;
-}
 mod config;
 mod cost;
 mod cron;
@@ -90,7 +87,6 @@ mod daemon;
 mod doctor;
 mod gateway;
 mod grounding;
-mod hardware;
 mod health;
 mod heartbeat;
 mod hooks;
@@ -102,7 +98,6 @@ mod multimodal;
 mod observability;
 mod onboard;
 mod perception;
-mod peripherals;
 mod providers;
 mod runtime;
 mod security;
@@ -117,8 +112,8 @@ use config::Config;
 
 // Re-export so binary modules can use crate::<CommandEnum> while keeping a single source of truth.
 pub use gloamy::{
-    ChannelCommands, CronCommands, HardwareCommands, IntegrationCommands, MigrateCommands,
-    PeripheralCommands, ServiceCommands, SkillCommands,
+    ChannelCommands, CronCommands, IntegrationCommands, MigrateCommands, ServiceCommands,
+    SkillCommands,
 };
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq, ValueEnum)]
@@ -201,8 +196,7 @@ Use --message for single-shot queries without entering interactive mode.
 Examples:
   gloamy agent                              # interactive session
   gloamy agent -m \"Summarize today's logs\"  # single message
-  gloamy agent -p anthropic --model claude-sonnet-4-20250514
-  gloamy agent --peripheral nucleo-f401re:/dev/ttyACM0")]
+  gloamy agent -p anthropic --model claude-sonnet-4-20250514")]
     Agent {
         /// Single message mode (don't enter interactive mode)
         #[arg(short, long)]
@@ -220,9 +214,6 @@ Examples:
         #[arg(short, long, default_value = "0.7", value_parser = parse_temperature)]
         temperature: f64,
 
-        /// Attach a peripheral (board:path, e.g. nucleo-f401re:/dev/ttyACM0)
-        #[arg(long)]
-        peripheral: Vec<String>,
     },
 
     /// Start the gateway server
@@ -396,42 +387,6 @@ Examples:
     Auth {
         #[command(subcommand)]
         auth_command: AuthCommands,
-    },
-
-    /// Discover and introspect USB hardware
-    #[command(long_about = "\
-Discover and introspect USB hardware.
-
-Enumerate connected USB devices, identify known development boards \
-(STM32 Nucleo, Arduino, ESP32), and retrieve chip information via \
-probe-rs / ST-Link.
-
-Examples:
-  gloamy hardware discover
-  gloamy hardware introspect /dev/ttyACM0
-  gloamy hardware info --chip STM32F401RETx")]
-    Hardware {
-        #[command(subcommand)]
-        hardware_command: gloamy::HardwareCommands,
-    },
-
-    /// Manage hardware peripherals (STM32, RPi GPIO, etc.)
-    #[command(long_about = "\
-Manage hardware peripherals.
-
-Add, list, flash, and configure hardware boards that expose tools \
-to the agent (GPIO, sensors, actuators). Supported boards: \
-nucleo-f401re, rpi-gpio, esp32, arduino-uno.
-
-Examples:
-  gloamy peripheral list
-  gloamy peripheral add nucleo-f401re /dev/ttyACM0
-  gloamy peripheral add rpi-gpio native
-  gloamy peripheral flash --port /dev/cu.usbmodem12345
-  gloamy peripheral flash-nucleo")]
-    Peripheral {
-        #[command(subcommand)]
-        peripheral_command: gloamy::PeripheralCommands,
     },
 
     /// Manage agent memory (list, get, stats, clear)
@@ -841,7 +796,6 @@ async fn main() -> Result<()> {
             provider,
             model,
             temperature,
-            peripheral,
         } => {
             tools::browser_services::ensure_started(&config.browser).await;
             agent::run(
@@ -850,7 +804,6 @@ async fn main() -> Result<()> {
                 provider,
                 model,
                 temperature,
-                peripheral,
                 true,
             )
             .await
@@ -960,18 +913,6 @@ async fn main() -> Result<()> {
                     }
                 );
             }
-            println!();
-            println!("Peripherals:");
-            println!(
-                "  Enabled:   {}",
-                if config.peripherals.enabled {
-                    "yes"
-                } else {
-                    "no"
-                }
-            );
-            println!("  Boards:    {}", config.peripherals.boards.len());
-
             Ok(())
         }
 
@@ -1091,14 +1032,6 @@ async fn main() -> Result<()> {
         }
 
         Commands::Auth { auth_command } => handle_auth_command(auth_command, &config).await,
-
-        Commands::Hardware { hardware_command } => {
-            hardware::handle_command(hardware_command.clone(), &config)
-        }
-
-        Commands::Peripheral { peripheral_command } => {
-            peripherals::handle_command(peripheral_command.clone(), &config).await
-        }
 
         Commands::Config { config_command } => match config_command {
             ConfigCommands::Schema => {

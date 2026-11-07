@@ -26,8 +26,6 @@ Last verified: **April 5, 2026**.
 | `migrate` | Import from external runtimes (currently OpenClaw) |
 | `config` | Export machine-readable config schema |
 | `completions` | Generate shell completion scripts to stdout |
-| `hardware` | Discover and introspect USB hardware |
-| `peripheral` | Configure and flash peripherals |
 
 ## Command Groups
 
@@ -54,7 +52,6 @@ Last verified: **April 5, 2026**.
 - `gloamy agent`
 - `gloamy agent -m "Hello"`
 - `gloamy agent --provider <ID> --model <MODEL> --temperature <0.0-2.0>`
-- `gloamy agent --peripheral <board:path>`
 
 Tip:
 
@@ -166,7 +163,7 @@ Notes:
 
 ```bash
 gloamy service --service-init systemd install   # Use systemd explicitly
-gloamy service --service-init openrc install    # Use OpenRC for Alpine/embedded
+gloamy service --service-init openrc install    # Use OpenRC on a supported GNU/Linux host
 ```
 
 ### `cron`
@@ -315,20 +312,6 @@ This command does not migrate arbitrary workspace files and does not convert Ope
 - `gloamy completions elvish`
 
 `completions` is stdout-only by design so scripts can be sourced directly without log/warning contamination.
-
-### `hardware`
-
-- `gloamy hardware discover`
-- `gloamy hardware introspect <path>`
-- `gloamy hardware info [--chip <chip_name>]`
-
-### `peripheral`
-
-- `gloamy peripheral list`
-- `gloamy peripheral add <board> <path>`
-- `gloamy peripheral flash [--port <serial_port>]`
-- `gloamy peripheral setup-uno-q [--host <ip_or_host>]`
-- `gloamy peripheral flash-nucleo`
 
 ## Validation Tip
 

@@ -235,18 +235,6 @@ const SCHEMA_FIELDS: Record<string, SchemaField[]> = {
   'storage': [
     { key: 'provider', description: 'Storage provider backend (e.g. postgres, sqlite)', type: 'string', options: ['sqlite', 'postgres'] },
   ],
-  'peripherals': [
-    { key: 'enabled', description: 'Enable peripheral board support (boards become agent tools)', type: 'boolean', default: 'false' },
-    { key: 'datasheet_dir', description: 'Path to datasheet docs for RAG retrieval', type: 'string', example: '"docs/datasheets"' },
-  ],
-  'hardware': [
-    { key: 'enabled', description: 'Enable hardware access', type: 'boolean', default: 'false' },
-    { key: 'transport', description: 'Transport mode', type: 'string', default: '"none"', options: ['none', 'native', 'serial', 'probe'] },
-    { key: 'serial_port', description: 'Serial port path', type: 'string', example: '"/dev/ttyACM0"' },
-    { key: 'baud_rate', description: 'Serial baud rate', type: 'number', default: '115200' },
-    { key: 'probe_target', description: 'Probe target chip (e.g. "STM32F401RE")', type: 'string', example: '"STM32F401RE"' },
-    { key: 'workspace_datasheets', description: 'Enable workspace datasheet RAG for AI pin lookups', type: 'boolean', default: 'false' },
-  ],
   'hooks': [
     { key: 'enabled', description: 'Enable lifecycle hook execution', type: 'boolean', default: 'true' },
   ],
@@ -297,8 +285,6 @@ const sectionMeta: Record<string, { icon: string; description: string }> = {
   'proxy': { icon: 'hugeicons:split', description: 'Proxy settings' },
   'identity': { icon: 'hugeicons:identification', description: 'Identity format' },
   'cost': { icon: 'hugeicons:wallet-01', description: 'Cost tracking' },
-  'peripherals': { icon: 'hugeicons:cpu', description: 'Hardware boards' },
-  'hardware': { icon: 'hugeicons:chip', description: 'Hardware config' },
   'transcription': { icon: 'hugeicons:mic-01', description: 'Voice transcription' },
   'agents': { icon: 'hugeicons:user-group', description: 'Sub-agent delegates' },
   'hooks': { icon: 'hugeicons:anchor', description: 'Lifecycle hooks' },

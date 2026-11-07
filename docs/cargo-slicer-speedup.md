@@ -8,7 +8,6 @@
 |---|---|---|---|---|
 | 48-core server | syn pre-analysis | 3m 52s | 3m 31s | **-9.1%** |
 | 48-core server | MIR-precise | 3m 52s | 2m 49s | **-27.2%** |
-| Raspberry Pi 4 | syn pre-analysis | 25m 03s | 17m 54s | **-28.6%** |
 
 All measurements are clean `cargo +nightly build --release`. MIR-precise mode reads actual compiler MIR to build a more accurate call graph, stubbing 1,060 mono items vs 799 with syn-based analysis.
 
@@ -40,7 +39,7 @@ CARGO_SLICER_VIRTUAL=1 CARGO_SLICER_CODEGEN_FILTER=1 \
 
 # Build with MIR-precise analysis (more stubs, bigger savings)
 # Step 1: generate .mir-cache (first build with MIR_PRECISE)
-CARGO_SLICER_MIR_PRECISE=1 CARGO_SLICER_WORKSPACE_CRATES=gloamy,gloamy_robot \
+CARGO_SLICER_MIR_PRECISE=1 CARGO_SLICER_WORKSPACE_CRATES=gloamy \
   CARGO_SLICER_VIRTUAL=1 CARGO_SLICER_CODEGEN_FILTER=1 \
   RUSTC_WRAPPER=$(which cargo_slicer_dispatch) \
   cargo +nightly build --release

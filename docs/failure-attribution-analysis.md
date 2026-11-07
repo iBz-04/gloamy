@@ -512,4 +512,3 @@ fn recovery_hint_for_failure(classification: &str, tool_name: &str) -> String {
 
 - Research: "The Art of Building Verifiers for Computer Use Agents" (Apr 2025)
 - Current implementation: `src/tools/gui_verify.rs`, `src/tools/traits.rs`, `src/agent/loop_.rs`
-- Related: `docs/hardware-peripherals-design.md` (similar trait-driven extension pattern)

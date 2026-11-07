@@ -118,12 +118,6 @@ detect_release_target() {
     Linux:aarch64|Linux:arm64)
       echo "aarch64-unknown-linux-gnu"
       ;;
-    Linux:armv7l|Linux:armv6l)
-      echo "armv7-unknown-linux-gnueabihf"
-      ;;
-    Darwin:x86_64)
-      echo "x86_64-apple-darwin"
-      ;;
     Darwin:arm64|Darwin:aarch64)
       echo "aarch64-apple-darwin"
       ;;

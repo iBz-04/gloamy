@@ -72,12 +72,6 @@ pub enum SopTrigger {
     Cron {
         expression: String,
     },
-    Peripheral {
-        board: String,
-        signal: String,
-        #[serde(default)]
-        condition: Option<String>,
-    },
     Manual,
 }
 
@@ -87,7 +81,6 @@ impl fmt::Display for SopTrigger {
             Self::Mqtt { topic, .. } => write!(f, "mqtt:{topic}"),
             Self::Webhook { path } => write!(f, "webhook:{path}"),
             Self::Cron { expression } => write!(f, "cron:{expression}"),
-            Self::Peripheral { board, signal, .. } => write!(f, "peripheral:{board}/{signal}"),
             Self::Manual => write!(f, "manual"),
         }
     }
@@ -175,7 +168,6 @@ pub enum SopTriggerSource {
     Mqtt,
     Webhook,
     Cron,
-    Peripheral,
     Manual,
 }
 
@@ -185,7 +177,6 @@ impl fmt::Display for SopTriggerSource {
             Self::Mqtt => write!(f, "mqtt"),
             Self::Webhook => write!(f, "webhook"),
             Self::Cron => write!(f, "cron"),
-            Self::Peripheral => write!(f, "peripheral"),
             Self::Manual => write!(f, "manual"),
         }
     }

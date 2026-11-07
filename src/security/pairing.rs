@@ -237,9 +237,8 @@ fn prune_failed_attempts(map: &mut HashMap<String, FailedAttemptState>, now: Ins
 
 /// Generate a 6-digit numeric pairing code using cryptographically secure randomness.
 fn generate_code() -> String {
-    // UUID v4 uses getrandom (backed by /dev/urandom on Linux, BCryptGenRandom
-    // on Windows) — a CSPRNG. We extract 4 bytes from it for a uniform random
-    // number in [0, 1_000_000).
+    // UUID v4 uses the OS CSPRNG. We extract 4 bytes from it for a uniform
+    // random number in [0, 1_000_000).
     //
     // Rejection sampling eliminates modulo bias: values above the largest
     // multiple of 1_000_000 that fits in u32 are discarded and re-drawn.
@@ -261,9 +260,8 @@ fn generate_code() -> String {
 
 /// Generate a cryptographically-adequate bearer token with 256-bit entropy.
 ///
-/// Uses `rand::rng()` which is backed by the OS CSPRNG
-/// (/dev/urandom on Linux, BCryptGenRandom on Windows, SecRandomCopyBytes
-/// on macOS). The 32 random bytes (256 bits) are hex-encoded for a
+/// Uses `rand::rng()` backed by the OS CSPRNG. The 32 random bytes
+/// (256 bits) are hex-encoded for a
 /// 64-character token, providing 256 bits of entropy.
 fn generate_token() -> String {
     let bytes: [u8; 32] = rand::random();

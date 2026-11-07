@@ -55,30 +55,18 @@ Last refreshed: **November 3, 2026**.
 
 - [security/README.md](security/README.md)
 - [agnostic-security.md](agnostic-security.md)
-- [frictionless-security.md](frictionless-security.md)
 - [sandboxing.md](sandboxing.md)
 - [resource-limits.md](resource-limits.md)
 - [audit-logging.md](audit-logging.md)
 - [security-roadmap.md](security-roadmap.md)
 
-### 6) Hardware & Peripherals
-
-- [hardware/README.md](hardware/README.md)
-- [hardware-peripherals-design.md](hardware-peripherals-design.md)
-- [adding-boards-and-tools.md](adding-boards-and-tools.md)
-- [nucleo-setup.md](nucleo-setup.md)
-- [arduino-uno-q-setup.md](arduino-uno-q-setup.md)
-- [datasheets/nucleo-f401re.md](datasheets/nucleo-f401re.md)
-- [datasheets/arduino-uno.md](datasheets/arduino-uno.md)
-- [datasheets/esp32.md](datasheets/esp32.md)
-
-### 7) Contribution & CI
+### 6) Contribution & CI
 
 - [pr-workflow.md](pr-workflow.md)
 - [reviewer-playbook.md](reviewer-playbook.md)
 - [ci-map.md](ci-map.md)
 
-### 8) Project Status & Snapshot
+### 7) Project Status & Snapshot
 
 - [project/README.md](project/README.md)
 - [project/adr/0002-codex-app-server-oauth-ownership.md](project/adr/0002-codex-app-server-oauth-ownership.md)

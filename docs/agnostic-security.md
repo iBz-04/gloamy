@@ -5,13 +5,9 @@
 > This document describes proposed approaches and may include hypothetical commands or config.
 > For current runtime behavior, see [config-reference.md](config-reference.md), [operations-runbook.md](operations-runbook.md), and [troubleshooting.md](troubleshooting.md).
 
-## Core Question: Will security features break...
-1. ❓ Fast cross-compilation builds?
-2. ❓ Pluggable architecture (swap anything)?
-3. ❓ Hardware agnosticism (ARM, x86, RISC-V)?
-4. ❓ Small hardware support (<5MB RAM, $10 boards)?
+## Core Question: Will security features break supported host builds?
 
-**Answer: NO to all** — Security is designed as **optional feature flags** with **platform-specific conditional compilation**.
+This proposal considers three maintained host targets: Linux amd64, Linux arm64, and macOS arm64. Security features must preserve those build contracts and keep platform-specific behavior explicit.
 
 ---
 
@@ -166,19 +162,17 @@ pub fn create_sandbox() -> Box<dyn Sandbox> {
 
 ---
 
-## 3. Hardware Agnosticism: Same Binary, Different Platforms
+## 3. Supported Host Targets
 
-### Cross-Platform Behavior Matrix
+### Build and runtime matrix
 
-| Platform | Builds On | Runtime Behavior |
-|----------|-----------|------------------|
-| **Linux ARM** (Raspberry Pi) | ✅ Yes | Landlock → None (graceful) |
-| **Linux x86_64** | ✅ Yes | Landlock → Firejail → None |
-| **macOS ARM** (M1/M2) | ✅ Yes | Bubblewrap → None |
-| **macOS x86_64** | ✅ Yes | Bubblewrap → None |
-| **Windows ARM** | ✅ Yes | None (app-layer) |
-| **Windows x86_64** | ✅ Yes | None (app-layer) |
-| **RISC-V Linux** | ✅ Yes | Landlock → None |
+| Host label | Rust target | Runtime sandbox behavior |
+|---|---|---|
+| Linux amd64 | `x86_64-unknown-linux-gnu` | Landlock, then configured fallback |
+| Linux arm64 | `aarch64-unknown-linux-gnu` | Landlock, then configured fallback |
+| macOS arm64 | `aarch64-apple-darwin` | macOS runtime policy and configured fallback |
+
+These are generic PC-class hosts. Embedded boards, MCU firmware, and other operating systems are outside the maintained support set.
 
 ### How It Works: Runtime Detection
 
@@ -214,34 +208,7 @@ impl SandboxingStrategy {
 }
 ```
 
-**Same binary runs everywhere** — it just adapts its protection level based on what's available.
-
----
-
-## 4. Small Hardware: Memory Impact Analysis
-
-### Binary Size Impact (Estimated)
-
-| Feature | Code Size | RAM Overhead | Status |
-|---------|-----------|--------------|--------|
-| **Base Gloamy** | 3.4MB | <5MB | ✅ Current |
-| **+ Landlock** | +50KB | +100KB | ✅ Linux 5.13+ |
-| **+ Firejail wrapper** | +20KB | +0KB (external) | ✅ Linux + firejail |
-| **+ Memory monitoring** | +30KB | +50KB | ✅ All platforms |
-| **+ Audit logging** | +40KB | +200KB (buffered) | ✅ All platforms |
-| **Full security** | +140KB | +350KB | ✅ Still <6MB total |
-
-### $10 Hardware Compatibility
-
-| Hardware | RAM | Gloamy (base) | Gloamy (full security) | Status |
-|----------|-----|-----------------|--------------------------|--------|
-| **Raspberry Pi Zero** | 512MB | ✅ 2% | ✅ 2.5% | Works |
-| **Orange Pi Zero** | 512MB | ✅ 2% | ✅ 2.5% | Works |
-| **NanoPi NEO** | 256MB | ✅ 4% | ✅ 5% | Works |
-| **C.H.I.P.** | 512MB | ✅ 2% | ✅ 2.5% | Works |
-| **Rock64** | 1GB | ✅ 1% | ✅ 1.2% | Works |
-
-**Even with full security, Gloamy uses <5% of RAM on $10 boards.**
+**The three maintained targets share the same application policy. Runtime sandbox selection remains explicit and OS-dependent.**
 
 ---
 
@@ -325,8 +292,7 @@ axum, tracing, opentelemetry, ...
 | **<5MB RAM** | ✅ <5MB | ✅ <6MB (worst case) | ✅ Preserved |
 | **<10ms startup** | ✅ <10ms | ✅ <15ms (detection) | ✅ Preserved |
 | **3.4MB binary** | ✅ 3.4MB | ✅ 3.5MB (with all features) | ✅ Preserved |
-| **ARM + x86 + RISC-V** | ✅ All | ✅ All | ✅ Preserved |
-| **$10 hardware** | ✅ Works | ✅ Works | ✅ Preserved |
+| **Three supported host targets** | ✅ All | ✅ All | ✅ Preserved |
 | **Pluggable everything** | ✅ Yes | ✅ Yes (security too) | ✅ Enhanced |
 | **Cross-platform** | ✅ Yes | ✅ Yes | ✅ Preserved |
 
@@ -344,10 +310,10 @@ cargo build --release
 # Production with full security
 cargo build --release --features security-full
 
-# Target specific hardware
-cargo build --release --target aarch64-unknown-linux-gnu  # Raspberry Pi
-cargo build --release --target riscv64gc-unknown-linux-gnu # RISC-V
-cargo build --release --target armv7-unknown-linux-gnueabihf  # ARMv7
+# Maintained host targets
+cargo build --release --target x86_64-unknown-linux-gnu
+cargo build --release --target aarch64-unknown-linux-gnu
+cargo build --release --target aarch64-apple-darwin
 ```
 
-**Every target, every platform, every use case — still fast, still small, still agnostic.**
+**The three maintained host targets keep security behavior explicit and reproducible.**

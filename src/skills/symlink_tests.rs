@@ -51,31 +51,12 @@ mod tests {
             assert!(content.is_err());
         }
 
-        // Test case 3: Non-Unix platforms should handle symlink errors gracefully
-        #[cfg(windows)]
-        {
-            let source_dir = tmp.path().join("source_skill");
-            tokio::fs::create_dir_all(&source_dir).await.unwrap();
-
-            let dest_link = skills_path.join("linked_skill");
-
-            // On Windows, creating directory symlinks may require elevated privileges
-            let result = std::os::windows::fs::symlink_dir(&source_dir, &dest_link);
-            // If symlink creation fails (no privileges), the directory should not exist
-            if result.is_err() {
-                assert!(!dest_link.exists());
-            } else {
-                // Clean up if it succeeded
-                let _ = tokio::fs::remove_dir(&dest_link).await;
-            }
-        }
-
-        // Test case 4: skills_dir function edge cases
+        // Test case 3: skills_dir function edge cases
         let workspace_with_trailing_slash = format!("{}/", workspace_dir.display());
         let path_from_str = skills_dir(Path::new(&workspace_with_trailing_slash));
         assert_eq!(path_from_str, skills_path);
 
-        // Test case 5: Empty workspace directory
+        // Test case 4: Empty workspace directory
         let empty_workspace = tmp.path().join("empty");
         let empty_skills_path = skills_dir(&empty_workspace);
         assert_eq!(empty_skills_path, empty_workspace.join("skills"));

@@ -714,12 +714,6 @@ pub fn all_integrations() -> Vec<IntegrationEntry> {
             },
         },
         IntegrationEntry {
-            name: "Windows",
-            description: "WSL2 recommended",
-            category: IntegrationCategory::Platform,
-            status_fn: |_| IntegrationStatus::Available,
-        },
-        IntegrationEntry {
             name: "iOS",
             description: "Chat via Telegram/Discord",
             category: IntegrationCategory::Platform,
@@ -737,8 +731,8 @@ pub fn all_integrations() -> Vec<IntegrationEntry> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::config::schema::{IMessageConfig, MatrixConfig, StreamMode, TelegramConfig};
     use crate::config::Config;
+    use crate::config::schema::{IMessageConfig, MatrixConfig, StreamMode, TelegramConfig};
 
     #[test]
     fn registry_has_entries() {

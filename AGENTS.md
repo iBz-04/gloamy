@@ -24,7 +24,8 @@ Key extension points:
 - `src/memory/traits.rs` (`Memory`)
 - `src/observability/traits.rs` (`Observer`)
 - `src/runtime/traits.rs` (`RuntimeAdapter`)
-- `src/peripherals/traits.rs` (`Peripheral`) — hardware boards (STM32, RPi GPIO)
+
+Supported host targets are limited to generic PC-class `linux-amd64` (`x86_64-unknown-linux-gnu`), `linux-arm64` (`aarch64-unknown-linux-gnu`), and `aarch64-darwin` (`aarch64-apple-darwin`). Do not add board, firmware, embedded, Android, Windows, Intel macOS, or alternate ABI support without a new product decision.
 
 ## 2) Deep Architecture Observations (Why This Protocol Exists)
 
@@ -143,7 +144,6 @@ Required:
 - `src/providers/` — model providers and resilient wrapper
 - `src/channels/` — Telegram/Discord/Slack/etc channels
 - `src/tools/` — tool execution surface (shell, file, memory, browser)
-- `src/peripherals/` — hardware peripherals (STM32, RPi GPIO); see `docs/hardware-peripherals-design.md`
 - `src/runtime/` — runtime adapters (currently native)
 - `docs/` — task-oriented documentation system (hubs, unified TOC, references, operations, security proposals, multilingual guides)
 - `.github/` — CI, templates, automation workflows
@@ -168,7 +168,6 @@ Collection indexes (category navigation):
 - `docs/reference/README.md`
 - `docs/operations/README.md`
 - `docs/security/README.md`
-- `docs/hardware/README.md`
 - `docs/contributing/README.md`
 - `docs/project/README.md`
 
@@ -286,21 +285,14 @@ Use these rules to keep the trait/factory architecture stable under growth.
 - Validate and sanitize all inputs.
 - Return structured `ToolResult`; avoid panics in runtime path.
 
-### 7.4 Adding a Peripheral
-
-- Implement `Peripheral` in `src/peripherals/`.
-- Peripherals expose `tools()` — each tool delegates to the hardware (GPIO, sensors, etc.).
-- Register board type in config schema if needed.
-- See `docs/hardware-peripherals-design.md` for protocol and firmware notes.
-
-### 7.5 Security / Runtime / Gateway Changes
+### 7.4 Security / Runtime / Gateway Changes
 
 - Include threat/risk notes and rollback strategy.
 - Add/update tests or validation evidence for failure modes and boundaries.
 - Keep observability useful but non-sensitive.
 - For `.github/workflows/**` changes, include Actions allowlist impact in PR notes and update `docs/actions-source-policy.md` when sources change.
 
-### 7.6 Docs System / README / IA Changes
+### 7.5 Docs System / README / IA Changes
 
 - Treat docs navigation as product UX: preserve clear pathing from README -> docs hub -> SUMMARY -> category index.
 - Keep top-level nav concise; avoid duplicative links across adjacent nav blocks.

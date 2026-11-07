@@ -2,26 +2,26 @@
 
 This document explains what each current GitHub workflow does, when it runs, and whether it blocks normal PR merge flow.
 
-For event-by-event delivery behavior across PR and merge paths, see [`.github/workflows/master-branch-flow.md`](../.github/workflows/master-branch-flow.md).
+For event-by-event delivery behavior across PR and merge paths, see [`.github/workflows/main-branch-flow.md`](../.github/workflows/main-branch-flow.md).
 
 ## Merge-Blocking vs Optional
 
 ### Merge-Blocking
 
 - `.github/workflows/ci.yml` (`CI`)
-  - Trigger: pull requests targeting `master`
-  - Purpose: run tests (`cargo nextest`) and release-mode builds for primary targets
+  - Trigger: pull requests targeting `main`
+  - Purpose: run Rust checks and release-mode builds for the three maintained host targets
   - Merge gate: this is the primary PR quality gate
 
 ### Non-Blocking but Important
 
 - `.github/workflows/ci-full.yml` (`CI Full Matrix`)
   - Trigger: manual (`workflow_dispatch`)
-  - Purpose: run expanded cross-platform release builds (Linux ARM64, macOS Intel, Windows)
-  - Usage: deeper compatibility verification before high-risk merges/releases
+  - Purpose: build Linux amd64, Linux arm64, and macOS arm64 release targets
+  - Usage: cross-target build verification before high-risk merges/releases
 
 - `.github/workflows/release.yml` (`Beta Release`)
-  - Trigger: push to `master`
+  - Trigger: push to `main`
   - Purpose: build artifacts, publish prerelease tags, and push `beta` Docker image
 
 - `.github/workflows/promote-release.yml` (`Promote Release`)
@@ -34,9 +34,9 @@ For event-by-event delivery behavior across PR and merge paths, see [`.github/wo
 
 ## Trigger Map
 
-- `CI`: PRs to `master`
+- `CI`: PRs to `main`
 - `CI Full Matrix`: manual dispatch
-- `Beta Release`: pushes to `master`
+- `Beta Release`: pushes to `main`
 - `Promote Release`: manual dispatch with `version` input
 - `Dependabot`: scheduled updates
 

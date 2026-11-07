@@ -72,20 +72,6 @@ pub struct RuntimeContextGroundingExpert;
 
 impl RuntimeContextGroundingExpert {
     fn infer_runtime_app_name() -> String {
-        #[cfg(target_os = "windows")]
-        {
-            if std::env::var("WT_SESSION").is_ok() {
-                return "Windows Terminal".to_string();
-            }
-            if std::env::var("TERM_PROGRAM").is_ok() {
-                return std::env::var("TERM_PROGRAM").unwrap_or_else(|_| "PowerShell".to_string());
-            }
-            if std::env::var("ComSpec").is_ok() {
-                return "Command Prompt".to_string();
-            }
-            return "Windows Runtime".to_string();
-        }
-
         #[cfg(target_os = "macos")]
         {
             if let Ok(value) = std::env::var("TERM_PROGRAM") {
@@ -114,7 +100,7 @@ impl RuntimeContextGroundingExpert {
             return "Terminal".to_string();
         }
 
-        #[cfg(not(any(target_os = "windows", target_os = "macos", target_os = "linux")))]
+        #[cfg(not(any(target_os = "macos", target_os = "linux")))]
         {
             if let Ok(value) = std::env::var("TERM_PROGRAM") {
                 let trimmed = value.trim();
@@ -264,40 +250,6 @@ impl VisionRoutingGroundingExpert {
             "no Linux screenshot backend succeeded (tried gnome-screenshot, scrot, import)"
         )
     }
-
-    async fn capture_windows(output_path: &Path) -> anyhow::Result<()> {
-        let output = output_path.to_string_lossy().replace('\'', "''");
-        let script = format!(
-            "$ErrorActionPreference='Stop'; \
-             Add-Type -AssemblyName System.Windows.Forms; \
-             Add-Type -AssemblyName System.Drawing; \
-             $bounds=[System.Windows.Forms.Screen]::PrimaryScreen.Bounds; \
-             $bitmap=New-Object System.Drawing.Bitmap $bounds.Width, $bounds.Height; \
-             $graphics=[System.Drawing.Graphics]::FromImage($bitmap); \
-             $graphics.CopyFromScreen($bounds.Location,[System.Drawing.Point]::Empty,$bounds.Size); \
-             $bitmap.Save('{output}', [System.Drawing.Imaging.ImageFormat]::Png); \
-             $graphics.Dispose(); \
-             $bitmap.Dispose();"
-        );
-
-        let result = tokio::time::timeout(
-            Duration::from_secs(SCREENSHOT_TIMEOUT_SECS),
-            Command::new("powershell")
-                .arg("-NoProfile")
-                .arg("-Command")
-                .arg(script)
-                .output(),
-        )
-        .await
-        .context("PowerShell screenshot command timed out")??;
-
-        if !result.status.success() {
-            let stderr = String::from_utf8_lossy(&result.stderr);
-            anyhow::bail!("PowerShell screenshot failed: {stderr}");
-        }
-
-        Ok(())
-    }
 }
 
 #[async_trait]
@@ -314,11 +266,7 @@ impl GroundingExpert for VisionRoutingGroundingExpert {
         if !request.requests(self.signal()) || state.screenshot_path.is_some() {
             return 0.0;
         }
-        if request.include_ocr {
-            1.0
-        } else {
-            0.7
-        }
+        if request.include_ocr { 1.0 } else { 0.7 }
     }
 
     async fn ground(
@@ -363,8 +311,6 @@ impl GroundingExpert for VisionRoutingGroundingExpert {
             Self::capture_macos(&screenshot_path).await?;
         } else if cfg!(target_os = "linux") {
             Self::try_capture_linux(&screenshot_path).await?;
-        } else if cfg!(target_os = "windows") {
-            Self::capture_windows(&screenshot_path).await?;
         } else {
             anyhow::bail!("vision grounding is unsupported on this operating system");
         }
@@ -461,11 +407,11 @@ pub fn default_runtime_experts(grounding_dir: PathBuf) -> Vec<Arc<dyn GroundingE
 
 #[cfg(test)]
 mod tests {
-    use super::{default_runtime_experts, OcrGroundingExpert, RuntimeContextGroundingExpert};
+    use super::{OcrGroundingExpert, RuntimeContextGroundingExpert, default_runtime_experts};
     use crate::grounding::traits::GroundingExpert;
     use crate::grounding::traits::GroundingRequest;
-    use crate::perception::traits::ScreenState;
     use crate::perception::OcrConfig;
+    use crate::perception::traits::ScreenState;
     use std::path::PathBuf;
 
     #[tokio::test]
@@ -511,8 +457,10 @@ mod tests {
             .iter()
             .map(|expert| expert.name().to_string())
             .collect();
-        assert!(names
-            .iter()
-            .any(|name| name == "runtime_context_grounding_expert"));
+        assert!(
+            names
+                .iter()
+                .any(|name| name == "runtime_context_grounding_expert")
+        );
     }
 }

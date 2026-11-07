@@ -120,7 +120,7 @@ FROM runtime AS release
 
 ARG VERSION=dev
 LABEL org.opencontainers.image.title="gloamy" \
-      org.opencontainers.image.description="Rust-first autonomous agent runtime for CLI, channels, gateway, and hardware workflows." \
+      org.opencontainers.image.description="Rust-first autonomous agent runtime for CLI, channels, and gateway workflows." \
       org.opencontainers.image.version="${VERSION}" \
       org.opencontainers.image.source="https://github.com/iBz-04/gloamy" \
       org.opencontainers.image.licenses="MIT OR Apache-2.0"

@@ -152,7 +152,7 @@ fn read_openclaw_sqlite_entries(db_path: &Path) -> Result<Vec<SourceEntry>> {
 
     let table_exists: Option<String> = conn
         .query_row(
-            "SELECT name FROM sqlite_master WHERE type='table' AND name='memories' LIMIT 1",
+            "SELECT name FROM sqlite_schema WHERE type='table' AND name='memories' LIMIT 1",
             [],
             |row| row.get(0),
         )

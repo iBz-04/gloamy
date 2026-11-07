@@ -139,7 +139,7 @@ pub fn discover_cli_tools(additional: &[String], excluded: &[String]) -> Vec<Dis
 
 /// Probe a single CLI tool: check if it exists and get its version.
 fn probe_cli(name: &str, version_args: &[&str], category: CliCategory) -> Option<DiscoveredCli> {
-    // Try to find the tool using `which` (Unix) or `where` (Windows)
+    // Try to find the tool on PATH.
     let path = find_executable(name)?;
 
     // Try to get version
@@ -155,9 +155,6 @@ fn probe_cli(name: &str, version_args: &[&str], category: CliCategory) -> Option
 
 /// Find an executable on PATH.
 fn find_executable(name: &str) -> Option<PathBuf> {
-    #[cfg(target_os = "windows")]
-    let which_cmd = "where";
-    #[cfg(not(target_os = "windows"))]
     let which_cmd = "which";
 
     let output = std::process::Command::new(which_cmd)

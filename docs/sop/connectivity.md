@@ -12,7 +12,7 @@ This document describes how external events trigger SOP runs.
 
 ## 1. Overview
 
-Gloamy routes MQTT/webhook/cron/peripheral events through a unified SOP dispatcher (`dispatch_sop_event`).
+Gloamy routes MQTT/webhook/cron events through a unified SOP dispatcher (`dispatch_sop_event`).
 
 Key behaviors:
 

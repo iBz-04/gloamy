@@ -105,7 +105,7 @@ impl Tool for BrowserOpenTool {
                     success: false,
                     output: String::new(),
                     error: Some(e.to_string()),
-                })
+                });
             }
         };
 
@@ -190,41 +190,7 @@ async fn open_in_system_browser(url: &str) -> anyhow::Result<()> {
         );
     }
 
-    #[cfg(target_os = "windows")]
-    {
-        // Use direct process invocation (not `cmd /C start`) to avoid shell
-        // metacharacter interpretation in URLs (e.g. `&` in query strings).
-        let primary_error = match tokio::process::Command::new("rundll32")
-            .arg("url.dll,FileProtocolHandler")
-            .arg(url)
-            .status()
-            .await
-        {
-            Ok(status) if status.success() => return Ok(()),
-            Ok(status) => format!("rundll32 default-browser launcher exited with status {status}"),
-            Err(error) => format!("rundll32 default-browser launcher not runnable: {error}"),
-        };
-
-        // TODO(compat): remove Brave fallback after default-browser launch has been stable across Windows environments.
-        let mut brave_error = String::new();
-        for cmd in ["brave", "brave.exe"] {
-            match tokio::process::Command::new(cmd).arg(url).status().await {
-                Ok(status) if status.success() => return Ok(()),
-                Ok(status) => {
-                    brave_error = format!("{cmd} exited with status {status}");
-                }
-                Err(error) => {
-                    brave_error = format!("{cmd} not runnable: {error}");
-                }
-            }
-        }
-
-        anyhow::bail!(
-            "Failed to open URL with default browser launcher: {primary_error}. Brave compatibility fallback also failed: {brave_error}"
-        );
-    }
-
-    #[cfg(not(any(target_os = "macos", target_os = "linux", target_os = "windows")))]
+    #[cfg(not(any(target_os = "macos", target_os = "linux")))]
     {
         let _ = url;
         anyhow::bail!("browser_open is not supported on this OS");

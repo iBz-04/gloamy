@@ -23,7 +23,6 @@ These directories are the primary navigation modules by product area.
 - `docs/reference/` for command/config/provider/channel reference indexes
 - `docs/operations/` for day-2 operations, deployment, and troubleshooting entry points
 - `docs/security/` for security guidance and security-oriented navigation
-- `docs/hardware/` for board/peripheral implementation and hardware workflows
 - `docs/` root policy/process docs (`pr-workflow.md`, `reviewer-playbook.md`, `ci-map.md`) for contribution and CI/review processes
 - `docs/project/` for project snapshots, planning context, and status-oriented docs
 
@@ -63,7 +62,6 @@ Use this grouping to decide where new docs belong.
 - `docs/resource-limits.md`
 - `docs/audit-logging.md`
 - `docs/agnostic-security.md`
-- `docs/frictionless-security.md`
 - `docs/security-roadmap.md`
 
 ### Snapshots / Time-Bound Reports
@@ -72,7 +70,6 @@ Use this grouping to decide where new docs belong.
 
 ### Assets / Templates
 
-- `docs/datasheets/`
 - `docs/doc-template.md`
 
 ## Placement Rules (Quick)

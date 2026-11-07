@@ -976,7 +976,7 @@ pub struct ApiChatBody {
 /// POST /api/chat, desktop-facing agent chat endpoint.
 ///
 /// Unlike `/webhook` (simple chat, no tools), this runs the full agent loop with
-/// tools, peripherals, and memory. Stateless: each request is an independent
+/// tools and memory. Stateless: each request is an independent
 /// invocation with no conversation history carried across calls.
 ///
 /// Auth: bearer token (pairing). Rate-limited via the webhook limiter since a

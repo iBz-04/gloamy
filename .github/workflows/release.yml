@@ -2,7 +2,7 @@ name: Beta Release
 
 on:
   push:
-    branches: [master]
+    branches: [main]
 
 concurrency:
   group: release
@@ -61,10 +61,6 @@ jobs:
             target: aarch64-apple-darwin
             artifact: gloamy
             ext: tar.gz
-          - os: windows-latest
-            target: x86_64-pc-windows-msvc
-            artifact: gloamy.exe
-            ext: zip
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
@@ -72,7 +68,6 @@ jobs:
           toolchain: 1.99.1
           targets: ${{ matrix.target }}
       - uses: Swatinem/rust-cache@v2
-        if: runner.os != 'Windows'
 
       - name: Install cross compiler
         if: matrix.cross_compiler
@@ -88,17 +83,10 @@ jobs:
           fi
           cargo build --release --locked --target ${{ matrix.target }} --features whatsapp-web
 
-      - name: Package (Unix)
-        if: runner.os != 'Windows'
+      - name: Package release artifact
         run: |
           cd target/${{ matrix.target }}/release
           tar czf ../../../gloamy-${{ matrix.target }}.${{ matrix.ext }} ${{ matrix.artifact }}
-
-      - name: Package (Windows)
-        if: runner.os == 'Windows'
-        run: |
-          cd target/${{ matrix.target }}/release
-          7z a ../../../gloamy-${{ matrix.target }}.${{ matrix.ext }} ${{ matrix.artifact }}
 
       - uses: actions/upload-artifact@v4
         with:
@@ -120,7 +108,7 @@ jobs:
       - name: Generate checksums
         run: |
           cd artifacts
-          find . -type f \( -name '*.tar.gz' -o -name '*.zip' \) -exec sha256sum {} + | sed 's|  \./[^/]*/|  |' > SHA256SUMS
+          find . -type f -name '*.tar.gz' -exec sha256sum {} + | sed 's|  \./[^/]*/|  |' > SHA256SUMS
           cat SHA256SUMS
 
       - name: Create GitHub Release

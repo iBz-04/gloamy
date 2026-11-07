@@ -1,11 +1,11 @@
 use crate::config::BrowserConfig;
-use anyhow::{bail, Context};
+use anyhow::{Context, bail};
 use axum::extract::State;
 use axum::routing::get;
 use axum::{Json, Router};
 use directories::UserDirs;
 use serde::{Deserialize, Serialize};
-use serde_json::{json, Map, Value};
+use serde_json::{Map, Value, json};
 use std::cmp::Ordering;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::path::{Path, PathBuf};
@@ -25,9 +25,6 @@ static STARTUP_ONCE: OnceLock<OnceCell<()>> = OnceLock::new();
 const CHROME_FOR_TESTING_INDEX_URL: &str =
     "https://googlechromelabs.github.io/chrome-for-testing/known-good-versions-with-downloads.json";
 
-#[cfg(target_os = "windows")]
-const CHROMEDRIVER_FILENAME: &str = "chromedriver.exe";
-#[cfg(not(target_os = "windows"))]
 const CHROMEDRIVER_FILENAME: &str = "chromedriver";
 
 #[derive(Clone, Debug)]
@@ -247,7 +244,9 @@ async fn install_managed_chromedriver() -> anyhow::Result<Option<PathBuf>> {
     let chrome_major = match detect_local_chrome_major().await {
         Some(major) => major,
         None => {
-            warn!("Unable to detect local Chrome major version; skipping managed chromedriver install");
+            warn!(
+                "Unable to detect local Chrome major version; skipping managed chromedriver install"
+            );
             return Ok(None);
         }
     };

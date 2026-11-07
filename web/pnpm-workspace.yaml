@@ -1,8 +1,8 @@
 packages:
   - '.'
 
-onlyBuiltDependencies:
-  - '@tailwindcss/oxide'
-  - esbuild
-  - unrs-resolver
-  - vue-demi
+allowBuilds:
+  esbuild: set this to true or false
+  esbuild@0.25.9: true
+  vue-demi: set this to true or false
+  vue-demi@0.14.10: true

@@ -1,0 +1,71 @@
+{
+  "version": 2,
+  "title": "Brownfield Spec-Driven Change Workflow",
+  "description": "The read-only discovery, approval gates, Spec Kit artifacts, implementation, validation, review, and local squash-merge flow used for this architecture reduction. No remote push is part of the flow.",
+  "diagrams": [
+    {
+      "id": "brownfield_spec_workflow",
+      "title": "Brownfield Spec-Driven Change Workflow",
+      "description": "Start with repository evidence, gate writes on compatibility and approval, then move from spec to plan, tasks, implementation, validation, and a reviewed local merge.",
+      "accessibility": "A left-to-right workflow begins with a read-only repository baseline and pinned-tool compatibility check. Missing Spec Kit setup is initialized only after conflict inspection. Brownfield scan informs approved project templates and a testable spec. Planning, task generation, and analysis precede incremental implementation. Validation and checks loop back to implementation on failure. A full diff review and latest-main integration gate the local squash merge; remote push is excluded.",
+      "kind": "flowchart",
+      "data": {
+        "direction": "LR",
+        "nodes": [
+          {"id": "baseline", "label": "1. Read-only baseline: status, dirty paths, guidance"},
+          {"id": "pins", "label": "2. Check Spec Kit and Brownfield compatibility"},
+          {"id": "pin_stop", "label": "Stop and resolve pin or environment mismatch"},
+          {"id": "setup_gate", "label": "Spec Kit scaffold already present?"},
+          {"id": "init", "label": "Initialize Codex skills only after checking conflicts"},
+          {"id": "scan", "label": "3. Brownfield scan: code, contracts, docs, quality gates"},
+          {"id": "bootstrap_gate", "label": "Project profile or templates need changes?"},
+          {"id": "approval_wait", "label": "Wait for explicit bootstrap approval"},
+          {"id": "bootstrap", "label": "4. Tailor constitution and templates from verified facts"},
+          {"id": "spec", "label": "5. Specify stories, requirements, exclusions, acceptance"},
+          {"id": "clarify_gate", "label": "Material ambiguity remains?"},
+          {"id": "clarify", "label": "Resolve scope with the user, then update spec"},
+          {"id": "plan", "label": "6. Plan: research, model, contracts, quickstart"},
+          {"id": "tasks", "label": "7. Generate ordered implementation tasks"},
+          {"id": "analyze", "label": "8. Analyze spec, plan, and tasks for gaps"},
+          {"id": "implement", "label": "9. Implement approved scope in small slices"},
+          {"id": "validate", "label": "10. Brownfield validate read-only"},
+          {"id": "checks", "label": "Run authorized formatting, build, test, link checks"},
+          {"id": "review", "label": "11. Review full diff and preserve pre-existing work"},
+          {"id": "sync_main", "label": "Integrate latest local main; resolve conflicts"},
+          {"id": "squash", "label": "12. Squash merge into local main"},
+          {"id": "no_push", "label": "No remote push or publish"}
+        ],
+        "edges": [
+          {"from": "baseline", "to": "pins", "arrow": "-->"},
+          {"from": "pins", "to": "setup_gate", "label": "compatible", "arrow": "-->"},
+          {"from": "pins", "to": "pin_stop", "label": "incompatible", "arrow": "-.->"},
+          {"from": "setup_gate", "to": "init", "label": "missing", "arrow": "-->"},
+          {"from": "setup_gate", "to": "scan", "label": "present", "arrow": "-->"},
+          {"from": "init", "to": "scan", "arrow": "-->"},
+          {"from": "scan", "to": "bootstrap_gate", "arrow": "-->"},
+          {"from": "bootstrap_gate", "to": "bootstrap", "label": "approved", "arrow": "-->"},
+          {"from": "bootstrap_gate", "to": "approval_wait", "label": "approval needed", "arrow": "-.->"},
+          {"from": "bootstrap", "to": "spec", "arrow": "-->"},
+          {"from": "bootstrap_gate", "to": "spec", "label": "no profile edit needed", "arrow": "-->"},
+          {"from": "spec", "to": "clarify_gate", "arrow": "-->"},
+          {"from": "clarify_gate", "to": "clarify", "label": "yes", "arrow": "-->"},
+          {"from": "clarify", "to": "spec", "label": "update acceptance", "arrow": "-.->"},
+          {"from": "clarify_gate", "to": "plan", "label": "no", "arrow": "-->"},
+          {"from": "plan", "to": "tasks", "arrow": "-->"},
+          {"from": "tasks", "to": "analyze", "arrow": "-->"},
+          {"from": "analyze", "to": "implement", "label": "aligned", "arrow": "-->"},
+          {"from": "analyze", "to": "plan", "label": "gaps found", "arrow": "-.->"},
+          {"from": "implement", "to": "validate", "arrow": "-->"},
+          {"from": "validate", "to": "checks", "label": "no issues", "arrow": "-->"},
+          {"from": "validate", "to": "implement", "label": "issues found", "arrow": "-.->"},
+          {"from": "checks", "to": "review", "label": "pass", "arrow": "-->"},
+          {"from": "checks", "to": "implement", "label": "failure", "arrow": "-.->"},
+          {"from": "review", "to": "sync_main", "label": "complete", "arrow": "-->"},
+          {"from": "review", "to": "implement", "label": "blocker", "arrow": "-.->"},
+          {"from": "sync_main", "to": "squash", "arrow": "-->"},
+          {"from": "squash", "to": "no_push", "arrow": "-->"}
+        ]
+      }
+    }
+  ]
+}

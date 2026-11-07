@@ -17,7 +17,6 @@ The autonomy config reference documents the runtime-updatable command allowlist 
 The following docs are explicitly proposal-oriented and may include hypothetical CLI/config examples:
 
 - [../agnostic-security.md](../agnostic-security.md)
-- [../frictionless-security.md](../frictionless-security.md)
 - [../sandboxing.md](../sandboxing.md)
 - [../resource-limits.md](../resource-limits.md)
 - [../audit-logging.md](../audit-logging.md)

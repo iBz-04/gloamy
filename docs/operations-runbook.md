@@ -63,7 +63,7 @@ gloamy service status
 
 ## Logs and Diagnostics
 
-### macOS / Windows (service wrapper logs)
+### macOS arm64 (service wrapper logs)
 
 - `~/.gloamy/logs/daemon.stdout.log`
 - `~/.gloamy/logs/daemon.stderr.log`

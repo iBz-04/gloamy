@@ -173,7 +173,7 @@ impl SqliteMemory {
 
         // Migration: add session_id column if not present (safe to run repeatedly)
         let has_session_id: bool = conn
-            .prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='memories'")?
+            .prepare("SELECT sql FROM sqlite_schema WHERE type='table' AND name='memories'")?
             .query_row([], |row| row.get::<_, String>(0))?
             .contains("session_id");
         if !has_session_id {
@@ -1104,7 +1104,7 @@ mod tests {
         // FTS5 table should exist
         let count: i64 = conn
             .query_row(
-                "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='memories_fts'",
+                "SELECT COUNT(*) FROM sqlite_schema WHERE type='table' AND name='memories_fts'",
                 [],
                 |row| row.get(0),
             )
@@ -1118,7 +1118,7 @@ mod tests {
         let conn = mem.conn.lock();
         let count: i64 = conn
             .query_row(
-                "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='embedding_cache'",
+                "SELECT COUNT(*) FROM sqlite_schema WHERE type='table' AND name='embedding_cache'",
                 [],
                 |row| row.get(0),
             )

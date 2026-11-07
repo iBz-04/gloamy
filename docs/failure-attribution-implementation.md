@@ -216,4 +216,3 @@ Based on the research analysis document, the next high-impact improvements would
 - Research: "The Art of Building Verifiers for Computer Use Agents" (Apr 2025)
 - Analysis: `docs/failure-attribution-analysis.md`
 - AGENTS.md: §7.3 (Tool extension playbook)
-- Related: `docs/hardware-peripherals-design.md` (trait-driven extension pattern)

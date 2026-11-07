@@ -77,22 +77,16 @@ Operational notes:
 Matrix and Lark support are controlled at compile time.
 
 - Default builds are lean (`default = []`) and do not include Matrix/Lark.
-- Typical local check with only hardware support:
-
-```bash
-cargo check --features hardware
-```
-
 - Enable Matrix explicitly when needed:
 
 ```bash
-cargo check --features hardware,channel-matrix
+cargo check --features channel-matrix
 ```
 
 - Enable Lark explicitly when needed:
 
 ```bash
-cargo check --features hardware,channel-lark
+cargo check --features channel-lark
 ```
 
 If `[channels_config.matrix]`, `[channels_config.lark]`, or `[channels_config.feishu]` is present but the corresponding feature is not compiled in, `gloamy channel list`, `gloamy channel doctor`, and `gloamy channel start` will report that the channel is intentionally skipped for this build.

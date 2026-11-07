@@ -46,7 +46,7 @@ pub trait RuntimeAdapter: Send + Sync {
     /// Return the maximum memory budget in bytes for this runtime.
     ///
     /// A value of `0` (the default) indicates no limit. Constrained
-    /// environments (embedded, serverless) should return their actual
+    /// environments (containerized, serverless) should return their actual
     /// memory ceiling so the agent can adapt buffer sizes and caching.
     fn memory_budget(&self) -> u64 {
         0

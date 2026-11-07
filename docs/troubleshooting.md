@@ -66,12 +66,6 @@ If you must compile from source on constrained hosts:
 CARGO_BUILD_JOBS=1 cargo build --release --locked
 ```
 
-1. Reduce heavy features when Matrix is not required:
-
-```bash
-cargo build --release --locked --features hardware
-```
-
 1. Cross-compile on a stronger machine and copy the binary to the target host.
 
 ### Build is very slow or appears stuck
@@ -111,10 +105,10 @@ To build with Matrix support explicitly enabled:
 cargo check --features channel-matrix
 ```
 
-To build with Matrix + Lark + hardware support:
+To build with Matrix + Lark support:
 
 ```bash
-cargo check --features hardware,channel-matrix,channel-lark
+cargo check --features channel-matrix,channel-lark
 ```
 
 Lock-contention mitigation:
@@ -161,7 +155,7 @@ Fix:
 1. Restart the affected app after changing macOS privacy settings
 1. Re-run the same `gloamy agent` command
 
-### HostAgent perception fails on Linux or Windows
+### HostAgent perception fails on Linux
 
 Symptoms:
 
@@ -178,7 +172,6 @@ Fix:
 
 1. On Linux, install at least one screenshot backend available in PATH (`gnome-screenshot`, `scrot`, or `import` from ImageMagick)
 1. Ensure the process has desktop session access (for example X11/Wayland permissions in the active user session)
-1. On Windows, run in an interactive desktop session with PowerShell available
 1. Re-run `gloamy agent` after confirming host desktop capture is permitted
 
 ### `mac_automation click_at` is blocked by perception policy

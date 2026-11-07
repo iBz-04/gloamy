@@ -515,11 +515,11 @@ Some conditions here.
 
 ## Steps
 
-1. **Check readings** — Read sensor data and confirm.
-   - tools: gpio_read, memory_store
+1. **Review service health** — Confirm the service is running.
+   - tools: memory_search
 
-2. **Close valve** — Set GPIO pin 5 LOW.
-   - tools: gpio_write, gpio_read
+2. **Record the result** — Save the status and any relevant errors.
+   - tools: memory_store
    - requires_confirmation: true
 
 3. **Notify operator** — Send alert.
@@ -530,15 +530,15 @@ Some conditions here.
         assert_eq!(steps.len(), 3);
 
         assert_eq!(steps[0].number, 1);
-        assert_eq!(steps[0].title, "Check readings");
-        assert!(steps[0].body.contains("Read sensor data"));
-        assert_eq!(steps[0].suggested_tools, vec!["gpio_read", "memory_store"]);
+        assert_eq!(steps[0].title, "Review service health");
+        assert!(steps[0].body.contains("Confirm the service is running"));
+        assert_eq!(steps[0].suggested_tools, vec!["memory_search"]);
         assert!(!steps[0].requires_confirmation);
 
         assert_eq!(steps[1].number, 2);
-        assert_eq!(steps[1].title, "Close valve");
+        assert_eq!(steps[1].title, "Record the result");
         assert!(steps[1].requires_confirmation);
-        assert_eq!(steps[1].suggested_tools, vec!["gpio_write", "gpio_read"]);
+        assert_eq!(steps[1].suggested_tools, vec!["memory_store"]);
 
         assert_eq!(steps[2].number, 3);
         assert_eq!(steps[2].title, "Notify operator");
@@ -755,16 +755,18 @@ type = "manual"
 
     #[test]
     fn extract_bold_title_with_dash() {
-        let (title, body) = extract_bold_title("**Close valve** — Set GPIO pin LOW.").unwrap();
-        assert_eq!(title, "Close valve");
-        assert_eq!(body, "Set GPIO pin LOW.");
+        let (title, body) =
+            extract_bold_title("**Record the result** — Save the current status.").unwrap();
+        assert_eq!(title, "Record the result");
+        assert_eq!(body, "Save the current status.");
     }
 
     #[test]
     fn extract_bold_title_no_separator() {
-        let (title, body) = extract_bold_title("**Close valve** Set pin LOW.").unwrap();
-        assert_eq!(title, "Close valve");
-        assert_eq!(body, "Set pin LOW.");
+        let (title, body) =
+            extract_bold_title("**Record the result** Save the current status.").unwrap();
+        assert_eq!(title, "Record the result");
+        assert_eq!(body, "Save the current status.");
     }
 
     #[test]
@@ -793,24 +795,14 @@ type = "cron"
 expression = "0 */5 * * *"
 
 [[triggers]]
-type = "peripheral"
-board = "nucleo-f401re-0"
-signal = "pin_3"
-condition = "> 0"
-
-[[triggers]]
 type = "manual"
 "#;
         let manifest: SopManifest = toml::from_str(toml_str).unwrap();
-        assert_eq!(manifest.triggers.len(), 5);
+        assert_eq!(manifest.triggers.len(), 4);
 
         assert!(matches!(manifest.triggers[0], SopTrigger::Mqtt { .. }));
         assert!(matches!(manifest.triggers[1], SopTrigger::Webhook { .. }));
         assert!(matches!(manifest.triggers[2], SopTrigger::Cron { .. }));
-        assert!(matches!(
-            manifest.triggers[3],
-            SopTrigger::Peripheral { .. }
-        ));
-        assert!(matches!(manifest.triggers[4], SopTrigger::Manual));
+        assert!(matches!(manifest.triggers[3], SopTrigger::Manual));
     }
 }
