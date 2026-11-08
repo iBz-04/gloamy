@@ -6,7 +6,7 @@ A fully containerized development sandbox for Gloamy agents. This environment al
 
 - **`agent/`**: (Merged into root Dockerfile)
     - The development image is built from the root `Dockerfile` using the `dev` stage (`target: dev`).
-    - Based on `debian:bookworm-slim`, the same base as the production `release` stage.
+    - Based on `debian:trixie-slim`, the same base as the production `release` stage.
       The two differ only in tooling: `dev` adds `python3`, `ripgrep`, editors, and
       process/network utilities on top of the runtime layer.
     - Includes `bash`, `curl`, and debug tools.
@@ -168,4 +168,4 @@ Note: local `deny` focuses on license/source policy; advisory scanning is handle
 - The root `Dockerfile` also caches Rust `target/` (`id=gloamy-target`) to speed repeat local image builds.
 - Local CI reuses named Docker volumes for Cargo registry/git and target outputs.
 - `./dev/ci.sh docker-smoke` and `./dev/ci.sh all` now use `docker buildx` local cache at `.cache/buildx-smoke` when available.
-- The CI image keeps Rust toolchain defaults from `rust:1.92-slim` and installs pinned toolchain `1.92.0` (no custom `CARGO_HOME`/`RUSTUP_HOME` overrides), preventing repeated toolchain bootstrapping on each run.
+- The CI image keeps Rust toolchain defaults from `rust:1.99.1-slim-trixie` and installs pinned toolchain `1.99.1` (no custom `CARGO_HOME`/`RUSTUP_HOME` overrides), preventing repeated toolchain bootstrapping on each run.
