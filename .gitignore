@@ -60,3 +60,13 @@ docker-compose.override.yml
 # ── OS / editor noise ─────────────────────────────────────────
 .DS_Store
 ._*
+
+# Local credentials and generated development files
+.build/
+.uv-cache/
+.gocache/
+.pytest_cache/
+.ruff_cache/
+.next/
+.gradle/
+.env*
